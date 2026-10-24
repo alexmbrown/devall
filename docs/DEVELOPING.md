@@ -109,7 +109,11 @@ retention, sizes, Clear…, Show data folder).
 Personal, user-specific data (to-dos) lives outside the project in the app data directory
 (`<app data>/todos/todos.json`: every list — the Inbox, one per project keyed by project id, the
 user's own lists — plus sections, labels, saved filters and reminder settings; schema `version: 2`),
-so it is never committed and follows the user across clones. v1 files (`todos/<project id>.json`,
+so it is never committed and follows the user across clones. Task attachments are copies in
+`<app data>/todos/attachments/<task id>/<name>` (`devall_core::todos::attachments`: sanitized names,
+≤ 50 MB each, paths always derived in Rust); deleting a task keeps its files for undo, and files
+nothing has referenced for 7 days are garbage-collected at startup (cleared completed tasks and
+deleted lists/sections lose theirs at once). v1 files (`todos/<project id>.json`,
 `todos/_global.json`) are migrated on the first save and kept in `todos/v1-backup/`. All to-do
 edits go through `devall_core::todos::TodoOp` (one implementation for the app, the CLI and tests);
 natural-language dates, quick add and the filter language live in `devall_core::todos::{dates,
@@ -222,7 +226,8 @@ resizable), each with its own tab strip. A tab is a **view** — one instance of
   open a preview tab. `useNav.getState().section/param` are the active view's.
 - **Tab titles name what the view shows.** Document tabs describe their document; every other page
   calls `useViewLabel(label)` with its current selection (the utility, environment, log source,
-  sub-page…), worded to read on its own ("Request journal", not "Requests"). Pass `null` on the
+  sub-page…). The tab shows it after the section's dimmed short name (`SectionMeta.short`, e.g.
+  "To-dos: Priority 1", "Env: Public API"), so the label shouldn't repeat the section. Pass `null` on the
   section's landing page (the tab shows the section name) and `undefined` while the data is still
   loading (keeps the label restored with the layout). Labels are saved with the layout. When the
   selection is the view's `param` (utilities, AI and tunnels sub-tabs), it also survives tab switches

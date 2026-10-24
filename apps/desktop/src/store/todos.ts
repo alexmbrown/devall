@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
-import { todosApi, type NewTask, type Snapshot, type Task, type TaskPatch, type TaskView, type TodoApplyResult, type TodoOp } from '@/lib/api/todos';
+import { MAX_ATTACHMENT_BYTES, todosApi, type Attachment, type NewTask, type Snapshot, type Task, type TaskPatch, type TaskView, type TodoApplyResult, type TodoAttachResult, type TodoOp } from '@/lib/api/todos';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { attention, dayLabel, parseViewKey, subtree, viewKey, type MoveTarget, type ViewRef } from '@/features/todos/lib';
@@ -32,6 +32,8 @@ interface TodoState {
   refresh(): Promise<void>;
   /** Applies an op; `message` + `undo` show a toast with an Undo button. */
   apply(op: TodoOp, message?: string, undo?: Undo): Promise<TodoApplyResult | null>;
+  /** Takes a snapshot returned by another command (attachments). */
+  receive(snap: Snapshot): void;
   setView(v: ViewRef): void;
   open(id: string | null): void;
 }
@@ -101,6 +103,10 @@ export const useTodos = create<TodoState>((set, get) => {
         return null;
       }
     },
+    receive(snap) {
+      seq++;
+      setSnap(snap);
+    },
     setView(v) {
       try {
         localStorage.setItem(VIEW_KEY, viewKey(v));
@@ -158,6 +164,44 @@ export async function moveTasks(ids: string[], to: MoveTarget, message?: string)
   if (!ids.length) return;
   const before = capture(ids);
   await useTodos.getState().apply({ type: 'move', ids, listId: to.listId, sectionId: to.sectionId, parentId: to.parentId, index: to.index }, message, message ? { restore: before } : undefined);
+}
+
+/** Forgets an attachment (the file stays on disk until garbage collection, so Undo works). */
+export async function removeAttachment(taskId: string, attachment: Attachment) {
+  const before = capture([taskId]).filter((t) => t.id === taskId);
+  await useTodos.getState().apply({ type: 'removeAttachment', id: taskId, attachmentId: attachment.id }, `Removed ${attachment.name}`, { restore: before });
+}
+
+function attached(r: TodoAttachResult | null) {
+  if (!r) return;
+  useTodos.getState().receive(r.snapshot);
+  for (const e of r.errors) toast.error('Could not attach a file', e);
+  if (r.added.length) toast.success(r.added.length === 1 ? `Attached ${r.added[0].name}` : `Attached ${plural(r.added.length, 'file')}`);
+}
+
+/** Attaches files picked in the native dialog. */
+export async function pickAttachments(taskId: string) {
+  try {
+    attached(await todosApi.attachPick(useTodos.getState().root, taskId));
+  } catch (e) {
+    toast.error('Could not attach files', errorMessage(e));
+  }
+}
+
+/** Attaches dropped or pasted files (one upload each; too-large files are skipped with a message). */
+export async function attachFiles(taskId: string, files: File[]) {
+  const root = useTodos.getState().root;
+  for (const f of files) {
+    if (f.size > MAX_ATTACHMENT_BYTES) {
+      toast.error(`${f.name || 'File'} is too large`, `Attachments are limited to ${MAX_ATTACHMENT_BYTES / 1_048_576} MB.`);
+      continue;
+    }
+    try {
+      attached(await todosApi.attachBytes(root, taskId, f.name, f.type, new Uint8Array(await f.arrayBuffer())));
+    } catch (e) {
+      toast.error(`Could not attach ${f.name || 'the file'}`, errorMessage(e));
+    }
+  }
 }
 
 /** Adds a task; returns its id. */

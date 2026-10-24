@@ -29,6 +29,7 @@ fn task(id: &str, content: &str) -> Task {
         created_at: 1_790_000_000_000,
         updated_at: 0,
         comments: vec![],
+        attachments: vec![],
         history: vec![],
         collapsed: false,
     }

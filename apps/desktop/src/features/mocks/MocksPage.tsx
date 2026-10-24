@@ -31,25 +31,25 @@ const ProtocolsPage = lazy(() => import('./protocols/ProtocolsPage'));
 /** Pages that work without a reachable server. */
 const NO_SERVER: Section[] = ['servers', 'compare', 'drift', 'graphql', 'websocket', 'grpc', 'mqtt'];
 
-/** Workbench tab title per sub-page, worded to read on its own (the overview shows "Mock server"). */
+/** Workbench tab label per sub-page ("Mocks: Stubs"; the overview shows "Mock server"). */
 const VIEW_LABELS: Record<Section, string | null> = {
   dashboard: null,
   stubs: 'Stubs',
-  graphql: 'GraphQL mocks',
-  websocket: 'WebSocket mocks',
-  grpc: 'gRPC mocks',
-  mqtt: 'MQTT mocks',
+  graphql: 'GraphQL',
+  websocket: 'WebSocket',
+  grpc: 'gRPC',
+  mqtt: 'MQTT',
   requests: 'Request journal',
   'near-misses': 'Near misses',
   recording: 'Recording',
   scenarios: 'Scenarios',
-  files: 'Mock files',
-  verify: 'Verify requests',
-  compare: 'Compare mocks',
+  files: 'Files',
+  verify: 'Verify',
+  compare: 'Compare',
   drift: 'Spec drift',
-  import: 'Import / export mocks',
-  settings: 'Mock settings',
-  servers: 'Mock servers',
+  import: 'Import / export',
+  settings: 'Settings',
+  servers: 'Servers',
 };
 
 /** Ignore file events this long after our own writes (the engine writes stub files itself). */

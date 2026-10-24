@@ -32,6 +32,8 @@ export interface SectionMeta {
   label: string;
   /** Longer name for the command palette (defaults to `label`). */
   title?: string;
+  /** Short name in front of a tab's label ("Env: Public API"; defaults to `label`). */
+  short?: string;
   /** Shows the projects page while no project is open. */
   needsProject?: boolean;
   /**
@@ -50,11 +52,11 @@ export interface SectionMeta {
 
 export const SECTIONS: SectionMeta[] = [
   { id: 'http', label: 'Requests', needsProject: true, doc: true },
-  { id: 'environments', label: 'Environments', needsProject: true },
+  { id: 'environments', label: 'Environments', short: 'Env', needsProject: true },
   { id: 'utilities', label: 'Utilities' },
   { id: 'fakedata', label: 'Fake data' },
-  { id: 'load', label: 'Load testing', needsProject: true },
-  { id: 'mocks', label: 'Mock server', needsProject: true, singleton: true },
+  { id: 'load', label: 'Load testing', short: 'Load', needsProject: true },
+  { id: 'mocks', label: 'Mock server', short: 'Mocks', needsProject: true, singleton: true },
   { id: 'inspector', label: 'Inspector', title: 'Traffic inspector', singleton: true },
   { id: 'webhooks', label: 'Webhooks', needsProject: true },
   { id: 'logs', label: 'Logs', singleton: true },
@@ -64,8 +66,8 @@ export const SECTIONS: SectionMeta[] = [
   { id: 'tunnels', label: 'Tunnels', singleton: true },
   { id: 'notes', label: 'Notes', needsProject: true, doc: true },
   { id: 'todos', label: 'To-dos', singleton: true },
-  { id: 'git', label: 'Source control', needsProject: true, singleton: true },
-  { id: 'ai', label: 'Local AI', singleton: true },
+  { id: 'git', label: 'Source control', short: 'Git', needsProject: true, singleton: true },
+  { id: 'ai', label: 'Local AI', short: 'AI', singleton: true },
   { id: 'projects', label: 'Projects', singleton: true },
   { id: 'settings', label: 'Settings', singleton: true },
   { id: 'plugins', label: 'Plugins', singleton: true },

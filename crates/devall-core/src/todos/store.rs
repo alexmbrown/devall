@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use chrono::{NaiveDate, NaiveTime, TimeZone};
 use serde::{Deserialize, Serialize};
 
+use super::attachments;
 use super::dates::{self, DateCtx};
 use super::filter::{self, EvalCtx};
 use super::migrate;
@@ -158,12 +159,19 @@ pub enum TodoOp {
     /// task undoes its last completion.
     Complete { ids: Vec<String>, done: bool },
     Delete { ids: Vec<String> },
-    /// Moves tasks (with their sub-tasks) to a list/section/parent, at `index` among the siblings.
+    /// Moves tasks (with their sub-tasks) to a list/section/parent, at `index` among the open
+    /// siblings (completed ones are listed after them).
     Move { ids: Vec<String>, list_id: String, section_id: Option<String>, parent_id: Option<String>, index: Option<usize> },
     /// Puts tasks back exactly as given (undo).
     Restore { tasks: Vec<Task> },
     AddComment { id: String, text: String },
     DeleteComment { id: String, comment_id: String },
+    /// Records a file already copied into the task's folder ([`TodoStore::attach_file`],
+    /// [`TodoStore::attach_bytes`]); never accepted over IPC.
+    #[serde(skip)]
+    AddAttachment { id: String, attachment: Attachment },
+    /// Forgets an attachment; the file stays until [`attachments::gc`] (so undo can restore it).
+    RemoveAttachment { id: String, attachment_id: String },
     SaveList { id: Option<String>, name: String, color: Option<String> },
     DeleteList { id: String },
     ReorderLists { ids: Vec<String> },
@@ -335,6 +343,18 @@ impl TodoData {
         self.tasks.iter().find(|t| t.id == id)
     }
 
+    /// An attachment of a task.
+    pub fn attachment(&self, task_id: &str, attachment_id: &str) -> Result<&Attachment> {
+        let t = self.task(task_id).ok_or_else(|| not_found("task", task_id))?;
+        t.attachments.iter().find(|a| a.id == attachment_id).ok_or_else(|| not_found("attachment", attachment_id))
+    }
+
+    /// The file of an attachment under the app data directory `base_dir` (validated, see
+    /// [`attachments::path_of`]).
+    pub fn attachment_path(&self, base_dir: &Path, task_id: &str, attachment_id: &str) -> Result<PathBuf> {
+        attachments::path_of(base_dir, task_id, self.attachment(task_id, attachment_id)?)
+    }
+
     fn task_mut(&mut self, id: &str) -> Result<&mut Task> {
         self.tasks.iter_mut().find(|t| t.id == id).ok_or_else(|| not_found("task", id))
     }
@@ -408,20 +428,35 @@ impl TodoData {
         self.tasks.iter().filter(|t| t.list_id == list_id && t.section_id.as_deref() == section_id && t.parent_id.as_deref() == parent_id).map(|t| t.order + 1).max().unwrap_or(0)
     }
 
-    /// Renumbers the siblings of a slot, placing `moving` (in order) at `index`.
-    fn place(&mut self, list_id: &str, section_id: Option<&str>, parent_id: Option<&str>, moving: &[String], index: Option<usize>) {
-        let mut siblings: Vec<(i64, String)> = self
+    /// Open siblings in a slot (same list, section and parent) by position, without `exclude`.
+    fn open_siblings(&self, list_id: &str, section_id: Option<&str>, parent_id: Option<&str>, exclude: &[String]) -> Vec<String> {
+        let mut open: Vec<(i64, &str)> = self
             .tasks
             .iter()
-            .filter(|t| t.list_id == list_id && t.section_id.as_deref() == section_id && t.parent_id.as_deref() == parent_id && !moving.contains(&t.id))
-            .map(|t| (t.order, t.id.clone()))
+            .filter(|t| !t.done && t.list_id == list_id && t.section_id.as_deref() == section_id && t.parent_id.as_deref() == parent_id && !exclude.contains(&t.id))
+            .map(|t| (t.order, t.id.as_str()))
             .collect();
-        siblings.sort();
-        let mut ids: Vec<String> = siblings.into_iter().map(|(_, id)| id).collect();
+        open.sort();
+        open.into_iter().map(|(_, id)| id.to_string()).collect()
+    }
+
+    /// Renumbers the siblings of a slot, placing `moving` (in order) at `index` among the *open*
+    /// siblings — the position the UI shows, since completed tasks are listed after the open ones.
+    /// Completed siblings keep their relative order after the open ones.
+    fn place(&mut self, list_id: &str, section_id: Option<&str>, parent_id: Option<&str>, moving: &[String], index: Option<usize>) {
+        let mut ids = self.open_siblings(list_id, section_id, parent_id, moving);
         let at = index.unwrap_or(ids.len()).min(ids.len());
         for (k, id) in moving.iter().enumerate() {
             ids.insert(at + k, id.clone());
         }
+        let mut done: Vec<(i64, String)> = self
+            .tasks
+            .iter()
+            .filter(|t| t.done && t.list_id == list_id && t.section_id.as_deref() == section_id && t.parent_id.as_deref() == parent_id && !moving.contains(&t.id))
+            .map(|t| (t.order, t.id.clone()))
+            .collect();
+        done.sort();
+        ids.extend(done.into_iter().map(|(_, id)| id));
         let pos: HashMap<&str, i64> = ids.iter().enumerate().map(|(i, id)| (id.as_str(), i as i64)).collect();
         for t in &mut self.tasks {
             if let Some(o) = pos.get(t.id.as_str()) {
@@ -509,22 +544,17 @@ impl TodoData {
             created_at: now.ms,
             updated_at: now.ms,
             comments: Vec::new(),
+            attachments: Vec::new(),
             history: Vec::new(),
             collapsed: false,
         };
         self.tasks.push(task);
         if let Some(after) = input.after_id.as_deref()
-            && let Some(a) = self.task(after).filter(|a| a.list_id == list_id && a.section_id == section_id && a.parent_id == parent_id).map(|a| a.order)
+            && self.task(after).is_some_and(|a| a.list_id == list_id && a.section_id == section_id && a.parent_id == parent_id)
         {
-            let mut siblings: Vec<(i64, String)> = self
-                .tasks
-                .iter()
-                .filter(|t| t.list_id == list_id && t.section_id == section_id && t.parent_id == parent_id && t.id != id)
-                .map(|t| (t.order, t.id.clone()))
-                .collect();
-            siblings.sort();
-            let index = siblings.iter().position(|(o, _)| *o > a).unwrap_or(siblings.len());
-            self.place(&list_id, section_id.as_deref(), parent_id.as_deref(), std::slice::from_ref(&id), Some(index));
+            let me = std::slice::from_ref(&id);
+            let index = self.open_siblings(&list_id, section_id.as_deref(), parent_id.as_deref(), me).iter().position(|s| s == after).map(|i| i + 1);
+            self.place(&list_id, section_id.as_deref(), parent_id.as_deref(), me, index);
         }
         Ok(id)
     }
@@ -819,6 +849,22 @@ impl TodoData {
                 let t = self.task_mut(&id)?;
                 t.comments.retain(|c| c.id != comment_id);
                 t.updated_at = now.ms;
+            }
+            TodoOp::AddAttachment { id, attachment } => {
+                let t = self.task_mut(&id)?;
+                out.created = Some(attachment.id.clone());
+                t.attachments.push(attachment);
+                t.updated_at = now.ms;
+                out.count = 1;
+            }
+            TodoOp::RemoveAttachment { id, attachment_id } => {
+                let t = self.task_mut(&id)?;
+                let before = t.attachments.len();
+                t.attachments.retain(|a| a.id != attachment_id);
+                out.count = before - t.attachments.len();
+                if out.count > 0 {
+                    t.updated_at = now.ms;
+                }
             }
             TodoOp::SaveList { id, name, color } => {
                 let name = name.trim().to_string();
@@ -1207,11 +1253,63 @@ impl TodoStore {
         Ok(())
     }
 
-    /// Applies an operation and saves.
+    /// The app data directory the store lives in.
+    pub fn base_dir(&self) -> &Path {
+        self.dir.parent().unwrap_or(&self.dir)
+    }
+
+    /// Applies an operation and saves. Tasks removed for good (cleared completed tasks, deleted
+    /// lists and sections — none of which can be undone) lose their attachment files right away;
+    /// a plain delete keeps them for undo until [`attachments::gc`].
     pub fn apply(&mut self, op: TodoOp, project: Option<&ProjectRef>, now: &Now) -> Result<Applied> {
+        let permanent = matches!(op, TodoOp::ClearCompleted { .. } | TodoOp::DeleteList { .. } | TodoOp::DeleteSection { .. });
+        let with_files: Vec<String> = if permanent { self.data.tasks.iter().filter(|t| !t.attachments.is_empty()).map(|t| t.id.clone()).collect() } else { Vec::new() };
         let out = self.data.apply(op, project, now)?;
         self.save()?;
+        if !with_files.is_empty() {
+            attachments::purge(self.base_dir(), &self.data, &with_files);
+        }
         Ok(out)
+    }
+
+    /// Copies a file the user picked (absolute path) into the task's attachment folder and records
+    /// it on the task.
+    pub fn attach_file(&mut self, task_id: &str, src: &Path, project: Option<&ProjectRef>, now: &Now) -> Result<Attachment> {
+        let existing = self.data.task(task_id).ok_or_else(|| not_found("task", task_id))?.attachments.clone();
+        let a = attachments::store_file(self.base_dir(), task_id, src, &existing, now.ms)?;
+        self.record_attachment(task_id, a, project, now)
+    }
+
+    /// Stores dropped or pasted bytes as an attachment named (after sanitizing) `name`.
+    pub fn attach_bytes(&mut self, task_id: &str, name: &str, mime: Option<&str>, bytes: &[u8], project: Option<&ProjectRef>, now: &Now) -> Result<Attachment> {
+        let existing = self.data.task(task_id).ok_or_else(|| not_found("task", task_id))?.attachments.clone();
+        let a = attachments::store_bytes(self.base_dir(), task_id, name, mime, bytes, &existing, now.ms)?;
+        self.record_attachment(task_id, a, project, now)
+    }
+
+    /// Records an attachment whose file is already in the task's folder
+    /// ([`attachments::store_file`] / [`attachments::store_bytes`] — the desktop app copies large
+    /// files before taking its lock); the file is removed again when recording fails.
+    pub fn record_attachment(&mut self, task_id: &str, a: Attachment, project: Option<&ProjectRef>, now: &Now) -> Result<Attachment> {
+        match self.apply(TodoOp::AddAttachment { id: task_id.to_string(), attachment: a.clone() }, project, now) {
+            Ok(_) => Ok(a),
+            Err(e) => {
+                if let Ok(p) = attachments::path_of(self.base_dir(), task_id, &a) {
+                    let _ = std::fs::remove_file(p);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Garbage-collects attachment files nothing has referenced for [`attachments::GRACE_MS`]
+    /// (run at startup). Does nothing when the store can't be read — never delete on a guess.
+    pub fn gc_attachments(base_dir: &Path, now_ms: i64) -> Result<usize> {
+        if !Self::file_path(base_dir).is_file() {
+            return Ok(0);
+        }
+        let data = Self::read(base_dir)?;
+        Ok(attachments::gc(base_dir, &data, now_ms, attachments::GRACE_MS))
     }
 
     /// Convenience: adds quick-add `text` to a list (default: the project's list, else the Inbox).

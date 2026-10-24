@@ -210,6 +210,27 @@ pub struct Comment {
     pub at: i64,
 }
 
+/// A file attached to a task. The bytes are a copy kept on this device in
+/// `<app data>/todos/attachments/<task id>/<name>` (never in a project); see [`super::attachments`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: String,
+    /// The stored file name (sanitized, unique among the task's attachments).
+    pub name: String,
+    pub mime: String,
+    /// Bytes.
+    pub size: u64,
+    /// Unix ms.
+    pub added_at: i64,
+}
+
+impl Attachment {
+    pub fn is_image(&self) -> bool {
+        self.mime.starts_with("image/")
+    }
+}
+
 /// One completion of a recurring task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -263,6 +284,9 @@ pub struct Task {
     pub updated_at: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<Comment>,
+    /// Files attached to the task (stored in the app data folder, see [`Attachment`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
     /// Completions of a recurring task (newest last, capped).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<Completion>,

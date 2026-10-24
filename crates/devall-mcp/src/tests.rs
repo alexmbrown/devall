@@ -416,8 +416,11 @@ async fn agents_keep_notes_and_todos() {
     assert!(srv.call("update_todo", &a(json!({ "id": short, "priority": "urgent" }))).await.is_err());
     assert_eq!(srv.call("comment_todo", &a(json!({ "id": short, "text": "Covered partial refunds" }))).await.unwrap()["comments"], 1);
     assert_eq!(srv.call("complete_todo", &a(json!({ "id": short }))).await.unwrap()["task"]["done"], true);
+    // Attachments (added in the app) are listed by name.
+    let mut st = devall_core::todos::TodoStore::open(&f.data).unwrap();
+    st.attach_bytes(&id, "refunds.png", Some("image/png"), b"png", None, &devall_core::todos::Now::local()).unwrap();
     let listed = srv.call("list_todos", &a(json!({ "includeDone": true }))).await.unwrap();
-    assert!(listed["items"].as_array().unwrap().iter().any(|i| i["id"] == id.as_str() && i["done"] == true));
+    assert!(listed["items"].as_array().unwrap().iter().any(|i| i["id"] == id.as_str() && i["done"] == true && i["attachments"] == json!(["refunds.png"])));
     let data = devall_core::todos::TodoStore::read(&f.data).unwrap();
     let private = data.tasks.iter().find(|t| t.content == "Private errand in the Inbox").unwrap().id.clone();
     assert!(srv.call("complete_todo", &a(json!({ "id": private }))).await.unwrap_err().contains("not found"));

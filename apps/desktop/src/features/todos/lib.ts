@@ -3,13 +3,14 @@
  * drag-and-drop targets, keyboard shortcuts and quick-add highlighting. No React, no IPC — tested in
  * `lib.test.ts`. Natural-language parsing and filters live in Rust (`devall_core::todos`).
  */
-import type { Due, Priority, QuickToken, Section, Snapshot, Task, TaskView } from '@/lib/api/todos';
+import type { Due, Priority, QuickToken, Section, Snapshot, Task, TaskList, TaskView } from '@/lib/api/todos';
 
 export type ViewRef =
   | { kind: 'inbox' }
   | { kind: 'today' }
   | { kind: 'upcoming' }
   | { kind: 'completed' }
+  | { kind: 'all' }
   | { kind: 'list'; id: string }
   | { kind: 'label'; name: string }
   | { kind: 'filter'; id: string };
@@ -35,6 +36,7 @@ export function parseViewKey(key: string): ViewRef | null {
     case 'today':
     case 'upcoming':
     case 'completed':
+    case 'all':
       return { kind };
     case 'list':
       return arg ? { kind, id: arg } : null;
@@ -212,18 +214,46 @@ export interface Row {
 /** Sub-task nesting shown in lists (deeper tasks render at this depth). */
 export const MAX_DEPTH = 4;
 
+/** How list-like views order tasks: by position (drag to reorder) or by an attribute. */
+export type SortKey = 'manual' | 'due' | 'priority' | 'added' | 'name';
+
+export const SORTS: { value: SortKey; label: string }[] = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'due', label: 'Due date' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'added', label: 'Date added' },
+  { value: 'name', label: 'Name' },
+];
+
+/** Comparator for `sort` (ties by position). */
+export function compareBy(sort: SortKey): (a: TaskView, b: TaskView) => number {
+  switch (sort) {
+    case 'due':
+      return byDue;
+    case 'priority':
+      return (a, b) => a.priority - b.priority || byDue(a, b);
+    case 'added':
+      return (a, b) => b.createdAt - a.createdAt || a.order - b.order;
+    case 'name':
+      return (a, b) => a.content.localeCompare(b.content, undefined, { sensitivity: 'base', numeric: true }) || a.order - b.order;
+    default:
+      return (a, b) => a.order - b.order;
+  }
+}
+
 /**
  * Tasks of one slot (list + section) as tree rows: sub-tasks after their parent (unless the
- * parent is collapsed), siblings by position, completed ones last (only with `showDone`).
+ * parent is collapsed), siblings by position (or `sort`), completed ones last (only with `showDone`).
  */
-export function treeRows(tasks: TaskView[], showDone: boolean, maxDepth = MAX_DEPTH): Row[] {
+export function treeRows(tasks: TaskView[], showDone: boolean, maxDepth = MAX_DEPTH, sort: SortKey = 'manual'): Row[] {
   const ids = new Set(tasks.map((t) => t.id));
   const kids = new Map<string, TaskView[]>();
   for (const t of tasks) {
     const p = t.parentId && ids.has(t.parentId) ? t.parentId : '';
     kids.set(p, [...(kids.get(p) ?? []), t]);
   }
-  const sorted = (list: TaskView[]) => [...list].sort((a, b) => Number(!!a.done) - Number(!!b.done) || a.order - b.order);
+  const cmp = compareBy(sort);
+  const sorted = (list: TaskView[]) => [...list].sort((a, b) => Number(!!a.done) - Number(!!b.done) || cmp(a, b));
   const out: Row[] = [];
   const walk = (parent: string, depth: number, seen: Set<string>) => {
     for (const t of sorted(kids.get(parent) ?? [])) {
@@ -242,7 +272,7 @@ export interface ListLayout {
   sections: { section: Section; rows: Row[]; open: number }[];
 }
 
-export function listLayout(snap: Snapshot, listId: string, showDone: boolean): ListLayout {
+export function listLayout(snap: Snapshot, listId: string, showDone: boolean, sort: SortKey = 'manual'): ListLayout {
   const inList = snap.tasks.filter((t) => t.listId === listId);
   const sections = snap.sections.filter((s) => s.listId === listId).sort((a, b) => a.order - b.order);
   const known = new Set(sections.map((s) => s.id));
@@ -250,12 +280,30 @@ export function listLayout(snap: Snapshot, listId: string, showDone: boolean): L
     rows: treeRows(
       inList.filter((t) => !t.sectionId || !known.has(t.sectionId)),
       showDone,
+      MAX_DEPTH,
+      sort,
     ),
     sections: sections.map((section) => {
       const ts = inList.filter((t) => t.sectionId === section.id);
-      return { section, rows: treeRows(ts, showDone), open: ts.filter((t) => !t.done).length };
+      return { section, rows: treeRows(ts, showDone, MAX_DEPTH, sort), open: ts.filter((t) => !t.done).length };
     }),
   };
+}
+
+/** Lists in the order the left pane shows them: Inbox, the open project's, the user's, other projects. */
+export function navOrder(lists: TaskList[], projectList?: string | null): TaskList[] {
+  const rank = (l: TaskList) => (l.kind === 'inbox' ? 0 : l.id === projectList ? 1 : l.kind === 'user' ? 2 : 3);
+  return [...lists].sort((a, b) => rank(a) - rank(b) || a.order - b.order);
+}
+
+/** "All tasks": every list with tasks to show, in the left pane's order, each laid out as a list (sections flattened). */
+export function allLayout(snap: Snapshot, showDone: boolean, sort: SortKey = 'manual'): { list: TaskList; rows: Row[]; open: number }[] {
+  return navOrder(snap.lists, snap.projectList)
+    .map((list) => {
+      const l = listLayout(snap, list.id, showDone, sort);
+      return { list, rows: [...l.rows, ...l.sections.flatMap((s) => s.rows)], open: openCount(snap.tasks, (t) => t.listId === list.id) };
+    })
+    .filter((g) => g.rows.length > 0);
 }
 
 export function openCount(tasks: TaskView[], pred: (t: TaskView) => boolean): number {
@@ -319,6 +367,21 @@ export function indentTarget(tasks: Task[], t: Task): MoveTarget | null {
   const i = sibs.findIndex((s) => s.id === t.id);
   if (i <= 0) return null;
   return { listId: t.listId, sectionId: t.sectionId ?? null, parentId: sibs[i - 1].id, index: null };
+}
+
+/** `ids` with `moving` placed before/after `target` (reordering lists, sections, filters). */
+export function reorderIds(ids: string[], moving: string, target: string, pos: 'before' | 'after'): string[] {
+  if (moving === target || !ids.includes(moving)) return ids;
+  const rest = ids.filter((x) => x !== moving);
+  const at = rest.indexOf(target);
+  if (at < 0) return ids;
+  rest.splice(at + (pos === 'after' ? 1 : 0), 0, moving);
+  return rest;
+}
+
+/** Top or bottom half of a row/header under the pointer. */
+export function halfOf(rect: { top: number; height: number }, y: number): 'before' | 'after' {
+  return y < rect.top + rect.height / 2 ? 'before' : 'after';
 }
 
 /** Outdent: become the sibling right after the parent. */
@@ -481,4 +544,60 @@ export function linkLabel(l: string): string {
     .replace(/\.(req|ws|grpc|mqtt|sio)\.yaml$/, '')
     .replace(/^notes\//, '')
     .replace(/\.md$/, '');
+}
+
+/** Top-level folders of a /dev/all project (see docs/DEVELOPING.md). */
+const PROJECT_FOLDERS = ['http', 'environments', 'mocks', 'plugins', 'openapi', 'load', 'data', 'webhooks', 'connections', 'queries', 'notes', 'utilities', 'devall.yaml'];
+
+/** An absolute file-system path: `C:\…`, `C:/…`, `\\server\share`, `/…`. */
+export function isAbsolutePath(p: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(p) || /^\\\\/.test(p) || p.startsWith('/');
+}
+
+/** `root` + a `/`-separated relative path, with the root's own separator (Windows or POSIX). */
+export function joinPath(root: string, rel: string): string {
+  const sep = root.includes('\\') ? '\\' : '/';
+  const parts = rel.split('/').filter((s) => s && s !== '.');
+  return [root.replace(/[\\/]+$/, ''), ...parts].join(sep);
+}
+
+/** The /dev/all view that opens a project document (requests, notes). */
+export function appDocument(rel: string): { section: 'http' | 'notes'; param: string } | undefined {
+  const req = /^http\/(.+\.(?:req|ws|grpc|mqtt|sio)\.yaml)$/.exec(rel);
+  if (req) return { section: 'http', param: req[1] };
+  const note = /^notes\/(.+\.(?:md|ipynb))$/.exec(rel);
+  if (note) return { section: 'notes', param: note[1] };
+  return undefined;
+}
+
+export type LinkTarget =
+  /** Opens in the default browser / mail app. */
+  | { kind: 'url'; url: string }
+  /** A file to reveal; `rel` when it is inside the task's project. */
+  | { kind: 'file'; path: string; rel?: string }
+  /** Project-relative, but no project folder is known for the task. */
+  | { kind: 'unresolved'; rel: string };
+
+/**
+ * What a task link points at: a URL, an absolute path, or a path relative to the task's project
+ * (`http/users/list.req.yaml`, `notes/x.md`, `/notes/x.md`) resolved against `projectRoot`.
+ */
+export function classifyLink(link: string, projectRoot?: string | null): LinkTarget {
+  let p = link.trim();
+  if (/^(https?:\/\/|mailto:)/i.test(p)) return { kind: 'url', url: p };
+  if (/^file:\/\//i.test(p)) {
+    try {
+      p = decodeURI(p.replace(/^file:\/\/(localhost)?/i, ''));
+    } catch {
+      p = p.replace(/^file:\/\//i, '');
+    }
+    if (/^\/[a-zA-Z]:[\\/]/.test(p)) p = p.slice(1);
+    return { kind: 'file', path: p };
+  }
+  const first = p.replace(/^[\\/]+/, '').split(/[\\/]/)[0];
+  // `/notes/x.md` is project-relative (as in notes' links); `/Users/me/x.txt` is absolute.
+  const projectRelative = !isAbsolutePath(p) || (/^\/[^/\\]/.test(p) && PROJECT_FOLDERS.includes(first));
+  if (!projectRelative) return { kind: 'file', path: p };
+  const rel = p.replace(/\\/g, '/').replace(/^(\.\/|\/)+/, '');
+  return projectRoot ? { kind: 'file', path: joinPath(projectRoot, rel), rel } : { kind: 'unresolved', rel };
 }

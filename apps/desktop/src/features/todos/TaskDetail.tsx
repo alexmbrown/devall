@@ -1,22 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { ArrowRightLeft, AtSign, CalendarDays, ChevronDown, ChevronUp, ExternalLink, FolderOpen, Hash, History, Inbox, Link2, ListTree, MessageSquare, Plus, Repeat, Target, Trash2, X } from 'lucide-react';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  AppWindow,
+  ArrowRightLeft,
+  AtSign,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ExternalLink,
+  File as FileIcon,
+  FileArchive,
+  FileCode,
+  FileImage,
+  FileMusic,
+  FilePlay,
+  FileSpreadsheet,
+  FileText,
+  FolderKanban,
+  FolderOpen,
+  Globe,
+  Hash,
+  History,
+  Inbox,
+  ListTree,
+  MessageSquare,
+  MoreHorizontal,
+  Paperclip,
+  Plus,
+  Repeat,
+  Target,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Markdown } from '@/components/Markdown';
-import { Menu } from '@/components/ui/Menu';
-import { RelTime } from '@/components/ui/misc';
+import { Menu, type MenuItemDef } from '@/components/ui/Menu';
+import { Modal } from '@/components/ui/Modal';
+import { copyText, formatBytes, isMac, RelTime, Resizer } from '@/components/ui/misc';
+import { toast } from '@/components/ui/toast';
 import { notesApi, type NoteNode } from '@/lib/api/notes';
-import type { TaskView } from '@/lib/api/todos';
+import { todosApi, type Attachment, type Snapshot, type TaskList, type TaskView } from '@/lib/api/todos';
+import { errorMessage } from '@/lib/ipc';
 import type { TreeNode } from '@/lib/types';
+import { resolveProjectLink } from '@/features/notes/links';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
-import { deleteTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
+import { useNav } from '@/store/nav';
+import { TODO_DETAIL, usePrefs } from '@/store/prefs';
+import { attachFiles, deleteTasks, moveTasks, pickAttachments, removeAttachment, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
 import { DuePicker } from './DuePicker';
 import { QuickAddInput } from './QuickAddInput';
 import { CheckCircle, Composer, InlineText } from './TaskRow';
 import { LabelPicker, MovePicker, PriorityIcon, priorityItems } from './pickers';
 import { usePopover } from './Popover';
-import { colorVar, dayLabel, dueInfo, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
+import { appDocument, classifyLink, colorVar, dayLabel, dueInfo, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
 import { useTodoUi } from './ui';
 
 function flattenRequests(n: TreeNode | null, out: string[] = []): string[] {
@@ -32,6 +70,79 @@ function flattenNotes(n: NoteNode | null, out: string[] = []): string[] {
   else n.children.forEach((c) => flattenNotes(c, out));
   return out;
 }
+
+const REVEAL_LABEL = isMac ? 'Reveal in Finder' : typeof navigator !== 'undefined' && navigator.platform.startsWith('Win') ? 'Show in Explorer' : 'Show in folder';
+
+/**
+ * Following a task's links: URLs open in the browser; files are revealed in Explorer/Finder —
+ * absolute paths as they are, project-relative ones (`http/users/list.req.yaml`, `notes/x.md`)
+ * inside the task's project. Project documents can also open in /dev/all when that project is the
+ * open one.
+ */
+function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapshot) {
+  const project = useWorkspace((s) => s.project);
+  const go = useNav((s) => s.go);
+  const openProjectLink = useProjectLinkOpener();
+  const projectList = list?.kind === 'project';
+  const inOpenProject = !!project && (!projectList || list?.id === snap.projectList);
+  // A project's list resolves against that project's folder (even when it isn't open); the Inbox
+  // and the user's lists against the open project.
+  const root = projectList ? (list?.projectRoot ?? (inOpenProject ? project?.root : undefined)) : project?.root;
+  const target = (l: string) => classifyLink(l, root);
+  const inApp = (l: string) => {
+    const t = target(l);
+    return t.kind !== 'url' && !!t.rel && inOpenProject && resolveProjectLink(t.rel).kind !== 'unknown';
+  };
+  const openInApp = (l: string) => {
+    const t = target(l);
+    if (t.kind === 'url' || !t.rel) return;
+    const doc = appDocument(t.rel);
+    if (doc) go(doc.section, doc.param);
+    else openProjectLink(t.rel);
+  };
+  const reveal = (l: string) => {
+    const t = target(l);
+    if (t.kind === 'file') void revealItemInDir(t.path).catch((e) => toast.error(`Could not show ${t.path}`, errorMessage(e)));
+    else if (t.kind === 'unresolved') toast.info('Open the project to follow this link', `${l} is relative to a project folder, and this task's project isn't known.`);
+  };
+  const browse = (url: string) => void openUrl(url).catch((e) => toast.error('Could not open the link', errorMessage(e)));
+  return {
+    target,
+    inApp,
+    openInApp,
+    reveal,
+    /** A click on a link: browser / file manager; Ctrl/Cmd+click opens project documents in /dev/all. */
+    activate(l: string, e?: { ctrlKey: boolean; metaKey: boolean }) {
+      const t = target(l);
+      if (t.kind === 'url') browse(t.url);
+      else if ((e?.ctrlKey || e?.metaKey) && inApp(l)) openInApp(l);
+      else reveal(l);
+    },
+    /** Links inside Markdown (description, comments): project documents open in /dev/all, other files are revealed. */
+    fromMarkdown(l: string) {
+      const t = target(l);
+      if (t.kind === 'url') browse(t.url);
+      else if (inApp(l)) openInApp(l);
+      else reveal(l);
+    },
+    menu(l: string): MenuItemDef[] {
+      const t = target(l);
+      return [
+        ...(t.kind === 'url'
+          ? [{ label: 'Open in browser', icon: <Globe />, onSelect: () => browse(t.url) }]
+          : [
+              { label: REVEAL_LABEL, icon: <FolderOpen />, onSelect: () => reveal(l) },
+              { label: 'Open in /dev/all', icon: <AppWindow />, hint: isMac ? '⌘-click' : 'Ctrl+click', disabled: !inApp(l), onSelect: () => openInApp(l) },
+            ]),
+        { label: 'Copy link', icon: <Copy />, onSelect: () => void copyText(t.kind === 'file' ? t.path : l) },
+        { separator: true },
+        { label: 'Remove link', icon: <X />, danger: true, onSelect: () => void updateTasks([task.id], { links: (task.links ?? []).filter((x) => x !== l) }) },
+      ];
+    },
+  };
+}
+
+type LinkActions = ReturnType<typeof useLinkActions>;
 
 function Title({ task }: { task: TaskView }) {
   const [editing, setEditing] = useState(false);
@@ -71,10 +182,9 @@ function Title({ task }: { task: TaskView }) {
   );
 }
 
-function Description({ task }: { task: TaskView }) {
+function Description({ task, links }: { task: TaskView; links: LinkActions }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(task.description ?? '');
-  const openLink = useProjectLinkOpener();
   useEffect(() => {
     setText(task.description ?? '');
     setEditing(false);
@@ -105,13 +215,12 @@ function Description({ task }: { task: TaskView }) {
     );
   return (
     <div className={clsx('td-desc-view', !task.description?.trim() && 'placeholder')} onClick={(e) => !(e.target as HTMLElement).closest('a') && setEditing(true)} title="Click to edit">
-      {task.description?.trim() ? <Markdown source={task.description} onProjectLink={(p) => openLink(p)} /> : 'Add a description (Markdown)…'}
+      {task.description?.trim() ? <Markdown source={task.description} onProjectLink={links.fromMarkdown} /> : 'Add a description (Markdown)…'}
     </div>
   );
 }
 
-function Links({ task, foreign }: { task: TaskView; foreign?: { name: string; root?: string } }) {
-  const openLink = useProjectLinkOpener();
+function Links({ task, links }: { task: TaskView; links: LinkActions }) {
   const project = useWorkspace((s) => s.project);
   const tree = useWorkspace((s) => s.tree);
   const [adding, setAdding] = useState(false);
@@ -127,30 +236,36 @@ function Links({ task, foreign }: { task: TaskView; foreign?: { name: string; ro
     setValue('');
     setAdding(false);
   };
-  const open = (l: string) => {
-    if (/^https?:\/\//i.test(l)) void openUrl(l).catch(() => {});
-    else openLink(l);
-  };
   return (
-    <div className="col-sm">
-      {(task.links ?? []).map((l) => (
-        <div key={l} className="td-link">
-          {/^https?:/.test(l) ? <ExternalLink /> : <Link2 />}
-          <button className="grow truncate" onClick={() => open(l)} title={foreign && !/^https?:/.test(l) ? `In ${foreign.name} — open that project to follow it` : l} disabled={!!foreign && !/^https?:/.test(l)}>
-            {linkLabel(l)}
-          </button>
-          <button className="icon-btn sm" onClick={() => void updateTasks([task.id], { links: (task.links ?? []).filter((x) => x !== l) })} aria-label="Remove link" title="Remove link">
-            <X />
-          </button>
-        </div>
-      ))}
+    <div className="td-links">
+      {(task.links ?? []).map((l) => {
+        const t = links.target(l);
+        const hint = t.kind === 'url' ? 'Open in browser' : t.kind === 'file' ? `${REVEAL_LABEL}${links.inApp(l) ? ` · ${isMac ? '⌘' : 'Ctrl'}+click: open in /dev/all` : ''}` : 'Relative to a project folder';
+        return (
+          <div key={l} className="td-link">
+            {t.kind === 'url' ? <ExternalLink /> : t.kind === 'file' ? <FileText /> : <Hash />}
+            <button className="td-link-label" onClick={(e) => links.activate(l, e)} title={`${t.kind === 'file' ? t.path : l}\n${hint}`}>
+              {linkLabel(l)}
+            </button>
+            <Menu
+              align="right"
+              items={() => links.menu(l)}
+              trigger={(p) => (
+                <button className="icon-btn sm" {...p} aria-label="Link actions" title="Link actions">
+                  <MoreHorizontal />
+                </button>
+              )}
+            />
+          </div>
+        );
+      })}
       {adding ? (
         <>
           <input
             className="input sm"
             autoFocus
             list="td-link-suggestions"
-            placeholder="http/users/list.req.yaml, notes/auth.md or a URL"
+            placeholder="http/users/list.req.yaml, notes/auth.md, a file path or a URL"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onBlur={add}
@@ -167,22 +282,198 @@ function Links({ task, foreign }: { task: TaskView; foreign?: { name: string; ro
           </datalist>
         </>
       ) : (
-        <button className={clsx('td-prop-btn placeholder')} onClick={() => setAdding(true)}>
-          <Plus /> Link a request, note, mock or URL
-        </button>
-      )}
-      {foreign?.root && (
-        <button className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => void useWorkspace.getState().openProject(foreign.root!)}>
-          <FolderOpen /> Open {foreign.name}
+        <button className="td-prop-btn placeholder" onClick={() => setAdding(true)}>
+          <Plus /> <span className="truncate">Link a request, note, file or URL</span>
         </button>
       )}
     </div>
   );
 }
 
-function Comments({ task }: { task: TaskView }) {
+// ── attachments ────────────────────────────────────────────────────────────────────────────────
+
+/** Image types the webview renders (others show as files). */
+const PREVIEWABLE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'image/x-icon', 'image/avif'];
+const PREVIEW_MAX = 15 * 1024 * 1024;
+const previewable = (a: Attachment) => PREVIEWABLE.includes(a.mime) && a.size <= PREVIEW_MAX;
+
+/** Blob URLs of loaded images, newest last (a small cache shared by thumbnails and the preview). */
+const urls = new Map<string, Promise<string>>();
+
+function attachmentUrl(taskId: string, id: string, mime: string): Promise<string> {
+  const key = `${taskId}/${id}`;
+  let p = urls.get(key);
+  if (!p) {
+    p = todosApi.attachmentBytes(taskId, id).then((buf) => URL.createObjectURL(new Blob([buf], { type: mime })));
+    p.catch(() => urls.delete(key));
+    urls.set(key, p);
+    if (urls.size > 60) {
+      const [oldKey, old] = urls.entries().next().value!;
+      urls.delete(oldKey);
+      void old.then((u) => URL.revokeObjectURL(u)).catch(() => {});
+    }
+  }
+  return p;
+}
+
+function useAttachmentUrl(taskId: string, a: Attachment): { url: string | null; failed: boolean } {
+  const [state, setState] = useState<{ key: string; url: string | null; failed: boolean }>({ key: '', url: null, failed: false });
+  const { id, mime } = a;
+  const key = `${taskId}/${id}`;
+  useEffect(() => {
+    let live = true;
+    attachmentUrl(taskId, id, mime)
+      .then((url) => live && setState({ key, url, failed: false }))
+      .catch(() => live && setState({ key, url: null, failed: true }));
+    return () => {
+      live = false;
+    };
+  }, [taskId, id, mime, key]);
+  return state.key === key ? state : { url: null, failed: false };
+}
+
+function fileIcon(a: Attachment) {
+  const m = a.mime;
+  if (m.startsWith('image/')) return <FileImage />;
+  if (m.startsWith('video/')) return <FilePlay />;
+  if (m.startsWith('audio/')) return <FileMusic />;
+  if (/zip|gzip|tar|7z/.test(m)) return <FileArchive />;
+  if (/spreadsheet|excel|csv/.test(m)) return <FileSpreadsheet />;
+  if (/json|yaml|xml|html/.test(m)) return <FileCode />;
+  if (m.startsWith('text/') || m === 'application/pdf' || /word|presentation|powerpoint/.test(m)) return <FileText />;
+  return <FileIcon />;
+}
+
+function openAttachment(taskId: string, a: Attachment) {
+  todosApi
+    .openAttachment(taskId, a.id)
+    .then((opened) => !opened && toast.info(`${a.name} is a program`, 'It was shown in its folder instead of being run.'))
+    .catch((e) => toast.error(`Could not open ${a.name}`, errorMessage(e)));
+}
+
+function revealAttachment(taskId: string, a: Attachment) {
+  todosApi.revealAttachment(taskId, a.id).catch((e) => toast.error(`Could not show ${a.name}`, errorMessage(e)));
+}
+
+function attachmentMenu(taskId: string, a: Attachment): MenuItemDef[] {
+  return [
+    { label: 'Open', icon: <ExternalLink />, onSelect: () => openAttachment(taskId, a) },
+    { label: REVEAL_LABEL, icon: <FolderOpen />, onSelect: () => revealAttachment(taskId, a) },
+    { separator: true },
+    { label: 'Remove', icon: <Trash2 />, danger: true, onSelect: () => void removeAttachment(taskId, a) },
+  ];
+}
+
+function Thumb({ taskId, a, onPreview }: { taskId: string; a: Attachment; onPreview(): void }) {
+  const { url, failed } = useAttachmentUrl(taskId, a);
+  return (
+    <div className="td-thumb" title={`${a.name} · ${formatBytes(a.size)}`}>
+      <button className="td-thumb-img" onClick={onPreview} aria-label={`Preview ${a.name}`}>
+        {url ? <img src={url} alt={a.name} draggable={false} /> : failed ? <FileImage /> : null}
+      </button>
+      <div className="td-thumb-bar">
+        <span className="truncate">{a.name}</span>
+        <Menu
+          align="right"
+          items={() => attachmentMenu(taskId, a)}
+          trigger={(p) => (
+            <button className="icon-btn sm" {...p} aria-label={`${a.name} actions`}>
+              <MoreHorizontal />
+            </button>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Preview({ taskId, a, onClose }: { taskId: string; a: Attachment; onClose(): void }) {
+  const { url, failed } = useAttachmentUrl(taskId, a);
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title={a.name}
+      headerExtra={
+        <>
+          <button className="btn btn-sm btn-ghost" onClick={() => openAttachment(taskId, a)}>
+            <ExternalLink /> Open
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={() => revealAttachment(taskId, a)}>
+            <FolderOpen /> {REVEAL_LABEL}
+          </button>
+        </>
+      }
+      bodyClassName="td-preview-body"
+    >
+      {url ? <img className="td-preview-img" src={url} alt={a.name} /> : <span className="subtle">{failed ? 'The file is missing from this device.' : 'Loading…'}</span>}
+    </Modal>
+  );
+}
+
+function Attachments({ task }: { task: TaskView }) {
+  const [preview, setPreview] = useState<Attachment | null>(null);
+  const all = task.attachments ?? [];
+  const images = all.filter(previewable);
+  const files = all.filter((a) => !previewable(a));
+  return (
+    <div>
+      <div className="td-section-title">
+        <Paperclip size={13} /> Attachments <span className="count">{all.length || ''}</span>
+        <span className="spacer" />
+        <button className="icon-btn sm" onClick={() => void pickAttachments(task.id)} title="Attach files…" aria-label="Attach files">
+          <Plus />
+        </button>
+      </div>
+      {images.length > 0 && (
+        <div className="td-thumbs">
+          {images.map((a) => (
+            <Thumb key={a.id} taskId={task.id} a={a} onPreview={() => setPreview(a)} />
+          ))}
+        </div>
+      )}
+      {files.map((a) => (
+        <div key={a.id} className="td-file">
+          {fileIcon(a)}
+          <button className="td-link-label" onClick={() => openAttachment(task.id, a)} title={`Open ${a.name}`}>
+            {a.name}
+          </button>
+          <span className="subtle xs td-file-size">{formatBytes(a.size)}</span>
+          <Menu
+            align="right"
+            items={() => attachmentMenu(task.id, a)}
+            trigger={(p) => (
+              <button className="icon-btn sm" {...p} aria-label={`${a.name} actions`}>
+                <MoreHorizontal />
+              </button>
+            )}
+          />
+        </div>
+      ))}
+      {!all.length && (
+        <button className="td-add-btn" onClick={() => void pickAttachments(task.id)}>
+          <Paperclip /> <span className="truncate">Attach files — or drop or paste them here</span>
+        </button>
+      )}
+      {preview && <Preview taskId={task.id} a={preview} onClose={() => setPreview(null)} />}
+    </div>
+  );
+}
+
+/** Screenshots arrive as `image.png`: give them a findable name. */
+function pastedName(f: File): File {
+  if (f.name && !/^image\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name)) return f;
+  const ext = (f.type.split('/')[1] ?? 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'png';
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return new File([f], `Pasted image ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}.${ext}`, { type: f.type });
+}
+
+const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files');
+
+function Comments({ task, links }: { task: TaskView; links: LinkActions }) {
   const [text, setText] = useState('');
-  const openLink = useProjectLinkOpener();
   const post = async () => {
     if (!text.trim()) return;
     const r = await useTodos.getState().apply({ type: 'addComment', id: task.id, text });
@@ -198,7 +489,7 @@ function Comments({ task }: { task: TaskView }) {
               <Trash2 />
             </button>
           </div>
-          <Markdown source={c.text} onProjectLink={(p) => openLink(p)} />
+          <Markdown source={c.text} onProjectLink={links.fromMarkdown} />
         </div>
       ))}
       <textarea
@@ -221,21 +512,31 @@ function Comments({ task }: { task: TaskView }) {
   );
 }
 
-/** The right-hand panel for the open task. */
-export function TaskDetail() {
+/**
+ * The right-hand panel for the open task. Resizable (its left edge; the width is remembered);
+ * `overlay` floats it over the list when the view is too narrow to show both. Files dropped on it
+ * or pasted into it become attachments.
+ */
+export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: number }) {
   const snap = useTodos((s) => s.snap);
   const openId = useTodos((s) => s.openId);
   const order = useTodoUi((s) => s.order);
   const composer = useTodoUi((s) => s.composer);
   const setUi = useTodoUi((s) => s.set);
+  const pref = usePrefs((s) => s.todoDetailWidth);
+  const setPref = usePrefs((s) => s.set);
+  const [dropping, setDropping] = useState(false);
   const due = usePopover();
   const deadline = usePopover();
   const labels = usePopover();
   const move = usePopover();
   const task = snap?.tasks.find((t) => t.id === openId);
+  const list = task ? snap?.lists.find((l) => l.id === task.listId) : undefined;
+  const links = useLinkActions(task ?? ({} as TaskView), list, snap ?? ({} as Snapshot));
   if (!snap || !task) return null;
   const today = snap.today ?? todayYmd();
-  const list = snap.lists.find((l) => l.id === task.listId);
+  const max = Math.max(TODO_DETAIL.min, Math.min(TODO_DETAIL.max, maxWidth));
+  const width = Math.min(pref, max);
   const section = task.sectionId ? snap.sections.find((s) => s.id === task.sectionId) : undefined;
   const parent = task.parentId ? snap.tasks.find((t) => t.id === task.parentId) : undefined;
   const kids = treeRows(
@@ -254,9 +555,41 @@ export function TaskDetail() {
   };
 
   return (
-    <aside className="td-detail" aria-label="Task details" onKeyDown={(e) => e.key === 'Escape' && !(e.target as HTMLElement).closest('input, textarea') && useTodos.getState().open(null)}>
+    <aside
+      className={clsx('td-detail', overlay && 'floating', dropping && 'dropping')}
+      style={{ width }}
+      aria-label="Task details"
+      tabIndex={-1}
+      onKeyDown={(e) => e.key === 'Escape' && !(e.target as HTMLElement).closest('input, textarea') && useTodos.getState().open(null)}
+      onPaste={(e) => {
+        const files = [...e.clipboardData.files];
+        if (!files.length) return;
+        // Text pasted into a field stays text (copying from an editor can carry an image too).
+        if ((e.target as HTMLElement).closest('input, textarea') && e.clipboardData.types.includes('text/plain')) return;
+        e.preventDefault();
+        void attachFiles(task.id, files.map(pastedName));
+      }}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        if (!dropping) setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setDropping(false);
+        void attachFiles(task.id, [...e.dataTransfer.files]);
+      }}
+    >
+      <Resizer className="td-detail-resizer" invert width={width} onChange={(w) => setPref('todoDetailWidth', w)} min={TODO_DETAIL.min} max={max} defaultValue={TODO_DETAIL.default} />
       <div className="td-detail-head">
-        {list?.kind === 'inbox' ? <Inbox size={13} /> : <Hash size={13} style={{ color: colorVar(list?.color) }} />}
+        {list?.kind === 'inbox' ? <Inbox size={13} /> : list?.kind === 'project' ? <FolderKanban size={13} style={{ color: colorVar(list?.color) }} /> : <Hash size={13} style={{ color: colorVar(list?.color) }} />}
         <span className="truncate grow">
           {list?.name}
           {section ? ` / ${section.name}` : ''}
@@ -274,12 +607,12 @@ export function TaskDetail() {
       </div>
       <div className="td-detail-body">
         {parent && (
-          <button className="td-prop-btn placeholder" style={{ alignSelf: 'flex-start', marginBottom: -8 }} onClick={() => useTodos.getState().open(parent.id)}>
-            <ListTree /> {parent.content}
+          <button className="td-prop-btn placeholder td-parent-link" onClick={() => useTodos.getState().open(parent.id)}>
+            <ListTree /> <span className="truncate">{parent.content}</span>
           </button>
         )}
         <Title task={task} />
-        <Description task={task} />
+        <Description task={task} links={links} />
         <div className="td-props">
           <span className="k">Due</span>
           <span className="v">
@@ -290,13 +623,15 @@ export function TaskDetail() {
               </span>
             </button>
             {task.due?.recurrence && <span className="subtle xs truncate">{ruleText(task.due)}</span>}
-            {task.due?.timezone && <span className="subtle xs">{task.due.timezone}</span>}
+            {task.due?.timezone && <span className="subtle xs truncate">{task.due.timezone}</span>}
           </span>
           <span className="k">Deadline</span>
           <span className="v">
             <button className={clsx('td-prop-btn', !task.deadline && 'placeholder')} onClick={deadline.toggle}>
               <Target />
-              <span className={clsx(task.deadline && task.deadline < today && 'td-deadline overdue')}>{task.deadline ? `${parseYmd(task.deadline).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: task.deadline.slice(0, 4) !== today.slice(0, 4) ? 'numeric' : undefined })} (${dayLabel(task.deadline, today)})` : 'No deadline'}</span>
+              <span className={clsx('truncate', task.deadline && task.deadline < today && 'td-deadline overdue')}>
+                {task.deadline ? `${parseYmd(task.deadline).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: task.deadline.slice(0, 4) !== today.slice(0, 4) ? 'numeric' : undefined })} (${dayLabel(task.deadline, today)})` : 'No deadline'}
+              </span>
             </button>
           </span>
           <span className="k">Priority</span>
@@ -313,8 +648,8 @@ export function TaskDetail() {
           <span className="k">Labels</span>
           <span className="v">
             {(task.labels ?? []).map((l) => (
-              <span key={l} className="tag" style={{ color: colorVar(snap.labels.find((x) => x.name === l)?.color) }}>
-                <AtSign /> {l}
+              <span key={l} className="tag td-tag" style={{ color: colorVar(snap.labels.find((x) => x.name === l)?.color) }}>
+                <AtSign /> <span className="truncate">{l}</span>
                 <button onClick={() => void updateTasks([task.id], { removeLabels: [l] })} aria-label={`Remove ${l}`}>
                   <X />
                 </button>
@@ -334,13 +669,18 @@ export function TaskDetail() {
               </span>
             </button>
           </span>
-          <span className="k" style={{ alignSelf: 'start', paddingTop: 6 }}>
-            Links
-          </span>
+          <span className="k td-k-top">Links</span>
           <span className="v">
-            <Links task={task} foreign={foreign} />
+            <Links task={task} links={links} />
           </span>
         </div>
+        {foreign?.root && (
+          <button className="btn btn-sm btn-ghost td-open-project" onClick={() => void useWorkspace.getState().openProject(foreign.root!)} title={`Open ${foreign.root} to follow links in /dev/all`}>
+            <FolderOpen /> <span className="truncate">Open {foreign.name}</span>
+          </button>
+        )}
+
+        <Attachments task={task} />
 
         <div>
           <div className="td-section-title">
@@ -368,7 +708,7 @@ export function TaskDetail() {
           <div className="td-section-title">
             <MessageSquare size={13} /> Comments <span className="count">{task.comments?.length || ''}</span>
           </div>
-          <Comments task={task} />
+          <Comments task={task} links={links} />
         </div>
 
         {(task.history?.length ?? 0) > 0 && (
@@ -410,6 +750,11 @@ export function TaskDetail() {
           </button>
         </div>
       </div>
+      {dropping && (
+        <div className="td-drop-overlay">
+          <Paperclip /> Drop to attach to “{task.content}”
+        </div>
+      )}
       {due.anchor && <DuePicker anchor={due.anchor} onClose={due.close} mode="due" due={task.due} today={today} onPatch={(p) => void updateTasks([task.id], p)} />}
       {deadline.anchor && <DuePicker anchor={deadline.anchor} onClose={deadline.close} mode="deadline" deadline={task.deadline} today={today} onPatch={(p) => void updateTasks([task.id], p)} />}
       {labels.anchor && <LabelPicker anchor={labels.anchor} onClose={labels.close} selected={task.labels ?? []} onToggle={(name, on) => void updateTasks([task.id], on ? { addLabels: [name] } : { removeLabels: [name] })} />}

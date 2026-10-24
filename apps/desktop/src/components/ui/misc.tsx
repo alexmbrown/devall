@@ -141,14 +141,36 @@ export function CopyButton({ text, label, className, title = 'Copy', onCopy }: {
 
 /**
  * Drag handle between two panes. `axis="x"` (default) reports the new width of the pane to its left,
- * `axis="y"` the new height of the pane above it. Double-click restores `defaultValue`.
+ * `axis="y"` the new height of the pane above it. Double-click restores `defaultValue`. `invert`
+ * sizes the pane after the handle instead (right-side panels: dragging left makes them wider).
  */
-export function Resizer({ width, onChange, min = 200, max = 800, defaultValue = 340, axis = 'x' }: { width: number; onChange(w: number): void; min?: number; max?: number; defaultValue?: number; axis?: 'x' | 'y' }) {
+export function Resizer({
+  width,
+  onChange,
+  min = 200,
+  max = 800,
+  defaultValue = 340,
+  axis = 'x',
+  invert,
+  className,
+}: {
+  width: number;
+  onChange(w: number): void;
+  min?: number;
+  max?: number;
+  defaultValue?: number;
+  axis?: 'x' | 'y';
+  invert?: boolean;
+  className?: string;
+}) {
   const [drag, setDrag] = useState(false);
   const start = useRef({ pos: 0, w: 0 });
   const onMove = useCallback(
-    (e: PointerEvent) => onChange(Math.round(Math.min(max, Math.max(min, start.current.w + (axis === 'x' ? e.clientX : e.clientY) - start.current.pos)))),
-    [onChange, min, max, axis],
+    (e: PointerEvent) => {
+      const delta = (axis === 'x' ? e.clientX : e.clientY) - start.current.pos;
+      onChange(Math.round(Math.min(max, Math.max(min, start.current.w + (invert ? -delta : delta)))));
+    },
+    [onChange, min, max, axis, invert],
   );
   useEffect(() => {
     if (!drag) return;
@@ -166,7 +188,7 @@ export function Resizer({ width, onChange, min = 200, max = 800, defaultValue = 
   }, [drag, onMove, axis]);
   return (
     <div
-      className={clsx('resizer', axis === 'y' && 'resizer-y', drag && 'dragging')}
+      className={clsx('resizer', axis === 'y' && 'resizer-y', drag && 'dragging', className)}
       onPointerDown={(e) => {
         e.preventDefault();
         start.current = { pos: axis === 'x' ? e.clientX : e.clientY, w: width };

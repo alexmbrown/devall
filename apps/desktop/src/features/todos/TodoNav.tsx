@@ -1,15 +1,15 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { AtSign, CalendarDays, CalendarRange, CheckCircle2, ChevronDown, Filter, FolderKanban, Hash, Inbox, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AtSign, CalendarDays, CalendarRange, CheckCircle2, ChevronDown, Filter, FolderKanban, Hash, Inbox, ListChecks, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
 import { SearchInput } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog } from '@/components/ui/dialogs';
 import { moveTasks, updateTasks, useTodos } from '@/store/todos';
-import { colorVar, openCount, viewKey, type ViewRef } from './lib';
+import { colorVar, openCount, reorderIds, viewKey, type ViewRef } from './lib';
 import { openTodoDialog } from './dialogs';
-import { useTodoUi } from './ui';
-
+import { beginDrag, endDrag, useTodoUi, type DragItem } from './ui';
+import { reorderLists, useDropZone } from './views';
 
 /**
  * The left pane: views, lists, labels and saved filters with counts (the shared `SidePane`).
@@ -85,6 +85,7 @@ export function TodoNav() {
       <Item icon={<Inbox />} label="Inbox" on={current === 'inbox' && !search} count={openCount(tasks, (t) => t.listId === 'inbox')} onClick={() => go({ kind: 'inbox' })} onDropTasks={(ids) => void moveTasks(ids, { listId: 'inbox', sectionId: null, parentId: null, index: null }, 'Moved to Inbox')} />
       <Item icon={<CalendarDays />} label="Today" on={current === 'today' && !search} count={badge} hot={overdue} onClick={() => go({ kind: 'today' })} onDropTasks={(ids) => void updateTasks(ids, { dueDate: snap?.today ?? '' }, 'Moved to today')} />
       <Item icon={<CalendarRange />} label="Upcoming" on={current === 'upcoming' && !search} onClick={() => go({ kind: 'upcoming' })} />
+      <Item icon={<ListChecks />} label="All tasks" on={current === 'all' && !search} count={openCount(tasks, () => true)} onClick={() => go({ kind: 'all' })} />
       <Item icon={<CheckCircle2 />} label="Completed" on={current === 'completed' && !search} onClick={() => go({ kind: 'completed' })} />
 
       {project && (
@@ -169,6 +170,14 @@ export function TodoNav() {
               onClick={() => go({ kind: 'filter', id: f.id })}
               menu={menu}
               onContext={(e) => ctx.open(e, menu)}
+              reorder={{
+                item: { kind: 'filter', id: f.id },
+                onItem: (moving, pos) => {
+                  const ids = (snap?.filters ?? []).map((x) => x.id);
+                  const next = reorderIds(ids, moving, f.id, pos);
+                  if (next.join() !== ids.join()) void useTodos.getState().apply({ type: 'reorderFilters', ids: next });
+                },
+              }}
             />
           );
         })}
@@ -198,7 +207,7 @@ function Group({ label, closed, onToggle, onAdd, addTitle }: { label: string; cl
   );
 }
 
-function ListItem({ l, icon, on, count, go, menu, ctx }: { l: { id: string; name: string; color?: string }; icon: ReactNode; on: boolean; count: number; go(v: ViewRef): void; menu: MenuItemDef[]; ctx(e: React.MouseEvent, items: MenuItemDef[]): void }) {
+function ListItem({ l, icon, on, count, go, menu, ctx }: { l: { id: string; name: string; color?: string; kind: string }; icon: ReactNode; on: boolean; count: number; go(v: ViewRef): void; menu: MenuItemDef[]; ctx(e: React.MouseEvent, items: MenuItemDef[]): void }) {
   return (
     <Item
       icon={<span style={{ color: colorVar(l.color), display: 'inline-flex' }}>{icon}</span>}
@@ -209,34 +218,58 @@ function ListItem({ l, icon, on, count, go, menu, ctx }: { l: { id: string; name
       menu={menu}
       onContext={(e) => ctx(e, menu)}
       onDropTasks={(ids) => void moveTasks(ids, { listId: l.id, sectionId: null, parentId: null, index: null }, `Moved to ${l.name}`)}
+      reorder={{
+        item: { kind: 'list', id: l.id },
+        // Lists reorder within their group (my lists, other projects).
+        onItem: (moving, pos) => {
+          const lists = useTodos.getState().snap?.lists ?? [];
+          if (lists.find((x) => x.id === moving)?.kind === l.kind) reorderLists(moving, l.id, pos);
+        },
+      }}
     />
   );
 }
 
-function Item({ icon, label, on, count, hot, title, onClick, menu, onContext, onDropTasks }: { icon: ReactNode; label: string; on: boolean; count?: number; hot?: boolean; title?: string; onClick(): void; menu?: MenuItemDef[]; onContext?(e: React.MouseEvent): void; onDropTasks?(ids: string[]): void }) {
-  const [over, setOver] = useState(false);
+function Item({
+  icon,
+  label,
+  on,
+  count,
+  hot,
+  title,
+  onClick,
+  menu,
+  onContext,
+  onDropTasks,
+  reorder,
+}: {
+  icon: ReactNode;
+  label: string;
+  on: boolean;
+  count?: number;
+  hot?: boolean;
+  title?: string;
+  onClick(): void;
+  menu?: MenuItemDef[];
+  onContext?(e: React.MouseEvent): void;
+  onDropTasks?(ids: string[]): void;
+  /** Drag to reorder among items of the same kind. */
+  reorder?: { item: DragItem; onItem(moving: string, pos: 'before' | 'after'): void };
+}) {
+  const zone = useDropZone(onDropTasks, reorder && { kind: reorder.item.kind, onItem: reorder.onItem });
   return (
     <div
-      className={clsx('td-nav-item', on && 'on', over && 'drop')}
+      className={clsx('td-nav-item', on && 'on', zone.over && (zone.over === 'into' ? 'drop' : `drop-${zone.over}`))}
       role="button"
       tabIndex={0}
       title={title ?? label}
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
       onContextMenu={onContext}
-      onDragOver={(e) => {
-        if (!onDropTasks || !useTodoUi.getState().drag) return;
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        const ids = useTodoUi.getState().drag;
-        useTodoUi.getState().set({ drag: null, drop: null });
-        if (ids?.length) onDropTasks?.(ids);
-      }}
+      draggable={!!reorder}
+      onDragStart={reorder ? (e) => beginDrag(e, { item: reorder.item }) : undefined}
+      onDragEnd={reorder ? endDrag : undefined}
+      {...zone.props}
     >
       {icon}
       <span className="truncate">{label}</span>

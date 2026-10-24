@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: app commands, folder pickers, opening links, revealing files and the in-app title bar (drag, minimize, maximize, close).",
+  "description": "Main window: app commands, folder pickers, opening links (http, https, mailto, tel — the scope `allow-open-url` needs), revealing files and the in-app title bar (drag, minimize, maximize, close).",
   "windows": [
     "main"
   ],
@@ -10,6 +10,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "opener:allow-open-url",
+    "opener:allow-default-urls",
     "opener:allow-reveal-item-in-dir",
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",

@@ -2,9 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { QuickToken, Snapshot, TaskView } from '@/lib/api/todos';
 import {
   addDays,
+  allLayout,
+  appDocument,
   attention,
   byDue,
+  classifyLink,
   colorVar,
+  compareBy,
+  halfOf,
+  isAbsolutePath,
+  joinPath,
+  navOrder,
+  reorderIds,
   dayHeading,
   dayLabel,
   daysBetween,
@@ -163,6 +172,43 @@ describe('views', () => {
     ]);
   });
 
+  it('sorts list rows by an attribute', () => {
+    const t = [
+      task({ id: 'b', content: 'beta', order: 0, priority: 3, createdAt: 2 }),
+      task({ id: 'a', content: 'Alpha 10', order: 1, priority: 1, createdAt: 1, due: { date: '2026-10-30' } }),
+      task({ id: 'c', content: 'alpha 9', order: 2, priority: 1, createdAt: 3, due: { date: '2026-10-24' } }),
+    ];
+    const ids = (s: Parameters<typeof compareBy>[0]) => treeRows(t, false, 4, s).map((r) => r.task.id);
+    expect(ids('manual')).toEqual(['b', 'a', 'c']);
+    expect(ids('due')).toEqual(['c', 'a', 'b']);
+    expect(ids('priority')).toEqual(['c', 'a', 'b']);
+    expect(ids('added')).toEqual(['c', 'b', 'a']);
+    expect(ids('name')).toEqual(['c', 'a', 'b']);
+  });
+
+  it('lays out All tasks by list in the left pane order', () => {
+    const snap = {
+      lists: [
+        { id: 'u2', name: 'Side', kind: 'user', order: 5 },
+        { id: 'P', name: 'Shop', kind: 'project', order: 9 },
+        { id: 'inbox', name: 'Inbox', kind: 'inbox', order: -1 },
+        { id: 'u1', name: 'Work', kind: 'user', order: 2 },
+        { id: 'Q', name: 'Other', kind: 'project', order: 1 },
+      ],
+      projectList: 'P',
+      sections: [{ id: 's', listId: 'u1', name: 'Later', order: 0 }],
+      tasks: [task({ id: 'w1', listId: 'u1', sectionId: 's' }), task({ id: 'w0', listId: 'u1' }), task({ id: 'i', listId: 'inbox' }), task({ id: 'p', listId: 'P' }), task({ id: 'd', listId: 'u2', done: true })],
+    } as unknown as Snapshot;
+    expect(navOrder(snap.lists, 'P').map((l) => l.id)).toEqual(['inbox', 'P', 'u1', 'u2', 'Q']);
+    const groups = allLayout(snap, false);
+    expect(groups.map((g) => [g.list.id, g.rows.map((r) => r.task.id), g.open])).toEqual([
+      ['inbox', ['i'], 1],
+      ['P', ['p'], 1],
+      ['u1', ['w0', 'w1'], 2],
+    ]);
+    expect(allLayout(snap, true).map((g) => g.list.id)).toContain('u2');
+  });
+
   it('searches content, description, labels and comments', () => {
     const t = [task({ id: 'a', content: 'Refund flow', labels: ['api'] }), task({ id: 'b', content: 'Docs', description: 'mention refund limits' }), task({ id: 'c', content: 'x', comments: [{ id: 'c', text: 'Refund done?', at: 0 }] })];
     expect(searchTasks(t, 'refund').map((x) => x.id)).toEqual(['a', 'b', 'c']);
@@ -186,6 +232,25 @@ describe('moving', () => {
     expect(dropTarget(t, c, 'child', ['a'])).toEqual({ listId: 'inbox', sectionId: null, parentId: 'c', index: null });
     const b2 = t.find((x) => x.id === 'b2')!;
     expect(dropTarget(t, b2, 'before', ['a'])).toEqual({ listId: 'inbox', sectionId: null, parentId: 'b', index: 1 });
+  });
+
+  it('drop positions are among open siblings (what Rust counts)', () => {
+    // Completed siblings stay in the data; the index must not count them.
+    const ts = [task({ id: 'a', order: 0 }), task({ id: 'x', order: 1, done: true }), task({ id: 'b', order: 2 }), task({ id: 'c', order: 3 })];
+    const b = ts.find((x) => x.id === 'b')!;
+    expect(dropTarget(ts, b, 'after', ['a'])).toEqual({ listId: 'inbox', sectionId: null, parentId: null, index: 1 });
+    expect(dropTarget(ts, b, 'before', ['c'])).toEqual({ listId: 'inbox', sectionId: null, parentId: null, index: 1 });
+  });
+
+  it('reorders ids before/after a target', () => {
+    expect(reorderIds(['a', 'b', 'c', 'd'], 'a', 'c', 'after')).toEqual(['b', 'c', 'a', 'd']);
+    expect(reorderIds(['a', 'b', 'c', 'd'], 'd', 'b', 'before')).toEqual(['a', 'd', 'b', 'c']);
+    expect(reorderIds(['a', 'b', 'c'], 'c', 'a', 'before')).toEqual(['c', 'a', 'b']);
+    expect(reorderIds(['a', 'b'], 'a', 'a', 'after')).toEqual(['a', 'b']);
+    expect(reorderIds(['a', 'b'], 'z', 'a', 'after')).toEqual(['a', 'b']);
+    expect(reorderIds(['a', 'b'], 'a', 'z', 'after')).toEqual(['a', 'b']);
+    expect(halfOf({ top: 10, height: 20 }, 15)).toBe('before');
+    expect(halfOf({ top: 10, height: 20 }, 25)).toBe('after');
   });
 
   it('indents and outdents', () => {
@@ -270,7 +335,7 @@ describe('quick add', () => {
 
 describe('misc', () => {
   it('round-trips view keys', () => {
-    for (const v of [{ kind: 'today' }, { kind: 'list', id: '01ABC' }, { kind: 'label', name: 'a:b' }, { kind: 'filter', id: 'F' }] as const) expect(parseViewKey(viewKey(v))).toEqual(v);
+    for (const v of [{ kind: 'today' }, { kind: 'all' }, { kind: 'list', id: '01ABC' }, { kind: 'label', name: 'a:b' }, { kind: 'filter', id: 'F' }] as const) expect(parseViewKey(viewKey(v))).toEqual(v);
     expect(parseViewKey('list:')).toBeNull();
     expect(parseViewKey('nope')).toBeNull();
   });
@@ -282,5 +347,39 @@ describe('misc', () => {
     expect(linkLabel('http/users/list.req.yaml')).toBe('users/list');
     expect(linkLabel('notes/design/auth.md')).toBe('design/auth');
     expect(linkLabel('https://example.com/x')).toBe('example.com/x');
+  });
+});
+
+describe('links', () => {
+  it('tells URLs, absolute paths and project paths apart', () => {
+    expect(classifyLink('https://github.com/a/b/pull/1')).toEqual({ kind: 'url', url: 'https://github.com/a/b/pull/1' });
+    expect(classifyLink('mailto:me@example.com')).toMatchObject({ kind: 'url' });
+    // Absolute paths, Windows and POSIX, are revealed as they are.
+    expect(classifyLink('C:\\Users\\me\\Downloads\\spec.pdf', 'D:\\work\\shop')).toEqual({ kind: 'file', path: 'C:\\Users\\me\\Downloads\\spec.pdf' });
+    expect(classifyLink('D:/logs/app.log')).toEqual({ kind: 'file', path: 'D:/logs/app.log' });
+    expect(classifyLink('\\\\server\\share\\x.txt')).toEqual({ kind: 'file', path: '\\\\server\\share\\x.txt' });
+    expect(classifyLink('/Users/me/notes.txt', '/work/shop')).toEqual({ kind: 'file', path: '/Users/me/notes.txt' });
+    expect(classifyLink('file:///C:/Users/me/a%20b.png')).toEqual({ kind: 'file', path: 'C:/Users/me/a b.png' });
+    expect(classifyLink('file:///home/me/x.md')).toEqual({ kind: 'file', path: '/home/me/x.md' });
+    // Project-relative paths resolve against the task's project root, with its separator.
+    expect(classifyLink('http/users/list.req.yaml', 'D:\\work\\shop')).toEqual({ kind: 'file', path: 'D:\\work\\shop\\http\\users\\list.req.yaml', rel: 'http/users/list.req.yaml' });
+    expect(classifyLink('/notes/design/auth.md', '/work/shop/')).toEqual({ kind: 'file', path: '/work/shop/notes/design/auth.md', rel: 'notes/design/auth.md' });
+    expect(classifyLink('./docs/readme.md', '/work/shop')).toEqual({ kind: 'file', path: '/work/shop/docs/readme.md', rel: 'docs/readme.md' });
+    expect(classifyLink('notes\\x.md', '/work/shop')).toMatchObject({ rel: 'notes/x.md' });
+    expect(classifyLink('notes/x.md')).toEqual({ kind: 'unresolved', rel: 'notes/x.md' });
+    expect(classifyLink('/notes/x.md')).toEqual({ kind: 'unresolved', rel: 'notes/x.md' });
+  });
+
+  it('finds documents /dev/all opens', () => {
+    expect(appDocument('http/users/list.req.yaml')).toEqual({ section: 'http', param: 'users/list.req.yaml' });
+    expect(appDocument('http/chat.ws.yaml')).toEqual({ section: 'http', param: 'chat.ws.yaml' });
+    expect(appDocument('notes/design/auth.md')).toEqual({ section: 'notes', param: 'design/auth.md' });
+    expect(appDocument('notes/lab.ipynb')).toEqual({ section: 'notes', param: 'lab.ipynb' });
+    expect(appDocument('mocks/mappings/a.json')).toBeUndefined();
+    expect(appDocument('http/_folder.yaml')).toBeUndefined();
+    expect(isAbsolutePath('C:\\x') && isAbsolutePath('/x') && isAbsolutePath('\\\\s\\x')).toBe(true);
+    expect(isAbsolutePath('http/x') || isAbsolutePath('C:x')).toBe(false);
+    expect(joinPath('C:\\a\\', 'b/./c.txt')).toBe('C:\\a\\b\\c.txt');
+    expect(joinPath('/a', 'b/c')).toBe('/a/b/c');
   });
 });

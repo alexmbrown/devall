@@ -191,7 +191,7 @@ impl DevallMcp {
             Tool::new("list_environments", "Environments with their non-secret variables, the names of their secrets (values are never returned) and whether they are protected.", empty()).annotate(ro("List environments")),
             Tool::new("list_mocks", "WireMock-compatible mock stubs in mocks/mappings: method, URL matcher, response status, priority and scenario.", empty()).annotate(ro("List mocks")),
             Tool::new("list_requests", "Saved requests in the project (path, name, method, protocol, folder). Paths are what read_request and send_request take.", empty()).annotate(ro("List saved requests")),
-            Tool::new("list_todos", "The user's personal to-do list for this project (stored outside the repo): tasks with priority (p1 most urgent), due date/time and recurrence, deadline, labels, section, sub-tasks, links and comments.", schema(json!({
+            Tool::new("list_todos", "The user's personal to-do list for this project (stored outside the repo): tasks with priority (p1 most urgent), due date/time and recurrence, deadline, labels, section, sub-tasks, links, attachment names (files kept on the user's machine) and comments.", schema(json!({
                 "type": "object",
                 "properties": {
                     "includeDone": { "type": "boolean", "description": "Also return completed items" },

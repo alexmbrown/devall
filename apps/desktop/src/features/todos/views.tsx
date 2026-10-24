@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Repeat, Rows3, Trash2, Undo2 } from 'lucide-react';
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, GripVertical, Hash, Inbox, MoreHorizontal, Pencil, Plus, Repeat, Rows3, Trash2, Undo2 } from 'lucide-react';
 import { Menu } from '@/components/ui/Menu';
 import { Empty, Spinner } from '@/components/ui/misc';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
-import { todosApi, type CompletedEntry, type Section, type TaskView } from '@/lib/api/todos';
+import { todosApi, type CompletedEntry, type Section, type TaskList, type TaskView } from '@/lib/api/todos';
 import { completeTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
-import { AddTask, InlineText, TaskRow } from './TaskRow';
-import { addDays, byDue, dayHeading, dayLabel, listLayout, parseYmd, searchTasks, startOfWeek, todayGroups, upcomingDays, weekDays, ymd, type Row } from './lib';
-import { useTodoUi } from './ui';
+import { AddTask, InlineText, TaskRow, type RowDrop } from './TaskRow';
+import { addDays, allLayout, byDue, colorVar, dayHeading, dayLabel, halfOf, listLayout, navOrder, parseYmd, reorderIds, searchTasks, startOfWeek, todayGroups, upcomingDays, weekDays, ymd, type Row, type ViewRef } from './lib';
+import { beginDrag, endDrag, useOptions, useTodoUi, type DragItem } from './ui';
 
 /** Publishes the view's row order (for j/k and Shift-click). */
-function useOrder(ids: string[]) {
+export function useOrder(ids: string[]) {
   const key = ids.join(',');
   useEffect(() => {
     useTodoUi.getState().set({ order: key ? key.split(',') : [] });
@@ -20,42 +20,90 @@ function useOrder(ids: string[]) {
 
 const flat = (tasks: TaskView[]): Row[] => tasks.map((task) => ({ task, depth: 0, open: 0, kids: 0 }));
 
-function Rows({ rows, showList, dueMode }: { rows: Row[]; showList?: boolean; dueMode?: 'full' | 'time' }) {
+function Rows({ rows, context, dueMode, drop }: { rows: Row[]; context?: 'list' | 'section'; dueMode?: 'full' | 'time'; drop?: RowDrop }) {
   return (
     <div className="td-rows">
       {rows.map((r) => (
-        <TaskRow key={r.task.id} row={r} showList={showList} dueMode={dueMode} />
+        <TaskRow key={r.task.id} row={r} context={context} dueMode={dueMode} drop={drop} />
       ))}
     </div>
   );
 }
 
-/** Dropping dragged tasks on a header: `onDrop(ids)`. */
-function useHeaderDrop(onDrop: (ids: string[]) => void) {
-  const [over, setOver] = useState(false);
+/**
+ * A drop target for dragged tasks (`onDrop(ids)`) and, optionally, for a dragged section/list
+ * (`item` + `onItem(moving, pos)`: reorder before/after this one).
+ */
+export function useDropZone(onDrop?: (ids: string[]) => void, item?: { kind: DragItem['kind']; onItem(moving: string, pos: 'before' | 'after'): void; axis?: 'x' | 'y' }) {
+  const [over, setOver] = useState<null | 'into' | 'before' | 'after'>(null);
+  const which = (e: React.DragEvent) => {
+    const ui = useTodoUi.getState();
+    if (ui.drag && onDrop) return 'into' as const;
+    if (ui.dragItem && item && ui.dragItem.kind === item.kind) {
+      const r = e.currentTarget.getBoundingClientRect();
+      return item.axis === 'x' ? halfOf({ top: r.left, height: r.width }, e.clientX) : halfOf(r, e.clientY);
+    }
+    return null;
+  };
   return {
     over,
     props: {
       onDragOver: (e: React.DragEvent) => {
-        if (!useTodoUi.getState().drag) return;
+        const w = which(e);
+        if (!w) return;
         e.preventDefault();
-        setOver(true);
+        e.stopPropagation();
+        if (w !== over) setOver(w);
       },
-      onDragLeave: () => setOver(false),
+      onDragLeave: (e: React.DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null);
+      },
       onDrop: (e: React.DragEvent) => {
+        const w = which(e);
+        setOver(null);
+        if (!w) return;
         e.preventDefault();
-        setOver(false);
-        const ids = useTodoUi.getState().drag;
-        useTodoUi.getState().set({ drag: null, drop: null });
-        if (ids?.length) onDrop(ids);
+        e.stopPropagation();
+        const { drag, dragItem } = useTodoUi.getState();
+        endDrag();
+        if (w === 'into' && drag?.length) onDrop?.(drag);
+        else if (dragItem && w !== 'into') item?.onItem(dragItem.id, w);
       },
     },
   };
 }
 
-function GroupHead({ children, className, drop, actions, collapsed, onToggle }: { children: ReactNode; className?: string; drop?: ReturnType<typeof useHeaderDrop>; actions?: ReactNode; collapsed?: boolean; onToggle?(): void }) {
+function GroupHead({
+  children,
+  className,
+  drop,
+  actions,
+  collapsed,
+  onToggle,
+  dragItem,
+}: {
+  children: ReactNode;
+  className?: string;
+  drop?: ReturnType<typeof useDropZone>;
+  actions?: ReactNode;
+  collapsed?: boolean;
+  onToggle?(): void;
+  /** Makes the header draggable (reordering sections). */
+  dragItem?: DragItem;
+}) {
   return (
-    <div className={clsx('td-group-head', className, drop?.over && 'drop')} {...drop?.props}>
+    <div
+      className={clsx('td-group-head', className, drop?.over && `drop-${drop.over}`, dragItem && 'draggable')}
+      {...drop?.props}
+      draggable={!!dragItem}
+      onDragStart={dragItem ? (e) => beginDrag(e, { item: dragItem }) : undefined}
+      onDragEnd={dragItem ? endDrag : undefined}
+    >
+      {dragItem && (
+        <span className="td-grip" aria-hidden>
+          <GripVertical />
+        </span>
+      )}
       {onToggle && (
         <button className={clsx('td-caret', collapsed && 'closed')} onClick={onToggle} aria-label={collapsed ? 'Expand' : 'Collapse'}>
           <ChevronDown />
@@ -67,17 +115,63 @@ function GroupHead({ children, className, drop, actions, collapsed, onToggle }: 
   );
 }
 
-function SectionBlock({ section, rows, open, listId }: { section: Section; rows: Row[]; open: number; listId: string }) {
-  const apply = useTodos((s) => s.apply);
-  const drop = useHeaderDrop((ids) => void moveTasks(ids, { listId, sectionId: section.id, parentId: null, index: 0 }, `Moved to ${section.name}`));
+/** Reorders the list's sections: `moving` before/after `target`. */
+export function reorderSections(listId: string, moving: string, target: string, pos: 'before' | 'after') {
+  const snap = useTodos.getState().snap;
+  const ids = (snap?.sections ?? [])
+    .filter((s) => s.listId === listId)
+    .sort((a, b) => a.order - b.order)
+    .map((s) => s.id);
+  const next = reorderIds(ids, moving, target, pos);
+  if (next.join() !== ids.join()) void useTodos.getState().apply({ type: 'reorderSections', ids: next });
+}
+
+/** Reorders lists (board columns grouped by list, the left pane): `moving` before/after `target`. */
+export function reorderLists(moving: string, target: string, pos: 'before' | 'after') {
+  const snap = useTodos.getState().snap;
+  if (!snap) return;
+  const ids = navOrder(snap.lists, snap.projectList).map((l) => l.id);
+  const next = reorderIds(ids, moving, target, pos);
+  if (next.join() !== ids.join()) void useTodos.getState().apply({ type: 'reorderLists', ids: next });
+}
+
+/** Section actions (rename, delete) shared by list sections and board columns. */
+export function sectionMenu(section: Section, count: number) {
+  const apply = useTodos.getState().apply;
   const rename = async () => {
     const name = await promptDialog({ title: 'Rename section', initial: section.name, confirmText: 'Rename' });
-    if (name?.trim()) void apply({ type: 'saveSection', id: section.id, listId, name });
+    if (name?.trim()) void apply({ type: 'saveSection', id: section.id, listId: section.listId, name });
   };
+  return {
+    rename,
+    items: [
+      { label: 'Rename section…', icon: <Pencil />, onSelect: rename },
+      {
+        label: 'Delete section…',
+        icon: <Trash2 />,
+        danger: true,
+        onSelect: async () => {
+          if (await confirmDialog({ title: `Delete “${section.name}”?`, message: count ? `Its ${count} task${count === 1 ? '' : 's'} will be deleted too.` : undefined, confirmText: 'Delete', danger: true }))
+            void apply({ type: 'deleteSection', id: section.id }, `Deleted section ${section.name}`);
+        },
+      },
+    ],
+  };
+}
+
+/** Moves tasks to the top or the end of a list's slot (no section = `sectionId` null). */
+const moveToSlot = (listId: string, sectionId: string | null, label: string, at: 'top' | 'end' = 'end') => (ids: string[]) =>
+  void moveTasks(ids, { listId, sectionId, parentId: null, index: at === 'top' ? 0 : null }, `Moved to ${label}`);
+
+function SectionBlock({ section, rows, open, listId, drop }: { section: Section; rows: Row[]; open: number; listId: string; drop?: RowDrop }) {
+  const apply = useTodos((s) => s.apply);
+  const zone = useDropZone(moveToSlot(listId, section.id, section.name, 'top'), { kind: 'section', onItem: (moving, pos) => reorderSections(listId, moving, section.id, pos) });
+  const menu = sectionMenu(section, rows.length);
   return (
     <div className="td-group">
       <GroupHead
-        drop={drop}
+        drop={zone}
+        dragItem={{ kind: 'section', id: section.id }}
         collapsed={section.collapsed}
         onToggle={() => void apply({ type: 'saveSection', id: section.id, listId, name: '', collapsed: !section.collapsed })}
         actions={
@@ -87,19 +181,7 @@ function SectionBlock({ section, rows, open, listId }: { section: Section; rows:
             </button>
             <Menu
               align="right"
-              items={[
-                { label: 'Rename section…', icon: <Pencil />, onSelect: rename },
-                {
-                  label: 'Delete section…',
-                  icon: <Trash2 />,
-                  danger: true,
-                  onSelect: async () => {
-                    const n = rows.length;
-                    if (await confirmDialog({ title: `Delete “${section.name}”?`, message: n ? `Its ${n} task${n === 1 ? '' : 's'} will be deleted too.` : undefined, confirmText: 'Delete', danger: true }))
-                      void apply({ type: 'deleteSection', id: section.id }, `Deleted section ${section.name}`);
-                  },
-                },
-              ]}
+              items={menu.items}
               trigger={(p) => (
                 <button className="icon-btn sm" {...p} aria-label="Section actions">
                   <MoreHorizontal />
@@ -109,32 +191,75 @@ function SectionBlock({ section, rows, open, listId }: { section: Section; rows:
           </>
         }
       >
-        <span onDoubleClick={rename}>{section.name}</span>
+        <span className="truncate" onDoubleClick={menu.rename}>
+          {section.name}
+        </span>
         <span className="count">{open || ''}</span>
       </GroupHead>
       {!section.collapsed && (
         <>
-          <Rows rows={rows} />
-          <AddTask slot={`list:${listId}:${section.id}`} defaults={{ listId, sectionId: section.id }} />
+          <Rows rows={rows} drop={drop} />
+          <AddTask slot={`list:${listId}:${section.id}`} defaults={{ listId, sectionId: section.id }} onDropTasks={moveToSlot(listId, section.id, section.name)} />
         </>
       )}
     </div>
   );
 }
 
-export function ListView({ listId }: { listId: string }) {
-  const snap = useTodos((s) => s.snap)!;
+/** "+ Add section" under a list (or as the last board column). */
+export function AddSection({ listId, className }: { listId: string; className?: string }) {
   const apply = useTodos((s) => s.apply);
-  const showDone = useTodoUi((s) => s.showDone);
-  const layout = useMemo(() => listLayout(snap, listId, showDone), [snap, listId, showDone]);
-  useOrder([...layout.rows, ...layout.sections.flatMap((s) => (s.section.collapsed ? [] : s.rows))].map((r) => r.task.id));
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
+  if (!adding)
+    return (
+      <button className={clsx('td-add-btn', className)} onClick={() => setAdding(true)}>
+        <Rows3 /> Add section
+      </button>
+    );
+  const save = () => {
+    if (name.trim()) void apply({ type: 'saveSection', listId, name });
+    setName('');
+    setAdding(false);
+  };
+  return (
+    <div className={clsx('row-sm td-add-section', className)}>
+      <input
+        className="input sm grow"
+        autoFocus
+        placeholder="Section name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') save();
+          if (e.key === 'Escape') setAdding(false);
+        }}
+      />
+      <button className="btn btn-sm btn-primary" disabled={!name.trim()} onClick={save}>
+        Add
+      </button>
+      <button className="btn btn-sm btn-ghost" onClick={() => setAdding(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+export function ListView({ listId, view }: { listId: string; view: ViewRef }) {
+  const snap = useTodos((s) => s.snap)!;
+  const showDone = useTodoUi((s) => s.showDone);
+  const { sort } = useOptions(view);
+  const layout = useMemo(() => listLayout(snap, listId, showDone, sort), [snap, listId, showDone, sort]);
+  useOrder([...layout.rows, ...layout.sections.flatMap((s) => (s.section.collapsed ? [] : s.rows))].map((r) => r.task.id));
+  // Sorted by an attribute: positions don't apply, so rows aren't drop targets (headers still are).
+  const drop: RowDrop | undefined = sort === 'manual' ? 'tree' : undefined;
   const empty = !layout.rows.length && !layout.sections.length;
+  const name = snap.lists.find((l) => l.id === listId)?.name ?? 'list';
   return (
     <div className="td-col">
-      <Rows rows={layout.rows} />
-      <AddTask slot={`list:${listId}:`} defaults={{ listId }} />
+      <Rows rows={layout.rows} drop={drop} />
+      <AddTask slot={`list:${listId}:`} defaults={{ listId }} onDropTasks={moveToSlot(listId, null, name)} />
       {empty && !showDone && (
         <div className="td-empty">
           <Empty icon={<CheckCircle2 />} title="All clear">
@@ -144,38 +269,55 @@ export function ListView({ listId }: { listId: string }) {
         </div>
       )}
       {layout.sections.map((s) => (
-        <SectionBlock key={s.section.id} section={s.section} rows={s.rows} open={s.open} listId={listId} />
+        <SectionBlock key={s.section.id} section={s.section} rows={s.rows} open={s.open} listId={listId} drop={drop} />
       ))}
-      <div style={{ marginTop: 'var(--space-6)' }}>
-        {adding ? (
-          <div className="row-sm">
-            <input
-              className="input sm"
-              autoFocus
-              placeholder="Section name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === 'Enter' && name.trim()) {
-                  void apply({ type: 'saveSection', listId, name });
-                  setName('');
-                  setAdding(false);
-                }
-                if (e.key === 'Escape') setAdding(false);
-              }}
-              style={{ maxWidth: 320 }}
-            />
-            <button className="btn btn-sm btn-ghost" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button className="td-add-btn" onClick={() => setAdding(true)}>
-            <Rows3 /> Add section
-          </button>
-        )}
+      <div className="td-after-sections">
+        <AddSection listId={listId} />
       </div>
+    </div>
+  );
+}
+
+function ListGroup({ list, rows, open, drop }: { list: TaskList; rows: Row[]; open: number; drop?: RowDrop }) {
+  const zone = useDropZone(moveToSlot(list.id, null, list.name));
+  const icon = list.kind === 'inbox' ? <Inbox /> : list.kind === 'project' ? <FolderKanban /> : <Hash />;
+  return (
+    <div className="td-group">
+      <GroupHead drop={zone}>
+        <span className="td-group-icon" style={{ color: colorVar(list.color) }}>
+          {icon}
+        </span>
+        <button className="td-group-link truncate" onClick={() => useTodos.getState().setView(list.kind === 'inbox' ? { kind: 'inbox' } : { kind: 'list', id: list.id })} title={`Open ${list.name}`}>
+          {list.name}
+        </button>
+        <span className="count">{open || ''}</span>
+      </GroupHead>
+      <Rows rows={rows} context="section" drop={drop} />
+    </div>
+  );
+}
+
+/** Every task of every list, grouped by list (left-pane order). */
+export function AllTasksView({ view }: { view: ViewRef }) {
+  const snap = useTodos((s) => s.snap)!;
+  const showDone = useTodoUi((s) => s.showDone);
+  const { sort } = useOptions(view);
+  const groups = useMemo(() => allLayout(snap, showDone, sort), [snap, showDone, sort]);
+  useOrder(groups.flatMap((g) => g.rows.map((r) => r.task.id)));
+  const drop: RowDrop | undefined = sort === 'manual' ? 'tree' : undefined;
+  return (
+    <div className="td-col">
+      {groups.map((g) => (
+        <ListGroup key={g.list.id} list={g.list} rows={g.rows} open={g.open} drop={drop} />
+      ))}
+      <AddTask slot="all" defaults={{ listId: snap.projectList ?? 'inbox' }} />
+      {!groups.length && (
+        <div className="td-empty">
+          <Empty icon={<CheckCircle2 />} title={showDone ? 'No tasks yet' : 'No open tasks'}>
+            Everything is done — or add a task with <kbd className="kbd">Q</kbd>.
+          </Empty>
+        </div>
+      )}
     </div>
   );
 }
@@ -188,13 +330,25 @@ function RescheduleButton({ ids, today }: { ids: string[]; today: string }) {
   );
 }
 
+/** Rows of date views: dropping tasks on them reschedules to `date` (tasks already on that day stay as they are). */
+const toDay = (date: string, today: string): RowDrop => ({
+  onDrop: (ids) => {
+    const tasks = useTodos.getState().snap?.tasks ?? [];
+    const change = ids.filter((id) => {
+      const t = tasks.find((x) => x.id === id);
+      return t && (t.dueLocal ?? t.due?.date) !== date;
+    });
+    if (change.length) void updateTasks(change, { dueDate: date }, `Moved to ${dayLabel(date, today)}`);
+  },
+});
+
 export function TodayView() {
   const snap = useTodos((s) => s.snap)!;
   const today = snap.today;
   const g = useMemo(() => todayGroups(snap.tasks, today), [snap, today]);
   const [showOverdue, setShowOverdue] = useState(true);
   useOrder([...(showOverdue ? g.overdue : []), ...g.today].map((t) => t.id));
-  const dropToday = useHeaderDrop((ids) => void updateTasks(ids, { dueDate: today }, 'Moved to today'));
+  const dropToday = useDropZone((ids) => void updateTasks(ids, { dueDate: today }, 'Moved to today'));
   return (
     <div className="td-col">
       {g.overdue.length > 0 && (
@@ -202,14 +356,14 @@ export function TodayView() {
           <GroupHead className="overdue" collapsed={!showOverdue} onToggle={() => setShowOverdue(!showOverdue)} actions={<RescheduleButton ids={g.overdue.map((t) => t.id)} today={today} />}>
             Overdue <span className="count">{g.overdue.length}</span>
           </GroupHead>
-          {showOverdue && <Rows rows={flat(g.overdue)} showList />}
+          {showOverdue && <Rows rows={flat(g.overdue)} context="list" />}
         </div>
       )}
       <div className="td-group">
         <GroupHead drop={dropToday}>
           {dayHeading(today, today)} <span className="count">{g.today.length || ''}</span>
         </GroupHead>
-        <Rows rows={flat(g.today)} showList dueMode="time" />
+        <Rows rows={flat(g.today)} context="list" dueMode="time" drop={toDay(today, today)} />
         <AddTask slot="today" defaults={{ due: { date: today }, listId: snap.projectList ?? 'inbox' }} />
       </div>
       {!g.overdue.length && !g.today.length && (
@@ -224,13 +378,13 @@ export function TodayView() {
 }
 
 function DayGroup({ date, tasks, today }: { date: string; tasks: TaskView[]; today: string }) {
-  const drop = useHeaderDrop((ids) => void updateTasks(ids, { dueDate: date }, `Moved to ${dayLabel(date, today)}`));
+  const drop = useDropZone((ids) => void updateTasks(ids, { dueDate: date }, `Moved to ${dayLabel(date, today)}`));
   return (
     <div className="td-group" id={`td-day-${date}`}>
       <GroupHead drop={drop} className={clsx(!tasks.length && 'empty-day')}>
         {dayHeading(date, today)} <span className="count">{tasks.length || ''}</span>
       </GroupHead>
-      <Rows rows={flat(tasks)} showList dueMode="time" />
+      <Rows rows={flat(tasks)} context="list" dueMode="time" drop={toDay(date, today)} />
       <AddTask slot={`day:${date}`} defaults={{ due: { date } }} />
     </div>
   );
@@ -242,8 +396,8 @@ function WeekStrip({ start, setStart, today, counts }: { start: string; setStart
       {weekDays(start).map((d) => (
         <WeekDay key={d} d={d} today={today} count={counts.get(d) ?? 0} />
       ))}
-      <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-        <span className="small strong grow">{parseYmd(start).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+      <div className="td-week-nav">
+        <span className="small strong grow truncate">{parseYmd(start).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
         <button className="icon-btn sm" onClick={() => setStart(addDays(start, -7))} aria-label="Previous week" disabled={start <= startOfWeek(today)}>
           <ChevronLeft />
         </button>
@@ -259,7 +413,7 @@ function WeekStrip({ start, setStart, today, counts }: { start: string; setStart
 }
 
 function WeekDay({ d, today, count }: { d: string; today: string; count: number }) {
-  const drop = useHeaderDrop((ids) => void updateTasks(ids, { dueDate: d }, `Moved to ${dayLabel(d, today)}`));
+  const drop = useDropZone((ids) => void updateTasks(ids, { dueDate: d }, `Moved to ${dayLabel(d, today)}`));
   return (
     <button className={clsx('td-day', d === today && 'today', d < today && 'past', drop.over && 'drop')} {...drop.props} onClick={() => document.getElementById(`td-day-${d}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })} title={dayHeading(d, today)}>
       <span>{parseYmd(d).toLocaleDateString(undefined, { weekday: 'short' })}</span>
@@ -294,7 +448,7 @@ export function UpcomingView() {
           <GroupHead className="overdue" actions={<RescheduleButton ids={data.overdue.map((t) => t.id)} today={today} />}>
             Overdue <span className="count">{data.overdue.length}</span>
           </GroupHead>
-          <Rows rows={flat(data.overdue)} showList />
+          <Rows rows={flat(data.overdue)} context="list" />
         </div>
       )}
       {data.days.map((d) => (
@@ -313,7 +467,7 @@ export function LabelView({ name }: { name: string }) {
   useOrder(tasks.map((t) => t.id));
   return (
     <div className="td-col">
-      <Rows rows={flat(tasks)} showList />
+      <Rows rows={flat(tasks)} context="list" />
       <AddTask slot={`label:${name}`} defaults={{ labels: [name], listId: snap.projectList ?? 'inbox' }} />
       {!tasks.length && <div className="td-hint">No open tasks with @{name}.</div>}
     </div>
@@ -327,17 +481,17 @@ export function FilterResults({ id }: { id: string }) {
   const groups = useMemo(() => (f?.groups ?? []).map((g) => ({ title: g.title, tasks: g.ids.map((i) => byId.get(i)).filter((t): t is TaskView => !!t) })), [f, byId]);
   useOrder(groups.flatMap((g) => g.tasks.map((t) => t.id)));
   if (!f) return null;
-  if (f.error) return <div className="callout danger">{f.error}</div>;
+  if (f.error) return <div className="callout danger td-callout">{f.error}</div>;
   return (
     <div className="td-col">
       {groups.map((g, i) => (
         <div key={i} className="td-group">
           {groups.length > 1 && (
             <GroupHead>
-              <span className="mono">{g.title}</span> <span className="count">{g.tasks.length}</span>
+              <span className="mono truncate">{g.title}</span> <span className="count">{g.tasks.length}</span>
             </GroupHead>
           )}
-          <Rows rows={flat(g.tasks)} showList />
+          <Rows rows={flat(g.tasks)} context="list" />
           {!g.tasks.length && <div className="td-hint">Nothing matches.</div>}
         </div>
       ))}
@@ -351,7 +505,7 @@ export function SearchResults({ q }: { q: string }) {
   useOrder(tasks.map((t) => t.id));
   return (
     <div className="td-col">
-      <Rows rows={flat(tasks)} showList />
+      <Rows rows={flat(tasks)} context="list" />
       {!tasks.length && <div className="td-hint">No tasks match “{q}”. Completed tasks older than a week are in Completed.</div>}
     </div>
   );
@@ -406,8 +560,10 @@ export function CompletedView() {
                     </span>
                     <div className="td-meta">
                       <span>{new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
-                      {e.recurring && e.occurrence && <span>occurrence of {dayLabel(e.occurrence, snap.today)}</span>}
-                      <span className="td-listname">{l?.name}</span>
+                      {e.recurring && e.occurrence && <span className="truncate">occurrence of {dayLabel(e.occurrence, snap.today)}</span>}
+                      <span className="td-listname">
+                        <span className="truncate">{l?.name}</span>
+                      </span>
                     </div>
                   </div>
                   {canUndo && (
@@ -436,4 +592,3 @@ export function CompletedView() {
     </div>
   );
 }
-

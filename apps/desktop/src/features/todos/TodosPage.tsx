@@ -1,14 +1,17 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Eye, EyeOff, Filter, FolderKanban, Hash, Inbox, Keyboard, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Eye, EyeOff, Filter, FolderKanban, Hash, Inbox, Keyboard, List, ListChecks, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, SquareKanban, Trash2, X } from 'lucide-react';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
-import { Spinner } from '@/components/ui/misc';
+import { Segmented, Spinner } from '@/components/ui/misc';
 import { confirmDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { AiAssistButton } from '@/features/ai';
 import type { NewTask, Snapshot } from '@/lib/api/todos';
 import { useViewLabel } from '@/store/nav';
+import { TODO_DETAIL, usePrefs } from '@/store/prefs';
 import { addTask, completeTasks, deleteTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
+import { BoardView } from './Board';
+import { canBoard, GROUP_LABELS, groupChoices } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { openQuickAdd } from './QuickAddDialog';
 import { TaskDetail } from './TaskDetail';
@@ -16,9 +19,9 @@ import { TodoNav } from './TodoNav';
 import { openTodoDialog, TodoDialogs } from './dialogs';
 import { LabelPicker, MovePicker, priorityItems } from './pickers';
 import { usePopover } from './Popover';
-import { addDays, colorVar, indentTarget, keyAction, moveCursor, openCount, outdentTarget, viewKey, type ViewRef } from './lib';
-import { targets, useTodoUi } from './ui';
-import { CompletedView, FilterResults, LabelView, ListView, SearchResults, TodayView, UpcomingView } from './views';
+import { addDays, colorVar, indentTarget, keyAction, moveCursor, openCount, outdentTarget, SORTS, viewKey, type ViewRef } from './lib';
+import { targets, useOptions, useTodoUi, useViewOptions } from './ui';
+import { AllTasksView, CompletedView, FilterResults, LabelView, ListView, SearchResults, TodayView, UpcomingView } from './views';
 import './todos.css';
 
 /** Defaults for a task added from a view (quick add `Q`, AI suggestions). */
@@ -37,15 +40,57 @@ function defaultsFor(view: ViewRef, snap: Snapshot): Omit<NewTask, 'text'> {
   }
 }
 
-function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
+/** Layout (list / board), board grouping, sort and "show completed" for the current view. */
+function ViewControls({ view, sortable, completable }: { view: ViewRef; sortable: boolean; completable: boolean }) {
+  const opts = useOptions(view);
+  const setOpts = useViewOptions((s) => s.set);
   const showDone = useTodoUi((s) => s.showDone);
-  const search = useTodoUi((s) => s.search);
   const setUi = useTodoUi((s) => s.set);
+  const board = opts.layout === 'board';
+  const check = (on: boolean) => (on ? '✓' : undefined);
+  const items: MenuItemDef[] = [
+    { heading: 'Layout' },
+    { label: 'List', icon: <List />, hint: check(!board), onSelect: () => setOpts(view, { layout: 'list' }) },
+    { label: 'Board', icon: <SquareKanban />, hint: check(board), onSelect: () => setOpts(view, { layout: 'board' }) },
+    ...(board ? [{ separator: true }, { heading: 'Group by' }, ...groupChoices(view).map((g) => ({ label: GROUP_LABELS[g], hint: check(opts.groupBy === g), onSelect: () => setOpts(view, { groupBy: g }) }))] : []),
+    ...(sortable ? [{ separator: true }, { heading: 'Sort by' }, ...SORTS.map((o) => ({ label: o.label, hint: check(opts.sort === o.value), onSelect: () => setOpts(view, { sort: o.value }) }))] : []),
+    ...(completable ? [{ separator: true }, { label: showDone ? 'Hide completed tasks' : 'Show completed tasks', icon: showDone ? <EyeOff /> : <Eye />, onSelect: () => setUi({ showDone: !showDone }) }] : []),
+  ];
+  return (
+    <>
+      {completable && (
+        <button className={showDone ? 'icon-btn active' : 'icon-btn'} onClick={() => setUi({ showDone: !showDone })} title={showDone ? 'Hide completed' : 'Show completed'} aria-label="Show completed">
+          {showDone ? <EyeOff /> : <Eye />}
+        </button>
+      )}
+      <Segmented
+        className="td-layout-toggle"
+        value={opts.layout}
+        onChange={(layout) => setOpts(view, { layout })}
+        options={[
+          { value: 'list', label: <List />, title: 'List' },
+          { value: 'board', label: <SquareKanban />, title: 'Board' },
+        ]}
+      />
+      <Menu
+        align="right"
+        items={items}
+        trigger={(p) => (
+          <button className="icon-btn" {...p} title="View options" aria-label="View options">
+            <SlidersHorizontal />
+          </button>
+        )}
+      />
+    </>
+  );
+}
+
+function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
+  const search = useTodoUi((s) => s.search);
   const apply = useTodos((s) => s.apply);
   let icon: ReactNode = <Inbox />;
   let title = 'Inbox';
   let sub: ReactNode = null;
-  const extra: ReactNode[] = [];
   const menu: MenuItemDef[] = [];
   const list = view.kind === 'list' ? snap.lists.find((l) => l.id === view.id) : view.kind === 'inbox' ? snap.lists.find((l) => l.kind === 'inbox') : undefined;
   if (search.trim()) {
@@ -56,11 +101,6 @@ function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
     title = list.name;
     const n = openCount(snap.tasks, (t) => t.listId === list.id);
     sub = `${n} open${list.kind === 'project' ? ' · personal list for this project' : ''}`;
-    extra.push(
-      <button key="done" className={showDone ? 'icon-btn active' : 'icon-btn'} onClick={() => setUi({ showDone: !showDone })} title={showDone ? 'Hide completed' : 'Show completed'} aria-label="Show completed">
-        {showDone ? <EyeOff /> : <Eye />}
-      </button>,
-    );
     menu.push(
       { label: list.kind === 'user' ? 'Edit list…' : 'Colour…', icon: <Pencil />, onSelect: () => openTodoDialog({ kind: 'list', id: list.id }) },
       {
@@ -76,6 +116,10 @@ function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
     icon = <CalendarDays />;
     title = 'Today';
     sub = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  } else if (view.kind === 'all') {
+    icon = <ListChecks />;
+    title = 'All tasks';
+    sub = `${openCount(snap.tasks, () => true)} open in ${snap.lists.length} list${snap.lists.length === 1 ? '' : 's'}`;
   } else if (view.kind === 'upcoming') {
     icon = <CalendarRange />;
     title = 'Upcoming';
@@ -119,7 +163,7 @@ function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
       </h1>
       {sub && <span className="td-sub truncate">{sub}</span>}
       <span className="spacer" />
-      {extra}
+      {!search.trim() && canBoard(view) && <ViewControls view={view} sortable={!!list || view.kind === 'all'} completable={!!list || view.kind === 'all'} />}
       <AiAssistButton
         feature="todosFromText"
         align="right"
@@ -205,9 +249,11 @@ function BulkBar() {
 function Content({ view }: { view: ViewRef }) {
   switch (view.kind) {
     case 'inbox':
-      return <ListView listId="inbox" />;
+      return <ListView listId="inbox" view={view} />;
     case 'list':
-      return <ListView listId={view.id} />;
+      return <ListView listId={view.id} view={view} />;
+    case 'all':
+      return <AllTasksView view={view} />;
     case 'today':
       return <TodayView />;
     case 'upcoming':
@@ -223,15 +269,33 @@ function Content({ view }: { view: ViewRef }) {
 
 function focusRow(id: string | null) {
   if (!id) return;
-  const el = document.querySelector<HTMLElement>(`.td-row[data-task="${CSS.escape(id)}"]`);
+  const el = document.querySelector<HTMLElement>(`.td-root [data-task="${CSS.escape(id)}"]`);
   el?.focus({ preventScroll: true });
   el?.scrollIntoView({ block: 'nearest' });
 }
 
+/** Room the left pane and a usable list need next to a docked detail panel (px). */
+const DOCK_REST = 700;
+
+/** The element's width, kept current. */
+function useWidth(ref: React.RefObject<HTMLElement | null>, ready: boolean): number {
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el);
+    setW(el.clientWidth);
+    return () => ro.disconnect();
+  }, [ref, ready]);
+  return w;
+}
+
 /**
- * Personal to-dos, Todoist style: Inbox, Today, Upcoming, lists with sections, labels, saved
- * filters, quick add with natural language, sub-tasks, recurring tasks and reminders. Data lives in
- * the app data folder (`todos/todos.json`), never in the repository.
+ * Personal to-dos, Todoist style: Inbox, Today, Upcoming, All tasks, lists with sections (list or
+ * board layout), labels, saved filters, quick add with natural language, sub-tasks, recurring
+ * tasks, attachments and reminders. Data lives in the app data folder (`todos/todos.json`, files in
+ * `todos/attachments/`), never in the repository.
  */
 export default function TodosPage() {
   const project = useWorkspace((s) => s.project);
@@ -242,6 +306,8 @@ export default function TodosPage() {
   const quickAdd = useTodoUi((s) => s.quickAdd);
   const page = useRef<HTMLDivElement>(null);
   const lastG = useRef(0);
+  const opts = useOptions(view ?? { kind: 'today' });
+  const detailPref = usePrefs((s) => s.todoDetailWidth);
 
   useEffect(() => {
     const root = project?.root ?? null;
@@ -249,6 +315,7 @@ export default function TodosPage() {
     if (root !== st.root || !st.snap) void st.load(root);
   }, [project?.root]);
   const ready = !!snap && !!view;
+  const width = useWidth(page, ready);
   useEffect(() => {
     if (ready && !page.current?.contains(document.activeElement)) page.current?.focus({ preventScroll: true });
   }, [ready]);
@@ -356,15 +423,32 @@ export default function TodosPage() {
       </div>
     );
   }
+  const board = !search.trim() && opts.layout === 'board' && canBoard(view);
+  // Dock the detail panel when there's room next to it, else float it over the list.
+  const dockMax = width - DOCK_REST;
+  const overlay = !!width && dockMax < Math.min(detailPref, TODO_DETAIL.default);
+  const detailMax = overlay ? Math.floor(width * 0.92) : dockMax;
   return (
-    <div ref={page} className="split td-root" tabIndex={-1} onKeyDown={onKey}>
+    <div
+      ref={page}
+      className="split td-root"
+      tabIndex={-1}
+      onKeyDown={onKey}
+      // Files dropped outside the detail panel must not make the webview open them.
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'none';
+      }}
+      onDrop={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
+    >
       <TodoNav />
       <div className="pane fill td-main">
         <Header view={view} snap={snap} />
-        <div className="td-body">{search.trim() ? <SearchResults q={search} /> : <Content view={view} />}</div>
+        <div className={board ? 'td-body board' : 'td-body'}>{search.trim() ? <SearchResults q={search} /> : board ? <BoardView view={view} /> : <Content view={view} />}</div>
         <BulkBar />
       </div>
-      {openId && <TaskDetail />}
+      {openId && <TaskDetail overlay={overlay} maxWidth={detailMax} />}
       <TodoDialogs />
     </div>
   );

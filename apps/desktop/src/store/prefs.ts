@@ -9,6 +9,8 @@ export type ReqLayout = 'auto' | 'columns' | 'rows';
 
 /** Shared width of every page's left list/tree pane (`SidePane`). */
 export const SIDE_PANE = { min: 240, default: 280, max: 560 } as const;
+/** Width of the to-do detail panel (right side). */
+export const TODO_DETAIL = { min: 320, default: 420, max: 900 } as const;
 
 interface PrefsState {
   theme: Theme;
@@ -24,6 +26,8 @@ interface PrefsState {
   /** Height of the request pane when stacked above the response. */
   requestPaneHeight: number;
   reqLayout: ReqLayout;
+  /** Width of the to-do detail panel. */
+  todoDetailWidth: number;
   /** Save request edits to disk automatically (debounced). */
   autoSave: boolean;
   /** Last opened project root, reopened on launch. */
@@ -49,6 +53,7 @@ export const usePrefs = create<PrefsState>()(
       requestPaneWidth: 560,
       requestPaneHeight: 320,
       reqLayout: 'auto',
+      todoDetailWidth: TODO_DETAIL.default,
       autoSave: true,
       lastProject: null,
       activeEnv: {},
@@ -70,7 +75,8 @@ export const usePrefs = create<PrefsState>()(
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<PrefsState>;
         const width = typeof p.sidePaneWidth === 'number' ? Math.min(SIDE_PANE.max, Math.max(SIDE_PANE.min, p.sidePaneWidth)) : current.sidePaneWidth;
-        return { ...current, ...p, sidePaneWidth: width, sidebar: normalizeSidebar(p.sidebar) };
+        const detail = typeof p.todoDetailWidth === 'number' ? Math.min(TODO_DETAIL.max, Math.max(TODO_DETAIL.min, p.todoDetailWidth)) : current.todoDetailWidth;
+        return { ...current, ...p, sidePaneWidth: width, todoDetailWidth: detail, sidebar: normalizeSidebar(p.sidebar) };
       },
     },
   ),

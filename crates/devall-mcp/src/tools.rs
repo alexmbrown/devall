@@ -165,6 +165,7 @@ pub fn list_todos(ctx: &Ctx, include_done: bool, filter: Option<&str>) -> Result
                 "parentId": t.parent_id,
                 "depth": depth,
                 "links": t.links,
+                "attachments": t.attachments.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
                 "comments": t.comments.iter().map(|c| json!({ "text": c.text, "at": c.at })).collect::<Vec<_>>(),
                 "completedAt": t.completed_at,
             })

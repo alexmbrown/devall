@@ -74,7 +74,7 @@ function WebhooksView({ root }: { root: string }) {
     if (param && inboxes?.some((i) => i.id === param)) setFilter(param);
   }, [param, inboxes, setFilter]);
   const filtered = inboxes?.find((i) => i.id === filter);
-  useViewLabel(filter === ALL ? null : filter === '' ? 'Unrouted webhooks' : inboxes ? (filtered ? (filtered.file?.name ?? filtered.id) : null) : undefined);
+  useViewLabel(filter === ALL ? null : filter === '' ? 'Unrouted' : inboxes ? (filtered ? (filtered.file?.name ?? filtered.id) : null) : undefined);
   const running = !!status?.running;
   const tunnelCount = Object.values(tunnels).filter((t) => t.state === 'online' || t.state === 'starting').length;
 

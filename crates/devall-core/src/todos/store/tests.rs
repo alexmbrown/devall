@@ -217,6 +217,38 @@ fn moving_indenting_and_cycles() {
     assert_eq!(s.task(&c).unwrap().section_id, None);
 }
 
+/// Drag & drop sends the position among the *open* siblings (what the UI shows). Completed tasks
+/// stay in the file with their old positions, so counting them used to land moves in the wrong
+/// place — moving a task down past one with a completed task above it did nothing.
+#[test]
+fn move_index_counts_open_siblings_only() {
+    let mut s = store();
+    let a = add(&mut s, "A", INBOX);
+    let x = add(&mut s, "X", INBOX);
+    let b = add(&mut s, "B", INBOX);
+    let y = add(&mut s, "Y", INBOX);
+    let c = add(&mut s, "C", INBOX);
+    apply(&mut s, json!({"type": "complete", "ids": [x, y], "done": true}));
+    let open = |s: &TodoData| s.ordered(INBOX, false).iter().map(|(_, t)| t.content.clone()).collect::<Vec<_>>();
+    // A after B: index 1 among the open siblings without A ([B, C]).
+    apply(&mut s, json!({"type": "move", "ids": [a], "listId": INBOX, "index": 1}));
+    assert_eq!(open(&s), ["B", "A", "C"]);
+    // C to the top, then B to the end.
+    apply(&mut s, json!({"type": "move", "ids": [c], "listId": INBOX, "index": 0}));
+    assert_eq!(open(&s), ["C", "B", "A"]);
+    apply(&mut s, json!({"type": "move", "ids": [b], "listId": INBOX, "index": 2}));
+    assert_eq!(open(&s), ["C", "A", "B"]);
+    // Completed tasks follow the open ones, in their old order.
+    let all: Vec<String> = s.ordered(INBOX, true).iter().map(|(_, t)| t.content.clone()).collect();
+    assert_eq!(all, ["C", "A", "B", "X", "Y"]);
+    // "Add after" counts open siblings too.
+    apply(&mut s, json!({"type": "add", "task": {"text": "D", "listId": INBOX, "afterId": c}}));
+    assert_eq!(open(&s), ["C", "D", "A", "B"]);
+    // Reopened tasks come back after the open ones.
+    apply(&mut s, json!({"type": "complete", "ids": [x], "done": false}));
+    assert_eq!(open(&s), ["C", "D", "A", "B", "X"]);
+}
+
 #[test]
 fn delete_and_restore() {
     let mut s = store();
@@ -423,6 +455,65 @@ fn file_store_and_v1_migration() {
     // A file from a newer version is refused rather than overwritten.
     std::fs::write(dir.join(FILE), r#"{"version":99}"#).unwrap();
     assert!(TodoStore::open(base.path()).is_err());
+}
+
+#[test]
+fn files_without_attachments_still_load() {
+    let base = tempfile::tempdir().unwrap();
+    let dir = base.path().join("todos");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A v2 file written before attachments existed.
+    std::fs::write(dir.join(FILE), r#"{"version":2,"lists":[{"id":"inbox","name":"Inbox","kind":"inbox"}],"tasks":[{"id":"T1","content":"Old","listId":"inbox","createdAt":1}]}"#).unwrap();
+    let data = TodoStore::read(base.path()).unwrap();
+    assert!(data.task("T1").unwrap().attachments.is_empty());
+    // Tasks without attachments don't write the field.
+    let json = serde_json::to_value(data.task("T1").unwrap()).unwrap();
+    assert!(json.get("attachments").is_none());
+}
+
+#[test]
+fn attachments_survive_undo_and_go_with_permanent_deletes() {
+    let base = tempfile::tempdir().unwrap();
+    let mut st = TodoStore::open(base.path()).unwrap();
+    let p = Some(project());
+    let task = st.add_text(p.as_ref(), "With files").unwrap();
+    let shot = st.attach_bytes(&task.id, "C:\\tmp\\shot.png", Some("image/png"), b"img", p.as_ref(), &now()).unwrap();
+    let src = base.path().join("spec.pdf");
+    std::fs::write(&src, b"%PDF-1").unwrap();
+    let spec = st.attach_file(&task.id, &src, p.as_ref(), &now()).unwrap();
+    assert_eq!((shot.name.as_str(), shot.mime.as_str()), ("shot.png", "image/png"));
+    let path = st.data.attachment_path(base.path(), &task.id, &spec.id).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1");
+    // Saved, and in the snapshot the UI gets.
+    let again = TodoStore::read(base.path()).unwrap();
+    assert_eq!(again.task(&task.id).unwrap().attachments.len(), 2);
+    let snap = serde_json::to_value(again.snapshot_in(p.as_ref(), &now(), &Paris)).unwrap();
+    assert_eq!(snap["tasks"][0]["attachments"][0]["name"], "shot.png");
+    // Unknown task: nothing is written.
+    assert!(st.attach_bytes("NOPE", "x.txt", None, b"x", p.as_ref(), &now()).is_err());
+    assert!(!attachments::root(base.path()).join("NOPE").exists());
+
+    // Removing an attachment and undoing it (restore) keeps the file usable.
+    let before = st.data.task(&task.id).unwrap().clone();
+    st.apply(TodoOp::RemoveAttachment { id: task.id.clone(), attachment_id: shot.id.clone() }, p.as_ref(), &now()).unwrap();
+    assert_eq!(st.data.task(&task.id).unwrap().attachments.len(), 1);
+    assert!(st.data.attachment_path(base.path(), &task.id, &shot.id).is_err());
+    // Deleting the task keeps its folder for undo; restoring brings both files back.
+    st.apply(TodoOp::Delete { ids: vec![task.id.clone()] }, p.as_ref(), &now()).unwrap();
+    assert!(path.exists());
+    st.apply(TodoOp::Restore { tasks: vec![before] }, p.as_ref(), &now()).unwrap();
+    let shot_path = st.data.attachment_path(base.path(), &task.id, &shot.id).unwrap();
+    assert_eq!(std::fs::read(shot_path).unwrap(), b"img");
+    // Startup GC leaves files that are referenced.
+    assert_eq!(TodoStore::gc_attachments(base.path(), later(30).ms).unwrap(), 0);
+    assert!(path.exists());
+
+    // Clearing completed tasks removes them for good — and their files.
+    st.apply(TodoOp::Complete { ids: vec![task.id.clone()], done: true }, p.as_ref(), &now()).unwrap();
+    st.apply(TodoOp::ClearCompleted { list_id: None }, p.as_ref(), &now()).unwrap();
+    assert!(!attachments::root(base.path()).join(&task.id).exists());
+    // The IPC can't smuggle attachment records in.
+    assert!(serde_json::from_value::<TodoOp>(json!({"type": "addAttachment", "id": "T", "attachment": {"id": "A", "name": "x", "mime": "x/y", "size": 1, "addedAt": 0}})).is_err());
 }
 
 #[test]

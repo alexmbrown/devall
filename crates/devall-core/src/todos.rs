@@ -9,10 +9,12 @@
 //! - [`quickadd`]: `Ship it tomorrow #Work /Backend @api p1 {fri}` → a task.
 //! - [`filter`]: `today | overdue`, `p1 & @bug`, `due before: next week`…
 //! - [`store`]: the file, every operation ([`TodoOp`]), the UI snapshot, history and reminders.
+//! - [`attachments`]: files attached to tasks (copies in `todos/attachments/<task id>/`).
 //!
 //! Schema v2; v1 files (`todos/<project id>.json`, `todos/_global.json`) are migrated on the first
 //! save and kept in `todos/v1-backup/`.
 
+pub mod attachments;
 pub mod dates;
 pub mod filter;
 mod migrate;

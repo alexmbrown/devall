@@ -40,6 +40,16 @@ export interface Comment {
   at: number;
 }
 
+/** A file attached to a task: a copy in `<app data>/todos/attachments/<task id>/<name>`. */
+export interface Attachment {
+  id: string;
+  /** Stored file name (sanitized, unique within the task). */
+  name: string;
+  mime: string;
+  size: number;
+  addedAt: number;
+}
+
 export interface Task {
   id: string;
   content: string;
@@ -60,6 +70,7 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   comments?: Comment[];
+  attachments?: Attachment[];
   /** Completions of a recurring task. */
   history?: { at: number; due: string }[];
   collapsed?: boolean;
@@ -183,6 +194,7 @@ export type TodoOp =
   | { type: 'restore'; tasks: Task[] }
   | { type: 'addComment'; id: string; text: string }
   | { type: 'deleteComment'; id: string; commentId: string }
+  | { type: 'removeAttachment'; id: string; attachmentId: string }
   | { type: 'saveList'; id?: string; name: string; color?: string | null }
   | { type: 'deleteList'; id: string }
   | { type: 'reorderLists'; ids: string[] }
@@ -242,6 +254,19 @@ export interface CompletedEntry {
   occurrence?: string;
 }
 
+export interface TodoAttachResult {
+  added: Attachment[];
+  /** Files that couldn't be attached, with the reason. */
+  errors: string[];
+  snapshot: Snapshot;
+}
+
+/** Largest attachment (checked again in Rust). */
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+/** JSON safe for an HTTP header value (non-ASCII as `\u` escapes, which JSON parsers accept). */
+const asciiJson = (v: unknown) => JSON.stringify(v).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 /** `root`: the open project (its list is in scope), or null. */
 export const todosApi = {
   snapshot: (root: string | null) => invoke<Snapshot>('todos_snapshot', { root }),
@@ -251,4 +276,14 @@ export const todosApi = {
   filter: (query: string) => invoke<FilterGroup[]>('todos_filter', { query }),
   completed: (listId?: string | null, before?: number, limit?: number) => invoke<CompletedEntry[]>('todos_completed', { listId, before, limit }),
   notifyTest: () => invoke<void>('todos_notify_test'),
+  /** Native file dialog (opened in Rust) → copies attached to the task; `null` when cancelled. */
+  attachPick: (root: string | null, taskId: string) => invoke<TodoAttachResult | null>('todos_attachment_pick', { root, taskId }),
+  /** Dropped or pasted bytes as an attachment. */
+  attachBytes: (root: string | null, taskId: string, name: string, mime: string, bytes: Uint8Array) =>
+    invoke<TodoAttachResult>('todos_attachment_upload', bytes, { headers: { 'x-meta': asciiJson({ root, taskId, name, mime: mime || undefined }) } }),
+  /** The attachment's bytes (image previews). */
+  attachmentBytes: (taskId: string, attachmentId: string) => invoke<ArrayBuffer>('todos_attachment_read', { taskId, attachmentId }),
+  /** Opens with the default app; `false` = a program, revealed in the file manager instead. */
+  openAttachment: (taskId: string, attachmentId: string) => invoke<boolean>('todos_attachment_open', { taskId, attachmentId }),
+  revealAttachment: (taskId: string, attachmentId: string) => invoke<void>('todos_attachment_reveal', { taskId, attachmentId }),
 };

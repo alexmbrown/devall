@@ -32,11 +32,12 @@
   position: relative;
 }
 .wb-tabs::-webkit-scrollbar { display: none; }
-.wb-tab { min-width: 72px; max-width: 220px; flex-shrink: 0; padding-left: var(--space-4); }
+.wb-tab { min-width: 72px; max-width: 240px; flex-shrink: 0; padding-left: var(--space-4); }
 .wb-tab > svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-subtle); }
 .wb-tab.on > svg { color: var(--text-muted); }
 .wb-tab .badge.method { min-width: 0; height: 16px; padding: 0 4px; font-size: 9px; }
 .wb-tab.preview .wb-tab-title { font-style: italic; }
+.wb-tab-prefix { color: var(--text-subtle); }
 .wb-tab.pinned { min-width: 0; max-width: 160px; }
 .wb-tab.pinned .close { opacity: 1; color: var(--text-subtle); }
 .wb-tab.pinned .close svg { width: 11px; height: 11px; }

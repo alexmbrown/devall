@@ -11,12 +11,12 @@ import { isLocalProvider, providerLabel, providerList, useAi } from './store';
 import './ai.css';
 
 type Tab = 'ask' | 'search' | 'models' | 'agents';
-/** `tabLabel` names the workbench tab (Ask is the landing page, shown as "Local AI"). */
+/** `tabLabel` names the workbench tab ("AI: Models"; Ask is the landing page, shown as "Local AI"). */
 const TABS: { id: Tab; label: string; tabLabel: string | null; icon: React.ReactNode }[] = [
   { id: 'ask', label: 'Ask', tabLabel: null, icon: <MessageSquare size={13} /> },
-  { id: 'search', label: 'Search', tabLabel: 'AI search', icon: <Search size={13} /> },
-  { id: 'models', label: 'Models', tabLabel: 'AI models', icon: <Cpu size={13} /> },
-  { id: 'agents', label: 'Agents (MCP)', tabLabel: 'AI agents (MCP)', icon: <Bot size={13} /> },
+  { id: 'search', label: 'Search', tabLabel: 'Search', icon: <Search size={13} /> },
+  { id: 'models', label: 'Models', tabLabel: 'Models', icon: <Cpu size={13} /> },
+  { id: 'agents', label: 'Agents (MCP)', tabLabel: 'Agents (MCP)', icon: <Bot size={13} /> },
 ];
 
 /** Local AI: project Q&A, model/provider management and the MCP server for coding agents. */

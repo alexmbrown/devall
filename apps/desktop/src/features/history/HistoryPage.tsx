@@ -24,13 +24,13 @@ import './history.css';
 
 type Tab = 'activity' | 'requests' | 'files' | 'utilities' | 'queries' | 'ask';
 
-const TABS: (TabDef<Tab> & { viewLabel: string; needsProject: boolean })[] = [
-  { key: 'activity', label: 'Activity', icon: <Activity />, viewLabel: 'Project activity', needsProject: true },
-  { key: 'requests', label: 'Requests', icon: <Send />, viewLabel: 'Request history', needsProject: true },
-  { key: 'files', label: 'Files', icon: <FileClock />, viewLabel: 'File history', needsProject: true },
-  { key: 'utilities', label: 'Utilities', icon: <Binary />, viewLabel: 'Utility history', needsProject: false },
-  { key: 'queries', label: 'Queries', icon: <Database />, viewLabel: 'Query history', needsProject: true },
-  { key: 'ask', label: 'AI answers', icon: <MessageSquare />, viewLabel: 'AI answer history', needsProject: true },
+const TABS: (TabDef<Tab> & { needsProject: boolean })[] = [
+  { key: 'activity', label: 'Activity', icon: <Activity />, needsProject: true },
+  { key: 'requests', label: 'Requests', icon: <Send />, needsProject: true },
+  { key: 'files', label: 'Files', icon: <FileClock />, needsProject: true },
+  { key: 'utilities', label: 'Utilities', icon: <Binary />, needsProject: false },
+  { key: 'queries', label: 'Queries', icon: <Database />, needsProject: true },
+  { key: 'ask', label: 'AI answers', icon: <MessageSquare />, needsProject: true },
 ];
 
 const PAGE = 200;
@@ -85,7 +85,7 @@ export default function HistoryPage() {
   const root = useWorkspace((s) => s.project?.root ?? null);
   const tab: Tab = TABS.some((t) => t.key === param) ? (param as Tab) : root ? 'activity' : 'utilities';
   const meta = TABS.find((t) => t.key === tab)!;
-  useViewLabel(meta.viewLabel);
+  useViewLabel(meta.label);
 
   return (
     <div className="page">

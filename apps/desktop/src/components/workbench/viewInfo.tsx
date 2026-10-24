@@ -9,6 +9,9 @@ import { docForParam, findTreeNode, isDirty, parseDocParam, useWorkspace } from 
 
 export interface ViewInfo {
   title: string;
+  /** Section name shown dimmed before the title ("To-dos: Today"), so a tab named after a list,
+   * filter, environment or project still says which module it is. */
+  prefix?: string;
   icon: ReactNode;
   tooltip: string;
   /** Unsaved changes (dirty dot on the tab). */
@@ -56,9 +59,14 @@ export function useViewInfo(view: View): ViewInfo {
     return { title: name, icon: <MethodBadge method={method} short />, tooltip, dirty: !!req && isDirty(req), busy: !!req?.sendId };
   }
   if (view.section === 'notes' && param) {
-    return { title: stem(param), icon: param.endsWith('.ipynb') ? <BookOpenCheck size={13} /> : <NotebookText size={13} />, tooltip: `notes/${param}` };
+    return { title: stem(param), prefix: meta.short ?? meta.label, icon: param.endsWith('.ipynb') ? <BookOpenCheck size={13} /> : <NotebookText size={13} />, tooltip: `notes/${param}` };
   }
   const name = meta.title ?? meta.label;
   // Pages label their view with what it shows (useViewLabel), e.g. the selected utility.
-  return { title: view.label ?? meta.label, icon: <SectionIcon section={view.section} size={13} />, tooltip: view.label ? `${name} — ${view.label}` : name };
+  return {
+    title: view.label ?? meta.label,
+    prefix: view.label ? (meta.short ?? meta.label) : undefined,
+    icon: <SectionIcon section={view.section} size={13} />,
+    tooltip: view.label ? `${name} — ${view.label}` : name,
+  };
 }

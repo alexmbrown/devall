@@ -13,11 +13,14 @@ use devall_core::context::{self, ContextDoc, ContextOptions};
 use devall_core::notes::{NoteHit, NoteNode};
 use devall_core::todos::dates::{self, DateCtx};
 use devall_core::todos::quickadd::QuickAdd;
-use devall_core::todos::{Applied, CompletedEntry, Due, FilterGroup, Now, ProjectRef, Snapshot, TodoOp, TodoStore};
+use devall_core::todos::{attachments, Applied, Attachment, CompletedEntry, Due, FilterGroup, Now, ProjectRef, Snapshot, TodoOp, TodoStore};
 use devall_core::Project;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+use tauri_plugin_opener::OpenerExt;
 
 pub struct NotesState {
     data_dir: PathBuf,
@@ -144,6 +147,122 @@ pub fn todos_completed(state: State<'_, NotesState>, list_id: Option<String>, be
     Ok(TodoStore::read(&state.data_dir).map_err(e)?.completed(list_id.as_deref(), before, limit.unwrap_or(100).min(500)))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoAttachResult {
+    pub added: Vec<Attachment>,
+    /// Files that couldn't be attached, with the reason (too large, unreadable…).
+    pub errors: Vec<String>,
+    pub snapshot: Snapshot,
+}
+
+/// Attaches files to a task: the native file dialog is opened here, so the UI never hands over
+/// paths; copies go to `<app data>/todos/attachments/<task id>/`. `None` when cancelled.
+#[tauri::command]
+pub async fn todos_attachment_pick(app: AppHandle, state: State<'_, NotesState>, root: Option<String>, task_id: String) -> R<Option<TodoAttachResult>> {
+    let project = project_ref(root.as_deref())?;
+    let mut dialog = app.dialog().file().set_title("Attach files");
+    if let Some(w) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&w);
+    }
+    let Some(files) = dialog.blocking_pick_files() else { return Ok(None) };
+    let now = Now::local();
+    // Copy first, without the lock (files can be large: sync to-do commands wait for it), then record.
+    let mut existing = existing_attachments(&state, &task_id)?;
+    let (mut copied, mut errors) = (Vec::new(), Vec::new());
+    for f in files {
+        match f.into_path().map_err(e).and_then(|p| attachments::store_file(&state.data_dir, &task_id, &p, &existing, now.ms).map_err(e)) {
+            Ok(a) => {
+                existing.push(a.clone());
+                copied.push(a);
+            }
+            Err(err) => errors.push(err),
+        }
+    }
+    let _g = state.lock.lock().unwrap_or_else(|p| p.into_inner());
+    let mut store = TodoStore::open(&state.data_dir).map_err(e)?;
+    let mut added = Vec::new();
+    for a in copied {
+        match store.record_attachment(&task_id, a, project.as_ref(), &now) {
+            Ok(a) => added.push(a),
+            Err(err) => errors.push(err.to_string()),
+        }
+    }
+    Ok(Some(TodoAttachResult { added, errors, snapshot: store.data.snapshot(project.as_ref(), &now) }))
+}
+
+/// The task's attachments right now (for unique file names), or an error when the task is gone.
+fn existing_attachments(state: &NotesState, task_id: &str) -> R<Vec<Attachment>> {
+    let data = TodoStore::read(&state.data_dir).map_err(e)?;
+    Ok(data.task(task_id).ok_or_else(|| format!("task {task_id} not found"))?.attachments.clone())
+}
+
+/// What `todos_attachment_upload` stores (the `x-meta` header: JSON with non-ASCII `\u` escaped).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UploadMeta {
+    root: Option<String>,
+    task_id: String,
+    name: String,
+    mime: Option<String>,
+}
+
+/// Attaches dropped or pasted bytes (the raw request body) to a task; the name is sanitized and
+/// the size capped (`attachments::MAX_BYTES`) in `devall_core`.
+#[tauri::command]
+pub async fn todos_attachment_upload(state: State<'_, NotesState>, request: Request<'_>) -> R<TodoAttachResult> {
+    let InvokeBody::Raw(bytes) = request.body() else { return Err("expected the file's bytes".into()) };
+    let meta = request.headers().get("x-meta").and_then(|v| v.to_str().ok()).ok_or("missing x-meta header")?;
+    let meta: UploadMeta = serde_json::from_str(meta).map_err(e)?;
+    let project = project_ref(meta.root.as_deref())?;
+    let now = Now::local();
+    let existing = existing_attachments(&state, &meta.task_id)?;
+    let a = attachments::store_bytes(&state.data_dir, &meta.task_id, &meta.name, meta.mime.as_deref(), bytes, &existing, now.ms).map_err(e)?;
+    let _g = state.lock.lock().unwrap_or_else(|p| p.into_inner());
+    let mut store = TodoStore::open(&state.data_dir).map_err(e)?;
+    let a = store.record_attachment(&meta.task_id, a, project.as_ref(), &now).map_err(e)?;
+    Ok(TodoAttachResult { added: vec![a], errors: Vec::new(), snapshot: store.data.snapshot(project.as_ref(), &now) })
+}
+
+/// The validated file of an attachment (never a path from the UI).
+fn attachment_file(state: &NotesState, task_id: &str, attachment_id: &str) -> R<PathBuf> {
+    let path = TodoStore::read(&state.data_dir).map_err(e)?.attachment_path(&state.data_dir, task_id, attachment_id).map_err(e)?;
+    if !path.is_file() {
+        return Err(format!("{} is missing from this device", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+    }
+    Ok(path)
+}
+
+/// An attachment's bytes (image previews), as a raw response.
+#[tauri::command]
+pub async fn todos_attachment_read(state: State<'_, NotesState>, task_id: String, attachment_id: String) -> R<Response> {
+    let path = attachment_file(&state, &task_id, &attachment_id)?;
+    if std::fs::metadata(&path).map_err(e)?.len() > attachments::MAX_BYTES {
+        return Err("too large to preview".into());
+    }
+    Ok(Response::new(std::fs::read(&path).map_err(e)?))
+}
+
+/// Opens an attachment with its default app. Programs and scripts are revealed in the file
+/// manager instead (returns `false`), so a click never runs code.
+#[tauri::command]
+pub async fn todos_attachment_open(app: AppHandle, state: State<'_, NotesState>, task_id: String, attachment_id: String) -> R<bool> {
+    let path = attachment_file(&state, &task_id, &attachment_id)?;
+    if path.file_name().is_some_and(|n| attachments::opens_as_program(&n.to_string_lossy())) {
+        app.opener().reveal_item_in_dir(&path).map_err(e)?;
+        return Ok(false);
+    }
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(e)?;
+    Ok(true)
+}
+
+/// Shows an attachment in Explorer / Finder.
+#[tauri::command]
+pub async fn todos_attachment_reveal(app: AppHandle, state: State<'_, NotesState>, task_id: String, attachment_id: String) -> R<()> {
+    let path = attachment_file(&state, &task_id, &attachment_id)?;
+    app.opener().reveal_item_in_dir(&path).map_err(e)
+}
+
 /// Shows a sample reminder so the user can check notifications work (and grant them on macOS).
 #[tauri::command]
 pub fn todos_notify_test(app: AppHandle) -> R<()> {
@@ -180,6 +299,13 @@ pub fn start_reminders(app: &AppHandle) {
                 }
                 let _ = app.emit("todos://open", task);
             }
+        });
+    }
+    // Attachment files nothing has referenced for a week (deleted tasks, removed attachments).
+    {
+        let dir = app.state::<NotesState>().data_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = TodoStore::gc_attachments(&dir, chrono::Utc::now().timestamp_millis());
         });
     }
     // To-dos changed by another process (an agent over MCP, the `devall` CLI): refresh the UI.

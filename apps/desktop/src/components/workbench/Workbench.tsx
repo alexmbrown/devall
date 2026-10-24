@@ -381,7 +381,10 @@ function TabItem({
       onContextMenu={(e) => ctx.open(e, menu())}
     >
       {info.icon}
-      <span className="truncate grow wb-tab-title">{info.title}</span>
+      <span className="truncate grow wb-tab-title">
+        {info.prefix && <span className="wb-tab-prefix">{info.prefix}: </span>}
+        {info.title}
+      </span>
       {info.busy && <Spinner className="wb-tab-spin" />}
       {view.pinned ? (
         <button

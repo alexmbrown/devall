@@ -116,6 +116,7 @@ pub(crate) fn from_v1(dir: &Path) -> Option<(TodoData, Vec<PathBuf>)> {
                 created_at: t.created_at,
                 updated_at: completed_at.unwrap_or(t.created_at),
                 comments: Vec::new(),
+                attachments: Vec::new(),
                 history: Vec::new(),
                 collapsed: false,
             });

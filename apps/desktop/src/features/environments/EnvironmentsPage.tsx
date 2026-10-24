@@ -60,7 +60,7 @@ export default function EnvironmentsPage() {
   const status = useEnvData((s) => s.status);
   const selected = param ?? project.environments[0]?.id ?? PROJECT;
   const selectedEnv = project.environments.find((e) => e.id === selected);
-  useViewLabel(selected === PROJECT ? 'Project variables' : selected === COMPARE ? 'Compare environments' : (selectedEnv?.file.name ?? null));
+  useViewLabel(selected === PROJECT ? 'Project variables' : selected === COMPARE ? 'Compare all' : (selectedEnv?.file.name ?? null));
 
   // Secret status + usages for the inspector and compare view; reloaded when any env file changes.
   const envKey = useMemo(() => JSON.stringify([project.root, project.environments, project.manifest.variables]), [project.root, project.environments, project.manifest.variables]);
