@@ -95,6 +95,8 @@
 .td-grip { position: absolute; left: calc(var(--td-pad) + var(--indent, 0px) - 18px); top: 9px; color: var(--text-disabled); opacity: 0; cursor: grab; display: inline-flex; }
 .td-grip svg { width: 14px; height: 14px; }
 .td-row:hover .td-grip { opacity: 1; }
+/* Rows with sub-tasks show the fold chevron in the grip's spot: the grip moves one slot left. */
+.td-row.has-kids .td-grip { left: calc(var(--td-pad) + var(--indent, 0px) - 36px); }
 .td-fold { border: 0; background: none; padding: 0; width: 16px; height: 20px; margin-left: -20px; margin-right: -4px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-subtle); cursor: pointer; flex-shrink: 0; }
 .td-fold svg { width: 13px; height: 13px; transition: transform var(--dur); }
 .td-fold.closed svg { transform: rotate(-90deg); }
@@ -319,9 +321,10 @@
 .td-syntax code { font-family: var(--font-mono); }
 .td-empty { padding: var(--space-8) var(--td-pad-r) var(--space-8) var(--td-pad); }
 
-/* Narrow views (splits): a tighter gutter; section grips hide (headers still drag). */
+/* Narrow views (splits): a tighter gutter; grips that don't fit next to a chevron hide (the rows
+   and headers still drag). */
 @container (max-width: 560px) {
   .td-head, .td-body { --td-pad: 24px; --td-pad-r: var(--space-5); }
-  .td-group-head .td-grip { display: none; }
+  .td-group-head .td-grip, .td-row.has-kids .td-grip { display: none; }
   .td-head .td-sub { display: none; }
 }

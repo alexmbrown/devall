@@ -151,7 +151,7 @@ export function TaskRow({ row, context, dueMode = 'full', drop }: { row: Row; co
         ref={ref}
         tabIndex={-1}
         data-task={t.id}
-        className={clsx('td-row', t.done && 'done', isCursor && 'cursor', isSel && 'sel', isOpen && 'open-detail', dragging && 'dragging', dropHere && (drop === 'tree' ? `drop-${dropHere}` : 'drop-into'))}
+        className={clsx('td-row', t.done && 'done', row.kids > 0 && 'has-kids', isCursor && 'cursor', isSel && 'sel', isOpen && 'open-detail', dragging && 'dragging', dropHere && (drop === 'tree' ? `drop-${dropHere}` : 'drop-into'))}
         style={{ ['--indent' as string]: `${indent}px`, ['--drop-indent' as string]: `${dropHere === 'child' ? indent + INDENT : indent}px` }}
         onClick={click}
         onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && setUi({ editing: t.id })}
