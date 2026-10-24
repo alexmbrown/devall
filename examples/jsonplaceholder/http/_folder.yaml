@@ -1,0 +1,7 @@
+version: 1
+order:
+- list-users.req.yaml
+- posts
+headers:
+- name: Accept
+  value: application/json

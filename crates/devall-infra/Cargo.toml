@@ -1,0 +1,37 @@
+[package]
+name = "devall-infra"
+description = "Docker, Kubernetes, port-forward manager and GCP emulator clients for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core.workspace = true
+base64.workspace = true
+# Docker Engine API over the local socket / named pipe (Docker, Podman, OrbStack, colima, Rancher).
+bollard = { version = "0.21.1", default-features = false, features = ["http", "pipe"] }
+chrono.workspace = true
+futures = "0.3"
+indexmap.workspace = true
+# Exactly one Kubernetes API version feature must be enabled in the final binary; nothing else in
+# the workspace depends on k8s-openapi.
+k8s-openapi = { version = "0.28.0", default-features = false, features = ["latest"] }
+# rustls only (no OpenSSL). `ws` = exec/attach/port-forward; `runtime` = resilient watchers.
+kube = { version = "4.2.0", default-features = false, features = ["client", "rustls-tls", "aws-lc-rs", "ws", "runtime"] }
+reqwest.workspace = true
+# Only to install a process-wide crypto provider: rustls ends up with both ring and aws-lc-rs
+# enabled in the full app build, and kube builds its TLS config from the process default.
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+percent-encoding.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+trash.workspace = true
+tokio = { workspace = true, features = ["fs", "process", "sync"] }
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

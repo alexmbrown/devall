@@ -1,0 +1,63 @@
+===== get-query =====
+curl \
+  'https://api.example.com/v1/users?page=2&q=ada+lovelace' \
+  -H 'Accept: application/json' \
+  -H 'Authorization: Bearer ••••••' \
+  -H 'X-Trace: a"b'\''c$d' \
+  --location
+===== post-json =====
+curl \
+  -X POST \
+  https://api.example.com/v1/users \
+  -H 'Content-Type: application/json' \
+  --data-raw '{
+  "name": "Zoë \"Z\" O'\''Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}' \
+  --location
+===== form =====
+curl \
+  -X PUT \
+  https://api.example.com/v1/settings \
+  --data-urlencode 'tag=a&b' \
+  --data-urlencode 'tag=c d' \
+  --data-urlencode mode=dark \
+  --location
+===== multipart =====
+curl \
+  -X POST \
+  https://api.example.com/v1/upload \
+  -H 'X-Upload-Id: 42' \
+  -F 'note=hello '\''world'\''' \
+  -F 'file=@/project/files/a b.png;type=image/png' \
+  --location
+===== options =====
+curl \
+  -X DELETE \
+  https://internal.example.com/v1/cache \
+  --insecure \
+  --digest --user 'admin:••••••' \
+  --max-time 2.5 \
+  --proxy http://proxy.local:3128
+===== text-custom-method =====
+curl \
+  -X PURGE \
+  https://cdn.example.com/assets/app.js \
+  -H 'Content-Type: text/plain; charset=utf-8' \
+  --data-raw 'line 1 with '\''quotes'\'' and "double"
+'\''@ here-string end
+""" triple
+\ backslash `tick` ${x}' \
+  --location
+===== binary =====
+curl \
+  -X POST \
+  https://api.example.com/v1/blobs \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary @body.bin \
+  --location

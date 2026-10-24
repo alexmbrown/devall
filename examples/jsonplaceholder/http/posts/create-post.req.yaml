@@ -1,0 +1,21 @@
+version: 1
+id: 01JD0000000000000000POSTS2
+name: Create post
+method: POST
+url: '{{baseUrl}}/posts'
+body:
+  type: json
+  content: |-
+    {
+      "title": "Created at {{$isoTimestamp}}",
+      "body": "Request id {{$uuid}}",
+      "userId": 1
+    }
+tests:
+- assert: status
+  op: eq
+  value: '201'
+- assert: jsonPath
+  path: $.userId
+  op: eq
+  value: '1'

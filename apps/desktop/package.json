@@ -1,0 +1,41 @@
+{
+  "name": "devall-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "/dev/all desktop app (Tauri + React)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "app": "tauri dev",
+    "app:build": "tauri build",
+    "app:bundle": "node ../../scripts/fetch-llama-server.mjs && tauri build --config src-tauri/tauri.bundle.conf.json --config src-tauri/binaries/tauri.libs.conf.json"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "4.7.0",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.3",
+    "@tauri-apps/plugin-opener": "2.7.2",
+    "clsx": "2.1.1",
+    "dompurify": "3.4.17",
+    "lucide-react": "1.61.0",
+    "marked": "18.1.1",
+    "monaco-editor": "0.57.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "@types/node": "^22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

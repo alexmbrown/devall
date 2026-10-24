@@ -1,0 +1,36 @@
+[package]
+name = "devall-core"
+description = "Project model, file format, variables and secrets for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["keychain"]
+# OS keychain secret store (macOS Keychain, Windows Credential Manager, Secret Service).
+keychain = ["dep:keyring"]
+# Checkpoint SQLite WAL files before moving legacy `.devall/` databases (`local::migrate_legacy`).
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+chrono.workspace = true
+chrono-tz = "0.10"
+dotenvy.workspace = true
+fastrand.workspace = true
+indexmap.workspace = true
+keyring = { workspace = true, optional = true }
+schemars.workspace = true
+regex = "1.11"
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+trash.workspace = true
+ulid.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

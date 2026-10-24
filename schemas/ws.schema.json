@@ -1,0 +1,148 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string",
+      "default": ""
+    },
+    "name": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "description": "`ws://` or `wss://` (`http(s)://` is accepted and mapped).",
+      "default": ""
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      }
+    },
+    "subprotocols": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Offered in `Sec-WebSocket-Protocol`."
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SavedMessage"
+      }
+    },
+    "settings": {
+      "$ref": "#/$defs/WsSettings"
+    },
+    "docs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "http/**/*.ws.yaml — a WebSocket connection with saved messages",
+  "title": "WsFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A name/value row (query param, header, form field). Disabled rows stay in the file."
+    },
+    "SavedMessage": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "default": ""
+        },
+        "format": {
+          "$ref": "#/$defs/MessageFormat"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A named message preset shown in the composer."
+    },
+    "MessageFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "text"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "json",
+          "description": "Sent as text; validated as JSON first."
+        },
+        {
+          "type": "string",
+          "const": "binary-base64",
+          "description": "Base64 in the file, sent as binary."
+        }
+      ],
+      "description": "How a composer message body is interpreted."
+    },
+    "WsSettings": {
+      "type": "object",
+      "properties": {
+        "verifyTls": {
+          "type": "boolean",
+          "default": true
+        },
+        "connectTimeoutMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 10000
+        },
+        "pingIntervalMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Sends a ping every N milliseconds to keep idle connections open; 0 = off.",
+          "default": 0
+        }
+      }
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/ws.schema.json"
+}

@@ -1,0 +1,67 @@
+/* Workbench: editor groups in a split tree, each with a tab strip. Tokens only (both themes). */
+
+.wb { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: clip; }
+.wb-split { flex: 1; display: flex; min-width: 0; min-height: 0; }
+.wb-split.wb-row { flex-direction: row; }
+.wb-split.wb-col { flex-direction: column; }
+/* clip, not hidden: layout boxes must never be scrolled by a scrollIntoView() deep inside a page. */
+.wb-cell { display: flex; min-width: 0; min-height: 0; overflow: clip; }
+
+.wb-handle { flex: 0 0 1px; background: var(--border); position: relative; z-index: 4; }
+.wb-handle::after { content: ''; position: absolute; }
+.wb-split.wb-row > .wb-handle { cursor: col-resize; }
+.wb-split.wb-row > .wb-handle::after { inset: 0 -3px; }
+.wb-split.wb-col > .wb-handle { cursor: row-resize; }
+.wb-split.wb-col > .wb-handle::after { inset: -3px 0; }
+.wb-handle:hover, .wb-handle.dragging { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+
+.wb-group { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: clip; }
+.wb-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: clip; }
+
+/* Tab strip: the shared .etab look, scrolls sideways without a visible scrollbar. */
+.wb-tabs {
+  display: flex;
+  align-items: stretch;
+  height: var(--tabbar-h);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+  scrollbar-width: none;
+  position: relative;
+}
+.wb-tabs::-webkit-scrollbar { display: none; }
+.wb-tab { min-width: 72px; max-width: 220px; flex-shrink: 0; padding-left: var(--space-4); }
+.wb-tab > svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-subtle); }
+.wb-tab.on > svg { color: var(--text-muted); }
+.wb-tab .badge.method { min-width: 0; height: 16px; padding: 0 4px; font-size: 9px; }
+.wb-tab.preview .wb-tab-title { font-style: italic; }
+.wb-tab.pinned { min-width: 0; max-width: 160px; }
+.wb-tab.pinned .close { opacity: 1; color: var(--text-subtle); }
+.wb-tab.pinned .close svg { width: 11px; height: 11px; }
+.wb-tab.dirty.pinned .close .dirty-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.wb-tab .wb-tab-spin { width: 10px; height: 10px; }
+.wb-tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.wb-tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+/* Only the active group's active tab gets the accent bar. */
+.wb-group:not(.active) .wb-tab.on::before { background: var(--border-strong); }
+.wb-group:not(.active) .wb-tab.on { color: var(--text-muted); }
+
+.wb-tabs-actions { display: flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); margin-left: auto; position: sticky; right: 0; background: var(--bg-subtle); flex-shrink: 0; }
+.wb-tabs-actions .icon-btn { color: var(--text-subtle); }
+.wb-group:not(:hover) .wb-tabs-actions .icon-btn:not([aria-expanded='true']) { opacity: 0.55; }
+
+/* Drop targets while a tab or sidebar item is dragged. */
+.wb-drop-catcher { position: absolute; inset: 0; z-index: 19; }
+.wb-drop { position: absolute; z-index: 20; pointer-events: none; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 2px solid var(--accent-border); border-radius: var(--radius); transition: inset 80ms ease-out; }
+.wb-drop.z-center { inset: 4px; }
+.wb-drop.z-left { inset: 4px 50% 4px 4px; }
+.wb-drop.z-right { inset: 4px 4px 4px 50%; }
+.wb-drop.z-up { inset: 4px 4px 50% 4px; }
+.wb-drop.z-down { inset: 50% 4px 4px 4px; }
+.wb-tab .proto-kind { font-family: var(--font-mono); min-width: 0; height: 16px; padding: 0 4px; font-size: 9px; }
+.wb-tab .proto-kind.ws { background: var(--info-subtle); color: var(--info); }
+.wb-tab .proto-kind.grpc { background: var(--m-patch-bg); color: var(--m-patch); }
+.wb-tab .proto-kind.mqtt { background: var(--success-subtle); color: var(--success); }
+.wb-tab .proto-kind.socketio { background: var(--warning-subtle); color: var(--warning); }

@@ -1,0 +1,20 @@
+[package]
+name = "devall-history"
+description = "Local history for /dev/all: responses, file versions and utility runs (SQLite in the app data folder)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core = { workspace = true, features = ["sqlite"] }
+flate2 = "1.1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+ulid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

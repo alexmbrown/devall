@@ -1,0 +1,404 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "environment": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Environment id (file stem in `environments/`). The CLI's `--env` overrides it; the app uses\nthe active environment when this is unset."
+    },
+    "target": {
+      "$ref": "#/$defs/LoadTarget",
+      "description": "`mock` sends the load to the project's built-in mock server instead of the requests' own\nhosts (the CLI's `--against-mock` does the same for one run)."
+    },
+    "scenario": {
+      "$ref": "#/$defs/Scenario"
+    },
+    "executor": {
+      "$ref": "#/$defs/Executor"
+    },
+    "thinkTime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ThinkTime"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Pause after every request: between flow steps and, for VU executors, between iterations."
+    },
+    "thresholds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Pass/fail rules, e.g. `p95 < 300ms`, `errorRate < 1%`, `rps > 50`, `checks > 99%`,\n`p99{users/list.req.yaml} < 1s`. Any failure makes the CLI exit with code 99."
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Check"
+      },
+      "description": "Per-response assertions feeding the `checks` metric. Default: status below 400."
+    },
+    "http": {
+      "$ref": "#/$defs/HttpSettings"
+    }
+  },
+  "required": [
+    "name",
+    "scenario",
+    "executor"
+  ],
+  "additionalProperties": true,
+  "title": "Load test",
+  "description": "load/**/*.load.yaml — a load test",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "LoadTarget": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "requests",
+          "description": "The saved requests' own URLs (resolved with the environment)."
+        },
+        {
+          "type": "string",
+          "const": "mock",
+          "description": "The project's built-in mock server (`mocks/`): every request URL's origin is replaced with\nthe mock's, so the run measures the client and tooling side — a baseline to compare real\nruns against."
+        }
+      ],
+      "description": "Where a test sends its load."
+    },
+    "Scenario": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WeightedRequest"
+          }
+        },
+        "flow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Request paths (relative to `http/`) run in order each iteration."
+        }
+      },
+      "description": "Either a weighted random mix of requests (one request per iteration) or an ordered flow\n(every step once per iteration, in order). Exactly one of the two lists must be set."
+    },
+    "WeightedRequest": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Request file relative to `http/`, e.g. `users/list.req.yaml`."
+        },
+        "weight": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Relative share of iterations (default 1)."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "Executor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "constantVus"
+            },
+            "vus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "duration": {
+              "$ref": "#/$defs/Duration"
+            }
+          },
+          "required": [
+            "type",
+            "vus",
+            "duration"
+          ],
+          "description": "A fixed number of VUs loop for `duration`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rampingVus"
+            },
+            "startVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "stages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Stage"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "stages"
+          ],
+          "description": "VUs ramp linearly between stage targets."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "constantArrivalRate"
+            },
+            "rate": {
+              "type": "number",
+              "format": "double"
+            },
+            "timeUnit": {
+              "$ref": "#/$defs/Duration"
+            },
+            "duration": {
+              "$ref": "#/$defs/Duration"
+            },
+            "preAllocatedVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "maxVus": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0,
+              "description": "Defaults to `preAllocatedVus`. Iterations that find no free VU are dropped and reported."
+            }
+          },
+          "required": [
+            "type",
+            "rate",
+            "duration",
+            "preAllocatedVus"
+          ],
+          "description": "`rate` iterations per `timeUnit`, for `duration`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rampingArrivalRate"
+            },
+            "startRate": {
+              "type": "number",
+              "format": "double"
+            },
+            "timeUnit": {
+              "$ref": "#/$defs/Duration"
+            },
+            "stages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Stage"
+              }
+            },
+            "preAllocatedVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "maxVus": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "stages",
+            "preAllocatedVus"
+          ],
+          "description": "Iteration rate ramps linearly between stage targets (per `timeUnit`)."
+        }
+      ],
+      "description": "How load is generated. VU executors are closed-model (a VU waits for its response before the\nnext iteration); arrival-rate executors are open-model (iterations start on schedule whatever\nthe response times, so latency is measured from the intended start — no coordinated omission)."
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A duration: 30s, 2m, 1m30s, 500ms, 1.5s, 1h",
+      "pattern": "^\\s*(\\d+(\\.\\d+)?\\s*(h|m|min|s|sec|ms|us|µs)\\s*)+$|^\\d+(\\.\\d+)?$",
+      "examples": [
+        "30s",
+        "2m",
+        "1m30s",
+        "500ms"
+      ]
+    },
+    "Stage": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "$ref": "#/$defs/Duration"
+        },
+        "target": {
+          "type": "number",
+          "format": "double",
+          "description": "VUs (ramping VUs) or iterations per `timeUnit` (ramping arrival rate) reached at the end\nof the stage."
+        }
+      },
+      "required": [
+        "duration",
+        "target"
+      ]
+    },
+    "ThinkTime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Duration"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "min": {
+              "$ref": "#/$defs/Duration"
+            },
+            "max": {
+              "$ref": "#/$defs/Duration"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ]
+        }
+      ],
+      "description": "`thinkTime: 1s` or `thinkTime: { min: 500ms, max: 2s }` (uniformly random)."
+    },
+    "Check": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "status"
+            },
+            "expect": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "expect"
+          ],
+          "description": "Status matches one of the patterns: `200`, `2xx`, `20x`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "maxDuration"
+            },
+            "duration": {
+              "$ref": "#/$defs/Duration"
+            }
+          },
+          "required": [
+            "type",
+            "duration"
+          ],
+          "description": "Response (from the intended start) completes within `duration`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bodyContains"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "description": "Response body contains `text`."
+        }
+      ],
+      "description": "A per-response assertion. The `checks` metric is passed / evaluated across all of them."
+    },
+    "HttpSettings": {
+      "type": "object",
+      "properties": {
+        "timeoutMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Per-request timeout. Defaults to each request's own timeout setting."
+        },
+        "maxConnections": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Caps requests in flight (and so open HTTP/1.1 connections). Waiting for a connection counts\ntoward latency in arrival-rate tests."
+        },
+        "http2": {
+          "type": "boolean",
+          "description": "HTTP/2 with prior knowledge (h2c for `http://`). Default: HTTP/1.1 with keep-alive."
+        },
+        "insecure": {
+          "type": "boolean",
+          "description": "Accept invalid TLS certificates for every request."
+        }
+      }
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/load.schema.json"
+}

@@ -1,0 +1,25 @@
+:root { color-scheme: light dark; --bg: #f7f7f8; --card: #fff; --fg: #1d1d1f; --muted: #5f6368; --border: #e3e3e6; --accent: #4f46e5; --danger: #b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111113; --card: #1a1a1d; --fg: #ececef; --muted: #a0a0a8; --border: #2c2c31; --accent: #818cf8; --danger: #f97066; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+p { color: var(--muted); margin: 0 0 16px; }
+button, .btn { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; height: 40px; margin: 0 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+input { width: 100%; height: 40px; padding: 0 12px; margin: 0 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; }
+.sep { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 12px 0; }
+.sep::before, .sep::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.msg { min-height: 1.4em; font-size: 13px; color: var(--muted); }
+.msg.error { color: var(--danger); }
+.small { font-size: 12px; color: var(--muted); margin-top: 16px; }
+[hidden] { display: none !important; }
+h2 { font-size: 15px; margin: 20px 0 4px; }
+code { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.row { display: flex; gap: 8px; }
+.row input { flex: 1; }
+.row button { width: auto; padding: 0 16px; }
+.subs { list-style: none; margin: 0 0 8px; padding: 0; }
+.subs li { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+button.inline { width: auto; height: 28px; margin: 0; padding: 0 10px; font-size: 12px; }

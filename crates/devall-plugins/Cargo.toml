@@ -1,0 +1,38 @@
+[package]
+name = "devall-plugins"
+description = "Sandboxed WebAssembly plugins for /dev/all (wasmi runtime, manifests, install + trust)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core.workspace = true
+# Only for the request-path bridge (`HttpBridge`): PreparedRequest / the RequestPlugins hook.
+devall-http.workspace = true
+devall-script.workspace = true
+base64.workspace = true
+getrandom = "0.3"
+hex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+trash.workspace = true
+# Pure-Rust WebAssembly interpreter (see the crate docs for why not wasmtime). No `wat` feature.
+# 1.x, not 2.0: wasmi 2.0.0's new executor crashed (access violation) when built optimised on
+# Windows; 1.1 is the mature register-machine executor and has resumable out-of-fuel calls too.
+wasmi = { version = "1.1", default-features = false, features = ["std"] }
+# For `ResourceLimiter`'s error type (wasmi does not re-export it).
+wasmi_core = { version = "1.1", default-features = false }
+# Installing plugins from a .zip (same version/features as devall-ai).
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+# Test plugins are hand-written WAT compiled at test time (no wasm32 target needed).
+wat = "1"

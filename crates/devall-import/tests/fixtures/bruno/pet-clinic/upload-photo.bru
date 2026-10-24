@@ -1,0 +1,21 @@
+meta {
+  name: Upload photo
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/pets/7/photo
+  body: multipartForm
+  auth: basic
+}
+
+auth:basic {
+  username: admin
+  password: {{adminPassword}}
+}
+
+body:multipart-form {
+  photo: @file(photos/rex.jpg) @contentType(image/jpeg)
+  caption: Rex at the beach
+}

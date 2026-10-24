@@ -1,0 +1,13 @@
+// Names nobody can reserve. Must match relay/worker/src/reserved-subdomains.json (a test checks).
+export const RESERVED_SUBDOMAINS: readonly string[] = [
+  "abuse", "account", "accounts", "admin", "administrator", "api", "app", "apps", "assets", "auth",
+  "autoconfig", "autodiscover", "billing", "blog", "cdn", "cname", "connect", "console", "custom", "dashboard",
+  "dev", "devall", "docs", "domains", "download", "downloads", "edge", "email", "example", "fallback",
+  "ftp", "help", "hooks", "hostmaster", "imap", "inbox", "info", "internal", "localhost", "login",
+  "logout", "mail", "manage", "mock", "mocks", "monitor", "monitors", "mx", "news", "noreply",
+  "ns", "ns1", "ns2", "ns3", "ns4", "oauth", "pay", "payment", "payments", "pop",
+  "pop3", "portal", "postmaster", "preview", "privacy", "public", "register", "relay", "report", "root",
+  "secure", "security", "share", "shares", "signin", "signup", "smtp", "sso", "stage", "staging",
+  "static", "status", "stripe", "support", "tcp", "terms", "test", "tunnel", "tunnels", "update",
+  "updates", "upgrade", "webhook", "webhooks", "webmaster", "wpad", "www", "www1", "www2",
+];

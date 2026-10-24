@@ -1,0 +1,14 @@
+{
+  // Validation + autocomplete for /dev/all project files (Red Hat "YAML" extension).
+  "yaml.schemas": {
+    "../../schemas/project.schema.json": "devall.yaml",
+    "../../schemas/request.schema.json": "http/**/*.req.yaml",
+    "../../schemas/ws.schema.json": "http/**/*.ws.yaml",
+    "../../schemas/grpc.schema.json": "http/**/*.grpc.yaml",
+    "../../schemas/mqtt.schema.json": "http/**/*.mqtt.yaml",
+    "../../schemas/sio.schema.json": "http/**/*.sio.yaml",
+    "../../schemas/folder.schema.json": "http/**/_folder.yaml",
+    "../../schemas/environment.schema.json": "environments/*.env.yaml",
+    "../../schemas/connection.schema.json": "connections/**/*.conn.yaml"
+  }
+}

@@ -1,0 +1,36 @@
+[package]
+name = "devall-cli"
+description = "/dev/all command line: run project requests in CI, utilities, imports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "devall"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+dirs = "7"
+clap.workspace = true
+devall-core.workspace = true
+devall-script.workspace = true
+devall-http.workspace = true
+devall-import = { path = "../devall-import" }
+devall-load = { path = "../devall-load" }
+devall-mcp = { path = "../devall-mcp" }
+devall-mock = { path = "../devall-mock" }
+devall-openapi.workspace = true
+devall-plugins = { path = "../devall-plugins" }
+devall-relay = { path = "../devall-relay" }
+devall-webhooks = { path = "../devall-webhooks" }
+devall-utils.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

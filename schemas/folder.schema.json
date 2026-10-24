@@ -1,0 +1,440 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Display name; defaults to the directory name."
+    },
+    "order": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Child file/directory names in display order. Children not listed sort after, by name."
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      },
+      "description": "Headers applied to every request below this folder (requests override by name)."
+    },
+    "auth": {
+      "$ref": "#/$defs/Auth",
+      "description": "Auth for requests below this folder that use `inherit`."
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "scripts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Scripts"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Scripts run for every request below this folder (outermost folder first)."
+    }
+  },
+  "additionalProperties": true,
+  "description": "http/**/_folder.yaml — folder order and inherited settings",
+  "title": "FolderFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A name/value row (query param, header, form field). Disabled rows stay in the file."
+    },
+    "Auth": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "inherit"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Use the nearest folder's auth (or none at the root)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "basic"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bearer"
+            },
+            "token": {
+              "type": "string",
+              "default": ""
+            },
+            "prefix": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Defaults to `Bearer`."
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "apiKey"
+            },
+            "key": {
+              "type": "string",
+              "default": ""
+            },
+            "value": {
+              "type": "string",
+              "default": ""
+            },
+            "location": {
+              "$ref": "#/$defs/ApiKeyLocation",
+              "default": "header"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "$ref": "#/$defs/OAuth2Config",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "oauth2"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "OAuth 2.0: tokens are fetched (and refreshed) automatically and cached in the keychain."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "awsSigV4"
+            },
+            "accessKeyId": {
+              "type": "string",
+              "default": ""
+            },
+            "secretAccessKey": {
+              "type": "string",
+              "default": ""
+            },
+            "sessionToken": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "region": {
+              "type": "string",
+              "default": ""
+            },
+            "service": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "AWS Signature Version 4."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "HTTP Digest (RFC 7616): answered automatically after the server's 401 challenge."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ntlm"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "description": "Usually a `{{secret.NAME}}` reference.",
+              "default": ""
+            },
+            "domain": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workstation": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Client machine name sent in the handshake (none by default)."
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "NTLM (NTLMv2 responses): negotiate → server challenge → authenticate, on one kept-alive\nconnection. `username` may also be written `DOMAIN\\user` or `user@domain`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "plugin"
+            },
+            "plugin": {
+              "type": "string",
+              "description": "Plugin id.",
+              "default": ""
+            },
+            "provider": {
+              "type": "string",
+              "description": "Auth provider id inside the plugin.",
+              "default": ""
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Computed by a WebAssembly plugin's auth provider (e.g. custom HMAC signing). `config`\nvalues accept `{{variables}}` and `{{secret.NAME}}`; the provider sees them resolved."
+        }
+      ]
+    },
+    "ApiKeyLocation": {
+      "type": "string",
+      "enum": [
+        "header",
+        "query"
+      ]
+    },
+    "OAuth2Grant": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "clientCredentials"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "authorizationCode",
+          "description": "Authorization code, with PKCE by default; the browser redirects to a local callback."
+        },
+        {
+          "type": "string",
+          "const": "password",
+          "description": "Resource-owner password (legacy; prefer client credentials or authorization code)."
+        }
+      ]
+    },
+    "OAuth2ClientAuth": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "basic",
+          "description": "client_id/client_secret in an `Authorization: Basic` header."
+        },
+        {
+          "type": "string",
+          "const": "body",
+          "description": "client_id/client_secret as form fields."
+        }
+      ]
+    },
+    "OAuth2Config": {
+      "type": "object",
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/OAuth2Grant",
+          "default": "clientCredentials"
+        },
+        "authUrl": {
+          "type": "string"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "default": ""
+        },
+        "clientId": {
+          "type": "string",
+          "default": ""
+        },
+        "clientSecret": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "audience": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "username": {
+          "type": "string",
+          "description": "Password grant only."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password grant only."
+        },
+        "usePkce": {
+          "type": "boolean"
+        },
+        "redirectPort": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Fixed local port for the authorization-code callback (must match the registered redirect URI)."
+        },
+        "clientAuth": {
+          "$ref": "#/$defs/OAuth2ClientAuth"
+        },
+        "tokenPrefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Defaults to `Bearer`."
+        },
+        "extraParams": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra parameters for the authorization and token requests (e.g. `resource`, `prompt`)."
+        }
+      }
+    },
+    "Scripts": {
+      "type": "object",
+      "properties": {
+        "preRequest": {
+          "type": "string",
+          "description": "Runs before variables are resolved; may set variables and edit the request."
+        },
+        "postResponse": {
+          "type": "string",
+          "description": "Runs after the response; may set variables and add `pm.test(...)` results."
+        }
+      },
+      "description": "JavaScript run around a request in a sandbox (QuickJS) with a Postman-compatible `pm` API."
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/folder.schema.json"
+}

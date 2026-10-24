@@ -1,0 +1,999 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string",
+      "default": ""
+    },
+    "name": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string",
+      "default": "GET"
+    },
+    "url": {
+      "type": "string",
+      "default": ""
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      }
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      }
+    },
+    "auth": {
+      "$ref": "#/$defs/Auth"
+    },
+    "body": {
+      "$ref": "#/$defs/Body"
+    },
+    "settings": {
+      "$ref": "#/$defs/RequestSettings"
+    },
+    "captures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Capture"
+      },
+      "description": "Values to extract from the response into runtime variables (request chaining)."
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "description": "Checks run against every response; failures fail `devall run` in CI."
+    },
+    "scripts": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Scripts"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "docs": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Free-form markdown notes."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "http/**/*.req.yaml — one HTTP request",
+  "title": "HttpRequestFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A name/value row (query param, header, form field). Disabled rows stay in the file."
+    },
+    "Auth": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "inherit"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Use the nearest folder's auth (or none at the root)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "basic"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bearer"
+            },
+            "token": {
+              "type": "string",
+              "default": ""
+            },
+            "prefix": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Defaults to `Bearer`."
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "apiKey"
+            },
+            "key": {
+              "type": "string",
+              "default": ""
+            },
+            "value": {
+              "type": "string",
+              "default": ""
+            },
+            "location": {
+              "$ref": "#/$defs/ApiKeyLocation",
+              "default": "header"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "$ref": "#/$defs/OAuth2Config",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "oauth2"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "OAuth 2.0: tokens are fetched (and refreshed) automatically and cached in the keychain."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "awsSigV4"
+            },
+            "accessKeyId": {
+              "type": "string",
+              "default": ""
+            },
+            "secretAccessKey": {
+              "type": "string",
+              "default": ""
+            },
+            "sessionToken": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "region": {
+              "type": "string",
+              "default": ""
+            },
+            "service": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "AWS Signature Version 4."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "HTTP Digest (RFC 7616): answered automatically after the server's 401 challenge."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ntlm"
+            },
+            "username": {
+              "type": "string",
+              "default": ""
+            },
+            "password": {
+              "type": "string",
+              "description": "Usually a `{{secret.NAME}}` reference.",
+              "default": ""
+            },
+            "domain": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workstation": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Client machine name sent in the handshake (none by default)."
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "NTLM (NTLMv2 responses): negotiate → server challenge → authenticate, on one kept-alive\nconnection. `username` may also be written `DOMAIN\\user` or `user@domain`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "plugin"
+            },
+            "plugin": {
+              "type": "string",
+              "description": "Plugin id.",
+              "default": ""
+            },
+            "provider": {
+              "type": "string",
+              "description": "Auth provider id inside the plugin.",
+              "default": ""
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Computed by a WebAssembly plugin's auth provider (e.g. custom HMAC signing). `config`\nvalues accept `{{variables}}` and `{{secret.NAME}}`; the provider sees them resolved."
+        }
+      ]
+    },
+    "ApiKeyLocation": {
+      "type": "string",
+      "enum": [
+        "header",
+        "query"
+      ]
+    },
+    "OAuth2Grant": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "clientCredentials"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "authorizationCode",
+          "description": "Authorization code, with PKCE by default; the browser redirects to a local callback."
+        },
+        {
+          "type": "string",
+          "const": "password",
+          "description": "Resource-owner password (legacy; prefer client credentials or authorization code)."
+        }
+      ]
+    },
+    "OAuth2ClientAuth": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "basic",
+          "description": "client_id/client_secret in an `Authorization: Basic` header."
+        },
+        {
+          "type": "string",
+          "const": "body",
+          "description": "client_id/client_secret as form fields."
+        }
+      ]
+    },
+    "OAuth2Config": {
+      "type": "object",
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/OAuth2Grant",
+          "default": "clientCredentials"
+        },
+        "authUrl": {
+          "type": "string"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "default": ""
+        },
+        "clientId": {
+          "type": "string",
+          "default": ""
+        },
+        "clientSecret": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "audience": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "username": {
+          "type": "string",
+          "description": "Password grant only."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password grant only."
+        },
+        "usePkce": {
+          "type": "boolean"
+        },
+        "redirectPort": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Fixed local port for the authorization-code callback (must match the registered redirect URI)."
+        },
+        "clientAuth": {
+          "$ref": "#/$defs/OAuth2ClientAuth"
+        },
+        "tokenPrefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Defaults to `Bearer`."
+        },
+        "extraParams": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra parameters for the authorization and token requests (e.g. `resource`, `prompt`)."
+        }
+      }
+    },
+    "Body": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "json"
+            },
+            "content": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "text"
+            },
+            "content": {
+              "type": "string",
+              "default": ""
+            },
+            "contentType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "xml"
+            },
+            "content": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "form"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/KeyValue"
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "multipart"
+            },
+            "parts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/MultipartPart"
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "graphql"
+            },
+            "query": {
+              "type": "string",
+              "default": ""
+            },
+            "variables": {
+              "type": "string",
+              "description": "JSON text."
+            },
+            "operationName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "binary"
+            },
+            "path": {
+              "type": "string",
+              "default": ""
+            },
+            "contentType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "MultipartPart": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Path of a file to upload (relative to the project root, or absolute)."
+        },
+        "contentType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "RequestSettings": {
+      "type": "object",
+      "properties": {
+        "timeoutMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 30000
+        },
+        "followRedirects": {
+          "type": "boolean",
+          "default": true
+        },
+        "verifyTls": {
+          "type": "boolean",
+          "default": true
+        },
+        "proxy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Proxy URL (`http://`, `https://`, `socks5://`), `none` to bypass, or absent for the system proxy."
+        },
+        "clientCert": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClientCert"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ClientCert": {
+      "type": "object",
+      "properties": {
+        "cert": {
+          "type": "string",
+          "description": "PEM certificate (chain)."
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "PEM private key; may be omitted when `cert` contains the key too."
+        }
+      },
+      "required": [
+        "cert"
+      ],
+      "description": "Client certificate for mutual TLS (PEM files, paths relative to the project root or absolute)."
+    },
+    "Capture": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "status"
+            }
+          },
+          "required": [
+            "from"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "header"
+            },
+            "header": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "header"
+          ],
+          "description": "Field is `header` (not `name`) because the capture's own `name` is the variable name."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "jsonPath"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "path"
+          ],
+          "description": "RFC 9535 JSONPath into the JSON response body, e.g. `$.data.token`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "regex"
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "group": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "required": [
+            "from",
+            "pattern"
+          ],
+          "description": "First match of `pattern` in the body; `group` 0 = whole match."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "cookie"
+            },
+            "cookie": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "cookie"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "const": "body"
+            }
+          },
+          "required": [
+            "from"
+          ]
+        }
+      ],
+      "description": "Stores part of a response in a runtime variable usable as `{{name}}` by later requests."
+    },
+    "Assertion": {
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "status"
+            }
+          },
+          "required": [
+            "assert"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "header"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "assert",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "jsonPath"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "assert",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "body"
+            }
+          },
+          "required": [
+            "assert"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "responseTime"
+            }
+          },
+          "required": [
+            "assert"
+          ],
+          "description": "Total response time in milliseconds."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "size"
+            }
+          },
+          "required": [
+            "assert"
+          ],
+          "description": "Body size in bytes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "contentType"
+            }
+          },
+          "required": [
+            "assert"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "assert": {
+              "type": "string",
+              "const": "snapshot"
+            },
+            "file": {
+              "type": "string"
+            },
+            "ignore": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "assert",
+            "file"
+          ],
+          "description": "The response body matches a committed snapshot file (path relative to the project root,\ne.g. `http/__snapshots__/users/list.snap.json`). JSON is compared semantically; nodes\nselected by the `ignore` JSONPaths (timestamps, generated ids) are left out."
+        }
+      ],
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/AssertOp"
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "description": "A check on the response, e.g. `status eq 200` or `jsonPath $.items[0].id exists`."
+    },
+    "AssertOp": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "contains",
+            "notContains",
+            "startsWith",
+            "endsWith",
+            "matches",
+            "exists",
+            "notExists",
+            "isEmpty",
+            "isNotEmpty"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "isType",
+          "description": "`value` is one of string, number, boolean, array, object, null."
+        },
+        {
+          "type": "string",
+          "const": "oneOf",
+          "description": "`value` is a comma-separated list."
+        }
+      ]
+    },
+    "Scripts": {
+      "type": "object",
+      "properties": {
+        "preRequest": {
+          "type": "string",
+          "description": "Runs before variables are resolved; may set variables and edit the request."
+        },
+        "postResponse": {
+          "type": "string",
+          "description": "Runs after the response; may set variables and add `pm.test(...)` results."
+        }
+      },
+      "description": "JavaScript run around a request in a sandbox (QuickJS) with a Postman-compatible `pm` API."
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/request.schema.json"
+}

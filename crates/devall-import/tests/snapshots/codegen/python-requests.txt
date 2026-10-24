@@ -1,0 +1,115 @@
+===== get-query =====
+import requests
+
+url = "https://api.example.com/v1/users?page=2&q=ada+lovelace"
+headers = {
+    "Accept": "application/json",
+    "Authorization": "Bearer ••••••",
+    "X-Trace": "a\"b'c$d",
+}
+
+response = requests.request("GET", url, headers=headers)
+
+print(response.status_code)
+print(response.text)
+===== post-json =====
+import requests
+
+url = "https://api.example.com/v1/users"
+headers = {
+    "Content-Type": "application/json",
+}
+payload = {
+    "name": "Zoë \"Z\" O'Neil",
+    "path": "C:\\tmp",
+    "note": "line1\nline2 ${HOME} #{x} $x",
+    "tags": [
+        "a",
+        "b",
+    ],
+    "active": True,
+    "score": 1.5,
+    "parent": None,
+}
+
+response = requests.request("POST", url, headers=headers, json=payload)
+
+print(response.status_code)
+print(response.text)
+===== form =====
+import requests
+
+url = "https://api.example.com/v1/settings"
+headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+}
+payload = [
+    ("tag", "a&b"),
+    ("tag", "c d"),
+    ("mode", "dark"),
+]
+
+response = requests.request("PUT", url, headers=headers, data=payload)
+
+print(response.status_code)
+print(response.text)
+===== multipart =====
+import requests
+
+url = "https://api.example.com/v1/upload"
+headers = {
+    "X-Upload-Id": "42",
+}
+files = [
+    ("note", (None, "hello 'world'")),
+    ("file", ("a b.png", open("/project/files/a b.png", "rb"), "image/png")),
+]
+
+response = requests.request("POST", url, headers=headers, files=files)
+
+print(response.status_code)
+print(response.text)
+===== options =====
+import requests
+from requests.auth import HTTPDigestAuth
+
+url = "https://internal.example.com/v1/cache"
+
+response = requests.request(
+    "DELETE",
+    url,
+    verify=False,
+    allow_redirects=False,
+    timeout=2.5,
+    auth=HTTPDigestAuth("admin", "••••••"),
+    proxies={"http": "http://proxy.local:3128", "https": "http://proxy.local:3128"},
+)
+
+print(response.status_code)
+print(response.text)
+===== text-custom-method =====
+import requests
+
+url = "https://cdn.example.com/assets/app.js"
+headers = {
+    "Content-Type": "text/plain; charset=utf-8",
+}
+payload = "line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}"
+
+response = requests.request("PURGE", url, headers=headers, data=payload.encode("utf-8"))
+
+print(response.status_code)
+print(response.text)
+===== binary =====
+import requests
+
+url = "https://api.example.com/v1/blobs"
+headers = {
+    "Content-Type": "application/octet-stream",
+}
+# 4-byte binary body: save it as body.bin
+
+response = requests.request("POST", url, headers=headers, data=open("body.bin", "rb"))
+
+print(response.status_code)
+print(response.text)

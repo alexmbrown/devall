@@ -1,0 +1,7 @@
+info:
+  name: List orders
+  type: http
+  seq: 2
+http:
+  method: GET
+  url: "{{baseUrl}}/shops/main/orders?status=open"

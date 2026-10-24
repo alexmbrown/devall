@@ -1,0 +1,8 @@
+version: 1
+id: 01JD0000000000000000POSTS1
+name: Get post
+method: GET
+url: '{{baseUrl}}/posts/{{postId}}'
+params:
+- name: asdf
+  value: ''

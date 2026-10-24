@@ -1,0 +1,21 @@
+[package]
+name = "devall-import"
+description = "Import (Postman, Insomnia, Bruno, OpenCollection, OpenAPI, HAR, .http, Hurl, cURL), export (OpenAPI, Postman, .http) and code generation for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+devall-core.workspace = true
+devall-http.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

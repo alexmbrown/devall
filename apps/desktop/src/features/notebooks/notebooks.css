@@ -1,0 +1,153 @@
+/* Runnable notebooks (NotebookEditor) and runnable Markdown code blocks. Colours come from
+   tokens.css; the ANSI palette maps onto them so terminal output fits both themes. */
+
+:root {
+  --ansi-0: var(--text);
+  --ansi-1: var(--danger);
+  --ansi-2: var(--success);
+  --ansi-3: var(--warning);
+  --ansi-4: var(--m-post);
+  --ansi-5: var(--m-patch);
+  --ansi-6: var(--info);
+  --ansi-7: var(--text-subtle);
+  --ansi-8: var(--text-muted);
+  --ansi-9: var(--danger-hover);
+  --ansi-10: var(--chart-2xx);
+  --ansi-11: var(--chart-4xx);
+  --ansi-12: var(--chart-3xx);
+  --ansi-13: var(--m-patch);
+  --ansi-14: var(--info);
+  --ansi-15: var(--text-disabled);
+}
+
+.ansi-fg-0 { color: var(--ansi-0); } .ansi-fg-1 { color: var(--ansi-1); } .ansi-fg-2 { color: var(--ansi-2); } .ansi-fg-3 { color: var(--ansi-3); }
+.ansi-fg-4 { color: var(--ansi-4); } .ansi-fg-5 { color: var(--ansi-5); } .ansi-fg-6 { color: var(--ansi-6); } .ansi-fg-7 { color: var(--ansi-7); }
+.ansi-fg-8 { color: var(--ansi-8); } .ansi-fg-9 { color: var(--ansi-9); } .ansi-fg-10 { color: var(--ansi-10); } .ansi-fg-11 { color: var(--ansi-11); }
+.ansi-fg-12 { color: var(--ansi-12); } .ansi-fg-13 { color: var(--ansi-13); } .ansi-fg-14 { color: var(--ansi-14); } .ansi-fg-15 { color: var(--ansi-15); }
+.ansi-bg-0 { background: var(--bg-active); } .ansi-bg-1 { background: var(--danger-subtle); } .ansi-bg-2 { background: var(--success-subtle); }
+.ansi-bg-3 { background: var(--warning-subtle); } .ansi-bg-4 { background: var(--accent-subtle); } .ansi-bg-5 { background: var(--m-patch-bg); }
+.ansi-bg-6 { background: var(--info-subtle); } .ansi-bg-7 { background: var(--bg-muted); } .ansi-bg-8 { background: var(--bg-active); }
+.ansi-bg-9 { background: var(--danger-subtle); } .ansi-bg-10 { background: var(--success-subtle); } .ansi-bg-11 { background: var(--warning-subtle); }
+.ansi-bg-12 { background: var(--accent-subtle); } .ansi-bg-13 { background: var(--m-patch-bg); } .ansi-bg-14 { background: var(--info-subtle); } .ansi-bg-15 { background: var(--bg-muted); }
+.ansi-bold { font-weight: 650; }
+.ansi-dim { opacity: 0.7; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+
+/* ---------- notebook page ---------- */
+.nb-header { flex-wrap: wrap; row-gap: var(--space-3); }
+.nb-badge-btn { cursor: pointer; border: 0; font: inherit; }
+.nb-trust {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--warning-subtle);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  flex-shrink: 0;
+}
+.nb-trust > svg { width: 16px; height: 16px; color: var(--warning); flex-shrink: 0; }
+.nb-trust.inline { border: 1px solid var(--warning-border); border-width: 1px 0 0; }
+.nb-body { background: var(--bg-subtle); }
+.nb-body > * { max-width: 1100px; }
+
+.nb-cell { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: var(--space-2); margin-bottom: var(--space-4); }
+.nb-gutter { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding-top: var(--space-2); }
+.nb-count { font-size: var(--fs-2xs); color: var(--text-subtle); white-space: nowrap; }
+.nb-cell.running .nb-count { color: var(--accent-fg); }
+.nb-run { color: var(--accent-fg); }
+.nb-run.stop { color: var(--danger); }
+.nb-main {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+.nb-cell.selected .nb-main { border-color: var(--accent-border); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 14%, transparent); }
+.nb-cell.running .nb-main { border-left: 3px solid var(--accent); }
+.nb-cell.markdown .nb-main,
+.nb-cell.raw .nb-main { background: transparent; border-color: transparent; }
+.nb-cell.markdown:hover .nb-main,
+.nb-cell.raw:hover .nb-main { border-color: var(--border); }
+.nb-cell.markdown.selected .nb-main,
+.nb-cell.raw.selected .nb-main { border-color: var(--accent-border); background: var(--bg); }
+
+.nb-cell-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  min-height: 30px;
+}
+.nb-cell-bar .badge { flex-shrink: 0; }
+.nb-lang-select { width: auto; min-width: 112px; }
+.nb-cell-tools { display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity var(--dur); }
+.nb-cell:hover .nb-cell-tools,
+.nb-cell.selected .nb-cell-tools,
+.nb-cell-tools:focus-within { opacity: 1; }
+.nb-md-tools { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; background: var(--bg); border-radius: var(--radius); opacity: 0; pointer-events: none; transition: opacity var(--dur); }
+.nb-md-tools .nb-cell-tools { opacity: 1; }
+.nb-cell:hover .nb-md-tools,
+.nb-cell.selected .nb-md-tools,
+.nb-md-tools:focus-within { opacity: 1; pointer-events: auto; box-shadow: var(--shadow-sm); }
+.nb-editor { background: var(--bg-code); }
+.nb-md { padding: var(--space-3) var(--space-5); min-height: 32px; cursor: text; }
+.nb-md .markdown { max-width: none; }
+.nb-md-done { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+
+.nb-cell-out { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-5); max-height: 560px; overflow: auto; }
+.nb-outputs { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.nb-stream {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.nb-stream.stderr { color: var(--text-muted); background: color-mix(in srgb, var(--danger-subtle) 70%, transparent); padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); }
+.nb-error { color: var(--danger); background: var(--danger-subtle); padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); border: 1px solid var(--danger-border); }
+.nb-notice { display: flex; align-items: center; gap: var(--space-3); font-size: var(--fs-xs); color: var(--text-subtle); }
+.nb-notice svg { flex-shrink: 0; }
+.nb-result, .nb-display { min-width: 0; overflow-x: auto; }
+.nb-out-label { display: block; font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-subtle); margin-bottom: 2px; }
+.nb-image { max-width: 100%; height: auto; display: block; border-radius: var(--radius-sm); }
+.nb-html { font-size: var(--fs-sm); overflow-x: auto; }
+.nb-html table { border-collapse: collapse; font-size: var(--fs-xs); }
+.nb-html th, .nb-html td { border: 1px solid var(--border); padding: 2px var(--space-3); text-align: right; }
+.nb-html th { background: var(--bg-subtle); }
+.nb-md-output { max-width: none; }
+
+.nb-add-end { display: flex; align-items: center; gap: var(--space-3); margin-left: 56px; padding: var(--space-2) 0 var(--space-7); }
+.nb-add-end .subtle { margin-left: auto; }
+
+/* ---------- runnable code blocks in Markdown notes ---------- */
+.nb-block { margin: 0 0 var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-code); }
+.nb-block-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  font-size: var(--fs-xs);
+}
+.nb-lang { font-family: var(--font-mono); font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-subtle); }
+.markdown .nb-block pre { margin: 0; border: 0; border-radius: 0; background: none; }
+.markdown .nb-block pre.nb-block-code { padding: var(--space-4) var(--space-5); overflow: auto; }
+.markdown .nb-block .nb-stream { padding: 0; }
+.markdown .nb-block .nb-stream.stderr { padding: var(--space-1) var(--space-3); }
+.markdown .nb-block .nb-error { padding: var(--space-3) var(--space-4); }
+.nb-block-out { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-5); max-height: 440px; overflow: auto; background: var(--bg); }
+.markdown .nb-block code { border: 0; background: none; padding: 0; }

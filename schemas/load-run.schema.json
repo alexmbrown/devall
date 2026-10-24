@@ -1,0 +1,802 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "runId": {
+      "type": "string"
+    },
+    "test": {
+      "type": "string",
+      "description": "Test name at the time of the run."
+    },
+    "testPath": {
+      "type": "string",
+      "description": "Test file relative to `load/`."
+    },
+    "environment": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mockBaseline": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MockBaseline"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Present when the run targeted the project's mock server (a mock baseline)."
+    },
+    "startedAt": {
+      "type": "string",
+      "description": "RFC 3339, UTC."
+    },
+    "durationMs": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "plannedDurationMs": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "aborted": {
+      "type": "boolean"
+    },
+    "abortReason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "thresholdsPassed": {
+      "type": "boolean"
+    },
+    "executor": {
+      "$ref": "#/$defs/Executor"
+    },
+    "openModel": {
+      "type": "boolean",
+      "description": "Open model: latency is measured from each iteration's intended start time, so it is\ncorrected for coordinated omission. Closed (VU) models measure from the actual send."
+    },
+    "totals": {
+      "$ref": "#/$defs/Totals"
+    },
+    "latency": {
+      "$ref": "#/$defs/Percentiles"
+    },
+    "serviceTime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Percentiles"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Open model only: latency from the actual send (no queueing or scheduling delay), the\n\"uncorrected\" view."
+    },
+    "statusCodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    },
+    "errorKinds": {
+      "$ref": "#/$defs/ErrorKinds"
+    },
+    "errorSamples": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "A few distinct error messages (secrets redacted)."
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RequestStats"
+      }
+    },
+    "thresholds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ThresholdResult"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "bucketSeconds": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TimelinePoint"
+      }
+    },
+    "git": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GitInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "machine": {
+      "$ref": "#/$defs/Machine"
+    },
+    "agents": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/AgentRun"
+      },
+      "description": "Distributed runs: the agents that generated the load (`machine` is the coordinator's).\nLatency percentiles and thresholds come from the agents' merged HDR histograms."
+    }
+  },
+  "required": [
+    "version",
+    "runId",
+    "test",
+    "testPath",
+    "startedAt",
+    "durationMs",
+    "plannedDurationMs",
+    "aborted",
+    "thresholdsPassed",
+    "executor",
+    "openModel",
+    "totals",
+    "latency",
+    "statusCodes",
+    "errorKinds",
+    "requests",
+    "thresholds",
+    "bucketSeconds",
+    "timeline",
+    "machine"
+  ],
+  "description": "load/runs/<test>/<timestamp>.json — a load test run summary",
+  "title": "LoadSummary",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "MockBaseline": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Mock server base URL used for the run."
+        },
+        "replacedHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Hosts (`host:port`) the requests normally go to."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "description": "Set on runs that targeted the project's mock server instead of the real hosts."
+    },
+    "Executor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "constantVus"
+            },
+            "vus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "duration": {
+              "$ref": "#/$defs/Duration"
+            }
+          },
+          "required": [
+            "type",
+            "vus",
+            "duration"
+          ],
+          "description": "A fixed number of VUs loop for `duration`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rampingVus"
+            },
+            "startVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "stages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Stage"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "stages"
+          ],
+          "description": "VUs ramp linearly between stage targets."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "constantArrivalRate"
+            },
+            "rate": {
+              "type": "number",
+              "format": "double"
+            },
+            "timeUnit": {
+              "$ref": "#/$defs/Duration"
+            },
+            "duration": {
+              "$ref": "#/$defs/Duration"
+            },
+            "preAllocatedVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "maxVus": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0,
+              "description": "Defaults to `preAllocatedVus`. Iterations that find no free VU are dropped and reported."
+            }
+          },
+          "required": [
+            "type",
+            "rate",
+            "duration",
+            "preAllocatedVus"
+          ],
+          "description": "`rate` iterations per `timeUnit`, for `duration`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rampingArrivalRate"
+            },
+            "startRate": {
+              "type": "number",
+              "format": "double"
+            },
+            "timeUnit": {
+              "$ref": "#/$defs/Duration"
+            },
+            "stages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Stage"
+              }
+            },
+            "preAllocatedVus": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "maxVus": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "stages",
+            "preAllocatedVus"
+          ],
+          "description": "Iteration rate ramps linearly between stage targets (per `timeUnit`)."
+        }
+      ],
+      "description": "How load is generated. VU executors are closed-model (a VU waits for its response before the\nnext iteration); arrival-rate executors are open-model (iterations start on schedule whatever\nthe response times, so latency is measured from the intended start — no coordinated omission)."
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A duration: 30s, 2m, 1m30s, 500ms, 1.5s, 1h",
+      "pattern": "^\\s*(\\d+(\\.\\d+)?\\s*(h|m|min|s|sec|ms|us|µs)\\s*)+$|^\\d+(\\.\\d+)?$",
+      "examples": [
+        "30s",
+        "2m",
+        "1m30s",
+        "500ms"
+      ]
+    },
+    "Stage": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "$ref": "#/$defs/Duration"
+        },
+        "target": {
+          "type": "number",
+          "format": "double",
+          "description": "VUs (ramping VUs) or iterations per `timeUnit` (ramping arrival rate) reached at the end\nof the stage."
+        }
+      },
+      "required": [
+        "duration",
+        "target"
+      ]
+    },
+    "Totals": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Requests that completed (with a response or an error)."
+        },
+        "failed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Transport errors plus responses with status ≥ 400."
+        },
+        "errorRate": {
+          "type": "number",
+          "format": "double",
+          "description": "`failed / requests` (fraction)."
+        },
+        "iterations": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "droppedIterations": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Arrival-rate iterations skipped because every VU (up to `maxVus`) was busy."
+        },
+        "rps": {
+          "type": "number",
+          "format": "double",
+          "description": "Completed requests per second over the run."
+        },
+        "iterationsPerSec": {
+          "type": "number",
+          "format": "double"
+        },
+        "bytesIn": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Approximate bytes on the wire (headers + body)."
+        },
+        "bytesOut": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "checksPassed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "checksFailed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "checksRate": {
+          "type": "number",
+          "format": "double",
+          "description": "`checksPassed / (checksPassed + checksFailed)` (fraction; 1 when nothing was checked)."
+        },
+        "maxVus": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Most VUs busy at once."
+        }
+      },
+      "required": [
+        "requests",
+        "failed",
+        "errorRate",
+        "iterations",
+        "droppedIterations",
+        "rps",
+        "iterationsPerSec",
+        "bytesIn",
+        "bytesOut",
+        "checksPassed",
+        "checksFailed",
+        "checksRate",
+        "maxVus"
+      ]
+    },
+    "Percentiles": {
+      "type": "object",
+      "properties": {
+        "p50": {
+          "type": "number",
+          "format": "double"
+        },
+        "p75": {
+          "type": "number",
+          "format": "double"
+        },
+        "p90": {
+          "type": "number",
+          "format": "double"
+        },
+        "p95": {
+          "type": "number",
+          "format": "double"
+        },
+        "p99": {
+          "type": "number",
+          "format": "double"
+        },
+        "p999": {
+          "type": "number",
+          "format": "double"
+        },
+        "min": {
+          "type": "number",
+          "format": "double"
+        },
+        "max": {
+          "type": "number",
+          "format": "double"
+        },
+        "mean": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "p50",
+        "p75",
+        "p90",
+        "p95",
+        "p99",
+        "p999",
+        "min",
+        "max",
+        "mean"
+      ],
+      "description": "Latency distribution in milliseconds."
+    },
+    "ErrorKinds": {
+      "type": "object",
+      "properties": {
+        "connect": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Connection refused/reset, DNS, TLS handshake, ephemeral port exhaustion."
+        },
+        "timeout": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "other": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Anything else (invalid request after templating, body read errors, …)."
+        }
+      },
+      "required": [
+        "connect",
+        "timeout",
+        "other"
+      ],
+      "description": "Transport-level failures (no HTTP response)."
+    },
+    "RequestStats": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Request file relative to `http/`."
+        },
+        "name": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "errorRate": {
+          "type": "number",
+          "format": "double"
+        },
+        "rps": {
+          "type": "number",
+          "format": "double"
+        },
+        "latency": {
+          "$ref": "#/$defs/Percentiles"
+        },
+        "statusCodes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "method",
+        "requests",
+        "failed",
+        "errorRate",
+        "rps",
+        "latency",
+        "statusCodes"
+      ]
+    },
+    "ThresholdResult": {
+      "type": "object",
+      "properties": {
+        "expr": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "actual": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "Measured value in display units (`unit`); `None` when it could not be measured."
+        },
+        "limit": {
+          "type": "number",
+          "format": "double",
+          "description": "Limit in display units."
+        },
+        "unit": {
+          "type": "string",
+          "description": "`ms`, `%`, `/s` or empty for counts."
+        },
+        "message": {
+          "type": "string",
+          "description": "One-line explanation, e.g. `p95 = 312.4ms (want < 300ms)`."
+        }
+      },
+      "required": [
+        "expr",
+        "ok",
+        "limit",
+        "unit",
+        "message"
+      ]
+    },
+    "TimelinePoint": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Bucket start, seconds from the start of the run."
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rps": {
+          "type": "number",
+          "format": "double"
+        },
+        "p50": {
+          "type": "number",
+          "format": "double"
+        },
+        "p95": {
+          "type": "number",
+          "format": "double"
+        },
+        "p99": {
+          "type": "number",
+          "format": "double"
+        },
+        "max": {
+          "type": "number",
+          "format": "double"
+        },
+        "vus": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Most VUs busy during the bucket."
+        },
+        "dropped": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "t",
+        "requests",
+        "failed",
+        "rps",
+        "p50",
+        "p95",
+        "p99",
+        "max",
+        "vus",
+        "dropped"
+      ],
+      "description": "One bucket of the timeline (`bucketSeconds` wide; ≤ 600 buckets per run)."
+    },
+    "GitInfo": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commit"
+      ]
+    },
+    "Machine": {
+      "type": "object",
+      "properties": {
+        "os": {
+          "type": "string"
+        },
+        "cpus": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "os",
+        "cpus"
+      ]
+    },
+    "AgentRun": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "`host:port` (or URL) the coordinator used."
+        },
+        "weight": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "share": {
+          "type": "number",
+          "format": "double",
+          "description": "Fraction of the load assigned (weight / total weight)."
+        },
+        "ok": {
+          "type": "boolean",
+          "description": "Whether the agent finished and returned its measurements."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "description": "Agent build (`devall --version`)."
+        },
+        "machine": {
+          "$ref": "#/$defs/Machine",
+          "default": {
+            "os": "",
+            "cpus": 0
+          }
+        },
+        "requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "p95": {
+          "type": "number",
+          "format": "double",
+          "description": "The agent's own p95 (ms) — the summary's percentiles come from the merged histograms."
+        },
+        "abortedReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "address",
+        "weight",
+        "share",
+        "ok",
+        "requests",
+        "failed",
+        "p95"
+      ],
+      "description": "One load agent of a distributed run (`devall load run --agents …`)."
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/load-run.schema.json"
+}

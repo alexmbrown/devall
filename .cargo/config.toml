@@ -1,0 +1,9 @@
+[build]
+# Several crates (tauri, aws-lc, kube, mongodb) are memory-hungry to compile; unbounded parallelism
+# has exhausted the Windows paging file on 32 GB machines. Override with `-j N` when you have room.
+jobs = 6
+
+[env]
+# aws-lc-sys (TLS + JWT crypto) needs NASM on Windows x86_64 unless it may use its prebuilt
+# objects. Allow them so a fresh Windows checkout builds without extra tools. No effect elsewhere.
+AWS_LC_SYS_PREBUILT_NASM = "1"

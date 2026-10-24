@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Project-wide, non-secret variables (lowest precedence)."
+    }
+  },
+  "required": [
+    "id",
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "devall.yaml — the project manifest",
+  "title": "ProjectManifest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devall.dev/schemas/v1/project.schema.json"
+}

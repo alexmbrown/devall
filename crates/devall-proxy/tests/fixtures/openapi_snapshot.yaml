@@ -1,0 +1,223 @@
+openapi: 3.1.0
+info:
+  title: api.example.com API
+  version: 0.1.0
+  description: Draft inferred by /dev/all from 13 captured exchange(s). Review names, types and required fields before publishing.
+servers:
+- url: https://api.example.com
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: GET /health
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+  /orders/{orderId}:
+    get:
+      operationId: getOrdersByOrderId
+      summary: GET /orders/{orderId}
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: number
+                  items:
+                    type: integer
+                required:
+                - total
+                - items
+  /repos/{repo}/issues:
+    get:
+      operationId: getReposIssuesByRepo
+      summary: GET /repos/{repo}/issues
+      parameters:
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    n:
+                      type: integer
+                  required:
+                  - n
+  /users:
+    get:
+      operationId: getUsers
+      summary: GET /users
+      parameters:
+      - name: page
+        in: query
+        required: true
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    email:
+                      type: string
+                      format: email
+                    createdAt:
+                      type: string
+                      format: date-time
+                  required:
+                  - id
+                  - name
+                  - email
+                  - createdAt
+      security:
+      - bearerAuth: []
+    post:
+      operationId: postUsers
+      summary: POST /users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                admin:
+                  type: boolean
+              required:
+              - name
+              - email
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                required:
+                - id
+                - name
+      security:
+      - bearerAuth: []
+  /users/{userId}:
+    get:
+      operationId: getUsersByUserId
+      summary: GET /users/{userId}
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  email:
+                    type: string
+                    format: email
+                  manager:
+                    type:
+                    - object
+                    - 'null'
+                    properties:
+                      id:
+                        type: integer
+                    required:
+                    - id
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                required:
+                - id
+                - name
+                - email
+                - manager
+                - tags
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+      security:
+      - bearerAuth: []
+    delete:
+      operationId: deleteUsersByUserId
+      summary: DELETE /users/{userId}
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: No Content
+      security:
+      - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

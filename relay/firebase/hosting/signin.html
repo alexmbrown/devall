@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Sign in to the /dev/all relay</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Sign in to the /dev/all relay</h1>
+    <p>An account is only needed for hosted tunnels and the hosted webhook inbox. Everything that runs on your machine stays free, with no account.</p>
+    <div id="signin" hidden>
+      <button data-google>Continue with Google</button>
+      <button data-github>Continue with GitHub</button>
+      <div class="sep">or</div>
+      <form data-email-form>
+        <input data-email type="email" autocomplete="email" placeholder="you@example.com" required>
+        <button class="primary" type="submit">Email me a sign-in link</button>
+      </form>
+      <div class="msg" role="status"></div>
+    </div>
+    <div id="bad" hidden>
+      <p class="msg error">Start sign-in from the /dev/all app (Tunnels → Sign in). This page only works with the link the app opens.</p>
+    </div>
+    <div id="done" hidden>
+      <p>Signed in — returning to /dev/all…</p>
+    </div>
+    <p class="small">Prefer no account at all? The relay is open source: self-host it and every feature is free (see the app's Tunnels page).</p>
+  </main>
+  <script type="module" src="signin.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+[package]
+name = "devall-script"
+description = "Sandboxed pre-request/post-response scripts (QuickJS) with a Postman-compatible pm API"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Deliberately no dependency on devall-http: devall-http's collection runner calls into this crate,
+# so the response/test types here mirror devall-http's shapes instead of importing them.
+[dependencies]
+base64.workspace = true
+devall-core.workspace = true
+getrandom = "0.4"
+hex.workspace = true
+hmac.workspace = true
+md-5.workspace = true
+percent-encoding.workspace = true
+# Bundled QuickJS-ng with pre-generated bindings (no bindgen/libclang); builds with MSVC and clang.
+rquickjs = { version = "0.14", default-features = false, features = ["std"] }
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

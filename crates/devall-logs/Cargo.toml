@@ -1,0 +1,30 @@
+[package]
+name = "devall-logs"
+description = "Log viewer engine (huge files, formats, queries, patterns, SQL) and project event store for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["duckdb"]
+# SQL over logs with embedded DuckDB (also reads CSV/JSON/Parquet files). Without it, SQL runs on
+# SQLite (json_extract over the `fields` column; no CSV/Parquet readers).
+duckdb = ["dep:duckdb"]
+
+[dependencies]
+chrono.workspace = true
+devall-core.workspace = true
+duckdb = { version = "1.10506", features = ["bundled", "json", "parquet"], optional = true }
+flate2 = "1.1"
+memchr = "2.8"
+regex = "1.12"
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+ulid.workspace = true
+
+[dev-dependencies]

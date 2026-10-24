@@ -1,0 +1,63 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Org Graph", "version": "2026.10" },
+  "servers": [{ "url": "/api" }],
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/nodes": {
+      "post": {
+        "summary": "Create node",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/merge-patch+json": {
+              "schema": { "$ref": "#/components/schemas/NodeInput" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      },
+      "get": {
+        "operationId": "listNodes",
+        "parameters": [
+          { "name": "kind", "in": "query", "schema": { "type": ["string", "null"], "const": "team" } },
+          { "name": "tags", "in": "query", "required": true, "schema": { "type": "array", "items": { "type": "string", "examples": ["core"] } } },
+          { "name": "session", "in": "cookie", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/nodes/{nodeId}/children": {
+      "get": {
+        "summary": "List children",
+        "parameters": [{ "name": "nodeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "webhooks": {
+    "nodeCreated": { "post": { "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Node" } } } }, "responses": { "200": { "description": "OK" } } } }
+  },
+  "components": {
+    "schemas": {
+      "NodeInput": { "$ref": "#/components/schemas/NodeFields" },
+      "NodeFields": { "$ref": "#/components/schemas/Node" },
+      "Node": {
+        "type": "object",
+        "required": ["name", "kind", "children"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "readOnly": true },
+          "name": { "type": "string", "examples": ["Platform"] },
+          "kind": { "type": "string", "enum": ["team", "group"] },
+          "budget": { "type": ["number", "null"], "minimum": 0.5 },
+          "owner": { "type": "string", "format": "email" },
+          "children": { "type": "array", "items": { "$ref": "#/components/schemas/Node" } },
+          "meta": { "type": "object", "additionalProperties": { "type": "integer" } }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "hmac-signer"
+description = "Example /dev/all plugin: HMAC-SHA256 request signing (auth provider) and an HMAC utility"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+# Built on its own for wasm32-unknown-unknown, not as part of the /dev/all workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+devall-plugin = { path = "../../../sdk/rust/devall-plugin" }
+base64 = "0.22"
+hex = "0.4"
+hmac = "0.13"
+sha2 = "0.11"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

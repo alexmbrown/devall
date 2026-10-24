@@ -1,0 +1,51 @@
+[package]
+name = "devall-desktop"
+description = "/dev/all desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "devall_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+devall-core.workspace = true
+devall-script.workspace = true
+devall-ai = { path = "../../../crates/devall-ai" }
+devall-mcp = { path = "../../../crates/devall-mcp" }
+devall-data = { path = "../../../crates/devall-data" }
+devall-history = { path = "../../../crates/devall-history" }
+devall-load = { path = "../../../crates/devall-load" }
+devall-webhooks = { path = "../../../crates/devall-webhooks" }
+devall-db = { path = "../../../crates/devall-db" }
+devall-infra = { path = "../../../crates/devall-infra" }
+devall-logs = { path = "../../../crates/devall-logs" }
+devall-relay = { path = "../../../crates/devall-relay" }
+devall-proto = { path = "../../../crates/devall-proto" }
+devall-mock = { path = "../../../crates/devall-mock" }
+devall-import = { path = "../../../crates/devall-import" }
+devall-openapi.workspace = true
+devall-proxy = { path = "../../../crates/devall-proxy" }
+devall-notebook = { path = "../../../crates/devall-notebook" }
+devall-plugins = { path = "../../../crates/devall-plugins" }
+devall-http.workspace = true
+devall-utils.workspace = true
+base64.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+trash.workspace = true
+url.workspace = true
+tauri = { version = "2.9", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2.7"
+notify = "8"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio.workspace = true

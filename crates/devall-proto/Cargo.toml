@@ -1,0 +1,48 @@
+[package]
+name = "devall-proto"
+description = "WebSocket, gRPC, MQTT, Socket.IO and GraphQL schema clients for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+bytes = "1.11"
+chrono.workspace = true
+devall-core.workspace = true
+devall-http.workspace = true
+fastrand.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+http = "1.5"
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+indexmap.workspace = true
+prost = "0.14"
+prost-reflect = { version = "0.16", features = ["serde"] }
+prost-types = "0.14"
+protox = "0.10"
+rumqttc = { version = "0.25", features = ["websocket"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging", "aws_lc_rs"] }
+rustls-platform-verifier = "0.7"
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time", "net", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tonic = { version = "0.14", default-features = false, features = ["channel"] }
+tonic-reflection = { version = "0.14", default-features = false }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+url.workspace = true
+
+[dev-dependencies]
+# Real Socket.IO server for the client tests (served with hyper's HTTP/1 server).
+hyper = { version = "1.9", features = ["server", "http1"] }
+# Self-signed certificates for the TLS tests.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
+socketioxide = "0.18"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tonic = { version = "0.14", default-features = false, features = ["transport", "router"] }
+tonic-reflection = { version = "0.14", features = ["server"] }

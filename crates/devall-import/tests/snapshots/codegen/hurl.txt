@@ -1,0 +1,72 @@
+===== get-query =====
+GET https://api.example.com/v1/users?page=2&q=ada+lovelace
+Accept: application/json
+Authorization: Bearer ••••••
+X-Trace: a"b'c$d
+[Options]
+location: true
+HTTP *
+===== post-json =====
+POST https://api.example.com/v1/users
+Content-Type: application/json
+[Options]
+location: true
+```json
+{
+  "name": "Zoë \"Z\" O'Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}
+```
+HTTP *
+===== form =====
+PUT https://api.example.com/v1/settings
+Content-Type: application/x-www-form-urlencoded
+[Form]
+tag: a&b
+tag: c d
+mode: dark
+[Options]
+location: true
+HTTP *
+===== multipart =====
+POST https://api.example.com/v1/upload
+X-Upload-Id: 42
+[Multipart]
+note: hello 'world'
+file: file,/project/files/a b.png; image/png
+[Options]
+location: true
+HTTP *
+===== options =====
+DELETE https://internal.example.com/v1/cache
+[Options]
+insecure: true
+proxy: http://proxy.local:3128
+digest: true
+user: admin:••••••
+max-time: 2500ms
+HTTP *
+===== text-custom-method =====
+PURGE https://cdn.example.com/assets/app.js
+Content-Type: text/plain; charset=utf-8
+[Options]
+location: true
+```
+line 1 with 'quotes' and "double"
+'@ here-string end
+""" triple
+\ backslash `tick` ${x}
+```
+HTTP *
+===== binary =====
+POST https://api.example.com/v1/blobs
+Content-Type: application/octet-stream
+[Options]
+location: true
+file,body.bin; # 4-byte binary body: save it as body.bin
+HTTP *

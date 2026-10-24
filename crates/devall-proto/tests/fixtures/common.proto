@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package test.common;
+
+enum Mood {
+  MOOD_UNSPECIFIED = 0;
+  HAPPY = 1;
+}

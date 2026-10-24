@@ -1,0 +1,37 @@
+===== get-query =====
+http --follow GET 'https://api.example.com/v1/users?page=2&q=ada+lovelace' \
+  Accept:application/json \
+  'Authorization:Bearer ••••••' \
+  'X-Trace:a"b'\''c$d'
+===== post-json =====
+http --follow --raw '{
+  "name": "Zoë \"Z\" O'\''Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}' POST https://api.example.com/v1/users \
+  Content-Type:application/json
+===== form =====
+http --follow --form PUT https://api.example.com/v1/settings \
+  'tag=a&b' \
+  'tag=c d' \
+  mode=dark
+===== multipart =====
+http --follow --multipart POST https://api.example.com/v1/upload \
+  X-Upload-Id:42 \
+  'note=hello '\''world'\''' \
+  'file@/project/files/a b.png;type=image/png'
+===== options =====
+http --verify=no --timeout=2.5 --proxy=https:http://proxy.local:3128 --auth-type=digest --auth='admin:••••••' DELETE https://internal.example.com/v1/cache
+===== text-custom-method =====
+http --follow --raw 'line 1 with '\''quotes'\'' and "double"
+'\''@ here-string end
+""" triple
+\ backslash `tick` ${x}' PURGE https://cdn.example.com/assets/app.js \
+  'Content-Type:text/plain; charset=utf-8'
+===== binary =====
+http --follow POST https://api.example.com/v1/blobs \
+  Content-Type:application/octet-stream < body.bin  # 4-byte binary body: save it as body.bin

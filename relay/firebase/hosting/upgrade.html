@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Become a /dev/all Supporter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Become a Supporter</h1>
+    <p>About $4/month — priced near what the hosted relay costs to run. Reserved subdomains, no warning page for visitors, 50 GB/month, five tunnels at once, a 30-day webhook buffer and a stable inbox per project. Everything local stays free, and a self-hosted relay gets all of this free too.</p>
+    <div id="signin" hidden>
+      <button data-google>Continue with Google</button>
+      <button data-github>Continue with GitHub</button>
+      <div class="sep">or</div>
+      <form data-email-form>
+        <input data-email type="email" autocomplete="email" placeholder="you@example.com" required>
+        <button class="primary" type="submit">Email me a sign-in link</button>
+      </form>
+      <div class="msg" role="status"></div>
+    </div>
+    <div id="next" hidden>
+      <a class="btn primary" id="pay" href="#">Continue to checkout</a>
+      <a class="btn" id="portal" href="#">Manage or cancel my subscription</a>
+      <p class="small">Signed in as <span id="who"></span>. Use the same account as in /dev/all; your tunnels pick up the new plan when they reconnect.</p>
+      <section id="reserve" hidden>
+        <h2>Reserved subdomains</h2>
+        <p class="small">Up to five stable names: <code>https://&lt;name&gt;.&lt;relay domain&gt;</code>.</p>
+        <ul id="subs" class="subs"></ul>
+        <p id="subs-empty" class="small">None yet.</p>
+        <form id="reserve-form" class="row">
+          <input id="sub-name" placeholder="my-app" autocomplete="off" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" title="3–40 lower-case letters, digits and inner hyphens">
+          <button class="primary" type="submit">Reserve</button>
+        </form>
+        <div id="subs-msg" class="msg" role="status"></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="upgrade.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+===== get-query =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/users?page=2&q=ada+lovelace")!)
+request.httpMethod = "GET"
+request.addValue("application/json", forHTTPHeaderField: "Accept")
+request.addValue("Bearer ••••••", forHTTPHeaderField: "Authorization")
+request.addValue("a\"b'c$d", forHTTPHeaderField: "X-Trace")
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== post-json =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/users")!)
+request.httpMethod = "POST"
+request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+request.httpBody = Data("""
+{
+  "name": "Zoë \\"Z\\" O'Neil",
+  "path": "C:\\\\tmp",
+  "note": "line1\\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}
+""".utf8)
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== form =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/settings")!)
+request.httpMethod = "PUT"
+request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+request.httpBody = Data("tag=a%26b&tag=c+d&mode=dark".utf8)
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== multipart =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/upload")!)
+request.httpMethod = "POST"
+request.addValue("42", forHTTPHeaderField: "X-Upload-Id")
+
+let boundary = "Boundary-\(UUID().uuidString)"
+request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+var body = Data()
+body.append(Data("--\(boundary)\r\n".utf8))
+body.append(Data("Content-Disposition: form-data; name=\"note\"\r\n\r\n".utf8))
+body.append(Data("hello 'world'".utf8))
+body.append(Data("\r\n".utf8))
+body.append(Data("--\(boundary)\r\n".utf8))
+body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"a b.png\"\r\nContent-Type: image/png\r\n\r\n".utf8))
+body.append(try Data(contentsOf: URL(fileURLWithPath: "/project/files/a b.png")))
+body.append(Data("\r\n".utf8))
+body.append(Data("--\(boundary)--\r\n".utf8))
+request.httpBody = body
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== options =====
+import Foundation
+
+// TLS certificate checks are off for this request: use a URLSessionDelegate that trusts the server.
+// Redirects are not followed for this request: implement urlSession(_:task:willPerformHTTPRedirection:...) and pass nil.
+// Digest auth (user "admin"): answer the challenge in urlSession(_:task:didReceive:completionHandler:).
+// Proxy http://proxy.local:3128: set connectionProxyDictionary on a URLSessionConfiguration.
+var request = URLRequest(url: URL(string: "https://internal.example.com/v1/cache")!)
+request.httpMethod = "DELETE"
+request.timeoutInterval = 2.5
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== text-custom-method =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://cdn.example.com/assets/app.js")!)
+request.httpMethod = "PURGE"
+request.addValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+request.httpBody = Data("""
+line 1 with 'quotes' and "double"
+'@ here-string end
+\"\"\" triple
+\\ backslash `tick` ${x}
+""".utf8)
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))
+===== binary =====
+import Foundation
+
+var request = URLRequest(url: URL(string: "https://api.example.com/v1/blobs")!)
+request.httpMethod = "POST"
+request.addValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+// 4-byte binary body: save it as body.bin
+request.httpBody = try Data(contentsOf: URL(fileURLWithPath: "body.bin"))
+
+let (data, response) = try await URLSession.shared.data(for: request)
+if let http = response as? HTTPURLResponse {
+    print(http.statusCode)
+}
+print(String(decoding: data, as: UTF8.self))

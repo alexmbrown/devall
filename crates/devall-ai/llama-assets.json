@@ -1,0 +1,104 @@
+{
+  "$comment": "Generated from crates/devall-ai/src/catalog.rs — refresh with UPDATE_LLAMA_ASSETS=1 cargo test -p devall-ai llama_assets_json",
+  "build": "b11796",
+  "assets": [
+    {
+      "variant": "macos-arm64",
+      "file": "llama-b11796-bin-macos-arm64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-macos-arm64.tar.gz",
+      "sizeBytes": 16136199,
+      "sha256": "3be4c64b4303be0d17120400482545e70fc3c01de7fd2389150c5573f55f13fa",
+      "runtime": null
+    },
+    {
+      "variant": "macos-x64",
+      "file": "llama-b11796-bin-macos-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-macos-x64.tar.gz",
+      "sizeBytes": 11870332,
+      "sha256": "e3a0a59d6a9be0e7eb5c403d9acc198bf7b86ed97ba993ea0898c62679743237",
+      "runtime": null
+    },
+    {
+      "variant": "win-cpu-x64",
+      "file": "llama-b11796-bin-win-cpu-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-cpu-x64.zip",
+      "sizeBytes": 24042917,
+      "sha256": "d3ae3e9f395175b5a1cf8e9a82bbc92d21c1f44201dd0321f0196f8a4d2d0b69",
+      "runtime": null
+    },
+    {
+      "variant": "win-vulkan-x64",
+      "file": "llama-b11796-bin-win-vulkan-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-vulkan-x64.zip",
+      "sizeBytes": 36839158,
+      "sha256": "b7035131edd2dcfc4a123a9deb16d109af655ef7c5e0d283edd7323808cb78b7",
+      "runtime": null
+    },
+    {
+      "variant": "win-cuda-13.4-x64",
+      "file": "llama-b11796-bin-win-cuda-13.4-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-cuda-13.4-x64.zip",
+      "sizeBytes": 159695876,
+      "sha256": "a42b883b9dc84632d5deb50a1513e7ce49796fbdfa83b1860697631c637d35d7",
+      "runtime": {
+        "file": "cudart-llama-bin-win-cuda-13.4-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/cudart-llama-bin-win-cuda-13.4-x64.zip",
+        "sizeBytes": 423535356,
+        "sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668"
+      }
+    },
+    {
+      "variant": "win-cuda-12.4-x64",
+      "file": "llama-b11796-bin-win-cuda-12.4-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-cuda-12.4-x64.zip",
+      "sizeBytes": 272124800,
+      "sha256": "681eef3b86a2e66b3b312cdc00786f265326975c46cd9e3fcb72022f6117b28b",
+      "runtime": {
+        "file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "sizeBytes": 391443627,
+        "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+      }
+    },
+    {
+      "variant": "win-cpu-arm64",
+      "file": "llama-b11796-bin-win-cpu-arm64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-cpu-arm64.zip",
+      "sizeBytes": 12681060,
+      "sha256": "ec3545d68b9ac36a2d324c539e0291d1b6e611ced357c1c205fee6d080aeb8b1",
+      "runtime": null
+    },
+    {
+      "variant": "win-vulkan-arm64",
+      "file": "llama-b11796-bin-win-vulkan-arm64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-win-vulkan-arm64.zip",
+      "sizeBytes": 25066945,
+      "sha256": "98e2c15b138c45686a278cdd6866878520cffc08ec8ea9c600cd71d07c0e0d5e",
+      "runtime": null
+    },
+    {
+      "variant": "ubuntu-x64",
+      "file": "llama-b11796-bin-ubuntu-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-ubuntu-x64.tar.gz",
+      "sizeBytes": 22302514,
+      "sha256": "70b856d40577f1cf66120f894b2674398175efbae7d9153566872c4b3c1b3d32",
+      "runtime": null
+    },
+    {
+      "variant": "ubuntu-vulkan-x64",
+      "file": "llama-b11796-bin-ubuntu-vulkan-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-ubuntu-vulkan-x64.tar.gz",
+      "sizeBytes": 34944362,
+      "sha256": "f2305ac8c40642eb7466c615f7518f8dab3fe116177cf5a167133b96afc76098",
+      "runtime": null
+    },
+    {
+      "variant": "ubuntu-arm64",
+      "file": "llama-b11796-bin-ubuntu-arm64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11796/llama-b11796-bin-ubuntu-arm64.tar.gz",
+      "sizeBytes": 18015393,
+      "sha256": "6e8f529737e06de45a34f5956aedf074f1e95d39816c8820491986334f382187",
+      "runtime": null
+    }
+  ]
+}

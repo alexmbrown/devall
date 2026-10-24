@@ -1,0 +1,203 @@
+/*
+ * Design tokens. Every colour, size and radius used by the app is defined here
+ * so the whole look can be re-themed (e.g. from a Claude Design hand-off)
+ * without touching component CSS.
+ */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+
+  --lh: 1.45;
+  --row-h: 28px;
+  --control-h: 28px;
+  --control-h-sm: 24px;
+  --topbar-h: 44px;
+  --sidenav-w: 188px;
+  --sidenav-w-collapsed: 48px;
+  --tabbar-h: 34px;
+
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow: 0 4px 16px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.08);
+
+  --dur: 120ms;
+}
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-subtle: #f8f8fa;
+  --bg-muted: #f1f1f4;
+  --bg-hover: #ececf0;
+  --bg-active: #e4e4ea;
+  --bg-elevated: #ffffff;
+  --bg-overlay: rgb(15 15 20 / 0.42);
+  --bg-code: #fafafb;
+
+  --border: #e5e5ea;
+  --border-strong: #d4d4dc;
+  --focus-ring: #6366f1;
+
+  --text: #17171c;
+  --text-muted: #4f4f5a;
+  --text-subtle: #7a7a86;
+  --text-disabled: #a6a6b0;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-subtle: #eef0ff;
+  --accent-border: #c7cbff;
+  --accent-text: #ffffff;
+  --accent-fg: #4338ca;
+
+  --success: #15803d;
+  --success-subtle: #ecfdf3;
+  --success-border: #b7ebc9;
+  --warning: #b45309;
+  --warning-subtle: #fff8eb;
+  --warning-border: #fcd9a1;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-subtle: #fef2f2;
+  --danger-border: #fbc7c7;
+  --info: #0369a1;
+  --info-subtle: #eff8ff;
+  --info-border: #b9e0fb;
+
+  --m-get: #15803d;
+  --m-post: #1d4ed8;
+  --m-put: #b45309;
+  --m-patch: #7e22ce;
+  --m-delete: #dc2626;
+  --m-other: #52525b;
+  --m-get-bg: #e9f8ef;
+  --m-post-bg: #eaf0ff;
+  --m-put-bg: #fff4e5;
+  --m-patch-bg: #f5ecff;
+  --m-delete-bg: #feeeee;
+  --m-other-bg: #f1f1f4;
+
+  --diff-add: #e6ffec;
+  --diff-del: #ffebe9;
+
+  /* Chart series — validated (lightness band, CVD ΔE, contrast) against --bg-elevated. */
+  --chart-matched: #4f46e5;
+  --chart-unmatched: #b45309;
+  --chart-2xx: #15803d;
+  --chart-3xx: #2563eb;
+  --chart-4xx: #d97706;
+  --chart-5xx: #be123c;
+  --chart-other: #8b8b96;
+  --chart-grid: #ececf0;
+
+  /* Logo (light theme): the dark-theme artwork inverted — dark panel, light text. */
+  --logo-panel: #1a150c;
+  --logo-text: #ebebeb;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e0e11;
+  --bg-subtle: #141418;
+  --bg-muted: #1b1b20;
+  --bg-hover: #222228;
+  --bg-active: #2a2a31;
+  --bg-elevated: #18181d;
+  --bg-overlay: rgb(0 0 0 / 0.6);
+  --bg-code: #121216;
+
+  --border: #26262d;
+  --border-strong: #34343c;
+  --focus-ring: #818cf8;
+
+  --text: #ececf1;
+  --text-muted: #b0b0bb;
+  --text-subtle: #80808c;
+  --text-disabled: #55555e;
+
+  --accent: #6d68f5;
+  --accent-hover: #7f7bff;
+  --accent-subtle: #1f1e3d;
+  --accent-border: #3b3874;
+  --accent-text: #ffffff;
+  --accent-fg: #a5a3ff;
+
+  --success: #4ade80;
+  --success-subtle: #0f2318;
+  --success-border: #1c4a2f;
+  --warning: #fbbf24;
+  --warning-subtle: #2a1f0a;
+  --warning-border: #5a4012;
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-subtle: #2a1214;
+  --danger-border: #5c2125;
+  --info: #38bdf8;
+  --info-subtle: #0c2130;
+  --info-border: #154361;
+
+  --m-get: #4ade80;
+  --m-post: #7aa2ff;
+  --m-put: #fbbf24;
+  --m-patch: #c084fc;
+  --m-delete: #f87171;
+  --m-other: #a1a1aa;
+  --m-get-bg: #10261a;
+  --m-post-bg: #141e3a;
+  --m-put-bg: #2b200c;
+  --m-patch-bg: #24163a;
+  --m-delete-bg: #2c1315;
+  --m-other-bg: #1f1f25;
+
+  --diff-add: #12261a;
+  --diff-del: #2d1517;
+
+  --chart-matched: #6d68f5;
+  --chart-unmatched: #c27c0e;
+  --chart-2xx: #1f9d55;
+  --chart-3xx: #3b7ddd;
+  --chart-4xx: #c27c0e;
+  --chart-5xx: #d9415e;
+  --chart-other: #6b6b76;
+  --chart-grid: #24242b;
+
+  /* Logo as designed (for dark backgrounds): light panel, near-black text, cut-out slash. */
+  --logo-panel: #e5eaf3;
+  --logo-text: #141414;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow: 0 4px 16px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+[data-density='comfortable'] {
+  --row-h: 34px;
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --fs-md: 14px;
+  --fs-sm: 13px;
+  --topbar-h: 50px;
+  --tabbar-h: 38px;
+}

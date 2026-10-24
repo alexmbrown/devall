@@ -1,0 +1,64 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Petstore (Swagger 2)", "version": "1.0.0" },
+  "host": "petstore.swagger.test",
+  "basePath": "/v2",
+  "schemes": ["http", "https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "tags": [{ "name": "pet" }],
+  "securityDefinitions": {
+    "petstore_auth": {
+      "type": "oauth2",
+      "flow": "accessCode",
+      "authorizationUrl": "https://petstore.swagger.test/oauth/authorize",
+      "tokenUrl": "https://petstore.swagger.test/oauth/token",
+      "scopes": { "write:pets": "modify pets", "read:pets": "read pets" }
+    },
+    "api_key": { "type": "apiKey", "name": "api_key", "in": "query" }
+  },
+  "security": [{ "petstore_auth": ["read:pets"] }],
+  "paths": {
+    "/pet": {
+      "post": {
+        "tags": ["pet"],
+        "summary": "Add a new pet",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["name"],
+              "properties": { "id": { "type": "integer", "readOnly": true }, "name": { "type": "string", "example": "doggie" }, "status": { "type": "string", "enum": ["available", "sold"] } }
+            }
+          }
+        ],
+        "responses": { "405": { "description": "Invalid input" } }
+      }
+    },
+    "/pet/{petId}/uploadImage": {
+      "post": {
+        "tags": ["pet"],
+        "summary": "uploads an image",
+        "consumes": ["multipart/form-data"],
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "type": "integer", "format": "int64", "x-example": 5 },
+          { "name": "additionalMetadata", "in": "formData", "required": false, "type": "string" },
+          { "name": "file", "in": "formData", "required": false, "type": "file" }
+        ],
+        "security": [{ "api_key": [] }],
+        "responses": { "200": { "description": "successful operation" } }
+      }
+    },
+    "/pet/findByTags": {
+      "get": {
+        "tags": ["pet"],
+        "summary": "Finds Pets by tags",
+        "parameters": [{ "name": "tags", "in": "query", "required": true, "type": "array", "items": { "type": "string" }, "collectionFormat": "multi", "default": ["a", "b"] }],
+        "responses": { "200": { "description": "successful operation" } }
+      }
+    }
+  }
+}

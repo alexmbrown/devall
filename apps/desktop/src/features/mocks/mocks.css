@@ -1,0 +1,42 @@
+/* Mock server module. Layout and components come from app.css (shared with wiremock-ui); only
+   module-specific bits live here, all colours via tokens so both themes work. */
+
+.mocks-page { overflow: hidden; }
+.mocks-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.mocks-body > .page,
+.mocks-body > .split,
+.mocks-body > .page-body { flex: 1; min-height: 0; }
+.mocks-body > .split { display: flex; }
+
+/* Server bar: target switcher + start/stop + status. */
+.mocks-bar { min-height: 40px; gap: var(--space-4); flex-wrap: wrap; background: var(--bg-subtle); }
+.mocks-bar .switcher { max-width: 340px; }
+.mocks-bar .badge svg { width: 11px; height: 11px; }
+.mocks-banner { padding: var(--space-3) var(--space-5) 0; flex-shrink: 0; }
+.mocks-banner + .mocks-banner { padding-top: var(--space-2); }
+.mocks-load-errors { margin: var(--space-2) 0 0; padding-left: 18px; font-size: var(--fs-xs); }
+.mocks-load-errors li { margin: 2px 0; word-break: break-word; }
+
+/* Sub-page tabs. */
+.mocks-subtabs { flex-shrink: 0; }
+.mocks-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; font-size: var(--fs-2xs); font-weight: 600; color: var(--text-subtle); background: var(--bg-muted); font-variant-numeric: tabular-nums; }
+.mocks-count.alert { color: var(--warning); background: var(--warning-subtle); }
+@container (max-width: 980px) {
+  .mocks-subtab-label { display: none; }
+}
+.mocks-page { container-type: inline-size; }
+
+/* Fake data picker. */
+.mocks-faker { display: flex; flex-direction: column; gap: var(--space-5); max-height: 52vh; overflow: auto; padding-right: var(--space-2); }
+.mocks-faker-group { display: flex; flex-direction: column; gap: var(--space-3); }
+.mocks-chip { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); font: inherit; font-size: var(--fs-xs); }
+.mocks-chip:hover { border-color: var(--accent-border); background: var(--accent-subtle); color: var(--accent-fg); }
+
+/* Mock-from-response dialog. */
+.mocks-from-response .editor-shell { height: 360px; }
+
+/* GraphQL / WebSocket / gRPC / MQTT tabs */
+.proto-msg { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elevated); cursor: pointer; }
+.proto-msg:hover { border-color: var(--border-strong); }
+.proto-msg.event { background: var(--bg-subtle); }
+.mocks-bar .proto-chip { cursor: pointer; border: 0; }

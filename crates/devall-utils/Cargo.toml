@@ -1,0 +1,66 @@
+[package]
+name = "devall-utils"
+description = "Typed developer utility operations (encoders, JWT, hashes, ids, time, formats) for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+hex.workspace = true
+hmac.workspace = true
+html-escape.workspace = true
+jsonwebtoken.workspace = true
+md-5.workspace = true
+percent-encoding.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+ulid.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+# Regex sandbox: linear-time `regex` + backtracking `fancy-regex` (lookaround/backrefs), AST for explain.
+regex = "1.13"
+regex-syntax = "0.8"
+fancy-regex = "0.19"
+# Text diff.
+similar = { version = "3.2", features = ["inline"] }
+# Query languages.
+jaq-core = "3.1"
+jaq-std = "3.0"
+jaq-json = "2.0"
+serde_json_path = "0.7"
+jmespath = "0.5"
+# Scheduling.
+croner = "4.0"
+chrono-tz = "0.10"
+# Certificates, TLS, DNS, networks.
+x509-parser = "0.18"
+rustls = "0.23"
+rustls-platform-verifier = "0.7"
+hickory-resolver = "0.26"
+ipnet = "2.12"
+# Encoding / misc.
+flate2 = "1.1"
+sha3 = "0.12"
+blake3 = { version = "1.8", features = ["pure"] }
+bcrypt = "0.19"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+data-encoding = "2.11"
+unicode_names2 = "4.0"
+# String compare: NFC/NFKC equality and grapheme counts.
+unicode-normalization = "0.1.26"
+unicode-segmentation = "1.13"
+woothee = "0.13"
+getrandom = "0.4"
+
+[dev-dependencies]
+# The TLS test server's CA and leaf are generated per run, so no private key is committed.
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }

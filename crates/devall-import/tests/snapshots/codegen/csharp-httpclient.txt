@@ -1,0 +1,107 @@
+===== get-query =====
+using System.Net.Http;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("GET"), "https://api.example.com/v1/users?page=2&q=ada+lovelace");
+request.Headers.TryAddWithoutValidation("Accept", "application/json");
+request.Headers.TryAddWithoutValidation("Authorization", "Bearer ••••••");
+request.Headers.TryAddWithoutValidation("X-Trace", "a\"b'c$d");
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== post-json =====
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("POST"), "https://api.example.com/v1/users");
+request.Content = new StringContent("{\n  \"name\": \"Zoë \\\"Z\\\" O'Neil\",\n  \"path\": \"C:\\\\tmp\",\n  \"note\": \"line1\\nline2 ${HOME} #{x} $x\",\n  \"tags\": [\"a\", \"b\"],\n  \"active\": true,\n  \"score\": 1.5,\n  \"parent\": null\n}");
+request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== form =====
+using System.Net.Http;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("PUT"), "https://api.example.com/v1/settings");
+request.Content = new FormUrlEncodedContent(new[]
+{
+    new KeyValuePair<string, string>("tag", "a&b"),
+    new KeyValuePair<string, string>("tag", "c d"),
+    new KeyValuePair<string, string>("mode", "dark"),
+});
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== multipart =====
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("POST"), "https://api.example.com/v1/upload");
+request.Headers.TryAddWithoutValidation("X-Upload-Id", "42");
+var form = new MultipartFormDataContent();
+form.Add(new StringContent("hello 'world'"), "note");
+var file2 = new ByteArrayContent(File.ReadAllBytes("/project/files/a b.png"));
+file2.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
+form.Add(file2, "file", "a b.png");
+request.Content = form;
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== options =====
+using System.Net;
+using System.Net.Http;
+
+var handler = new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+    Credentials = new NetworkCredential("admin", "••••••"),
+    Proxy = new WebProxy("http://proxy.local:3128"),
+    UseProxy = true,
+};
+using var client = new HttpClient(handler);
+client.Timeout = TimeSpan.FromMilliseconds(2500);
+
+using var request = new HttpRequestMessage(new HttpMethod("DELETE"), "https://internal.example.com/v1/cache");
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== text-custom-method =====
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("PURGE"), "https://cdn.example.com/assets/app.js");
+request.Content = new StringContent("line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}");
+request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain; charset=utf-8");
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+===== binary =====
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+using var client = new HttpClient();
+
+using var request = new HttpRequestMessage(new HttpMethod("POST"), "https://api.example.com/v1/blobs");
+// 4-byte binary body: save it as body.bin
+request.Content = new ByteArrayContent(File.ReadAllBytes("body.bin"));
+request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/octet-stream");
+
+using var response = await client.SendAsync(request);
+Console.WriteLine((int)response.StatusCode);
+Console.WriteLine(await response.Content.ReadAsStringAsync());

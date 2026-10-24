@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "color": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Chip colour: a preset (`local`, `dev`, `test`, `staging`, `prod`) or a CSS hex colour (`#7c3aed`)."
+    },
+    "label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Short chip text (e.g. `QA`, `EU-PROD`); defaults to the colour preset's name."
+    },
+    "protected": {
+      "type": "boolean",
+      "description": "Ask before sending anything but GET/HEAD/OPTIONS while this environment is active."
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Secret *names* only. Values live in the OS keychain (or a git-ignored `.env`)."
+    },
+    "secretSources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Optional secret-manager references by secret name, e.g. `API_TOKEN: op://Eng/github/token`.\nReferences are safe to commit; each teammate resolves them with their own CLI login."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "environments/*.env.yaml — variables and secret names",
+  "title": "EnvironmentFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devall.dev/schemas/v1/environment.schema.json"
+}

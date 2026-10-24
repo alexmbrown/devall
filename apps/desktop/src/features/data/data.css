@@ -1,0 +1,47 @@
+/* Fake-data generator. Tokens only (see src/styles/tokens.css) so both themes work. */
+
+.data-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.data-editor .page-header { flex-wrap: wrap; row-gap: var(--space-3); }
+.data-seed { width: 112px; }
+/* Base .input/.select are width: 100%; inline controls in bars and option rows size to content. */
+.data-editor .page-header .select, .data-editor .toolbar .select, .data-params .select { width: auto; }
+.data-params .input:not(.grow) { flex: none; }
+.data-count { width: 96px; }
+
+.data-main { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(140px, 1fr) minmax(180px, var(--data-preview-h, 40%)); }
+.data-main.no-preview { grid-template-rows: minmax(0, 1fr); }
+.data-fields { overflow: auto; min-height: 0; }
+.data-fields > .callout { margin: var(--space-4) var(--space-5) 0; }
+
+.data-fields-table { table-layout: fixed; }
+.data-fields-table td { padding: var(--space-2) var(--space-3); vertical-align: top; }
+.data-fields-table th { padding: var(--space-3); }
+.data-fields-table td > .input, .data-fields-table td > .select { margin-top: 1px; }
+.data-fields-table.nested { background: transparent; }
+.data-fields-table.nested td { border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent); }
+.data-cell-toggle { width: 22px; padding-left: var(--space-2) !important; padding-right: 0 !important; }
+.data-nested-row > td { background: var(--bg-subtle); padding-top: 0 !important; }
+.data-nested { border-left: 2px solid var(--accent-border); padding: var(--space-2) 0 var(--space-2) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+
+.data-params { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: var(--control-h-sm); min-width: 0; }
+.data-params > .grow { min-width: 160px; }
+.data-param { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-subtle); white-space: nowrap; }
+.data-enum-tag { height: 22px; max-width: 220px; }
+.data-enum-tag .mono { font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-weight { width: 40px; height: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: var(--fs-2xs); padding: 0 2px; }
+
+.data-preview { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); background: var(--bg-subtle); }
+.data-preview .toolbar { background: var(--bg-subtle); }
+.data-preview-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 var(--space-4) var(--space-4); }
+.data-preview-body > .callout { margin-top: var(--space-4); }
+
+.data-entity-tab .count { font-size: var(--fs-2xs); color: var(--text-subtle); font-variant-numeric: tabular-nums; }
+
+.data-dialog-body { display: flex; flex-direction: column; gap: var(--space-4); height: 100%; min-height: 0; }
+.data-dialog-editor { flex: 1; min-height: 260px; display: flex; flex-direction: column; }
+
+.data-randomize { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); height: 100%; min-height: 0; }
+.data-randomize > .col-sm { min-height: 0; }
+@media (max-width: 1000px) {
+  .data-randomize { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(220px, 1fr); }
+}

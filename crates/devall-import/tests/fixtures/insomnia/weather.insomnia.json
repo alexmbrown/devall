@@ -1,0 +1,92 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-08-01T12:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v2023.5.8",
+  "resources": [
+    { "_id": "wrk_1", "parentId": null, "modified": 1722513600000, "created": 1722513600000, "name": "Weather API", "description": "", "scope": "collection", "_type": "workspace" },
+    {
+      "_id": "env_base",
+      "parentId": "wrk_1",
+      "name": "Base Environment",
+      "data": { "base_url": "https://api.weather.test", "api": { "version": "v2" } },
+      "isPrivate": false,
+      "_type": "environment"
+    },
+    {
+      "_id": "env_prod",
+      "parentId": "env_base",
+      "name": "Production",
+      "data": {
+        "base_url": "https://api.weather.example.com",
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+      },
+      "color": "#ff0000",
+      "_type": "environment"
+    },
+    { "_id": "fld_1", "parentId": "wrk_1", "name": "Forecasts", "environment": { "units": "metric" }, "metaSortKey": -2, "_type": "request_group" },
+    {
+      "_id": "req_1",
+      "parentId": "fld_1",
+      "name": "Daily forecast",
+      "method": "GET",
+      "url": "{{ _.base_url }}/{{ _.api.version }}/forecast/:city",
+      "parameters": [
+        { "name": "days", "value": "7" },
+        { "name": "units", "value": "{{ _.units }}", "disabled": true }
+      ],
+      "pathParameters": [{ "name": "city", "value": "Paris" }],
+      "headers": [{ "name": "Accept", "value": "application/json" }],
+      "authentication": { "type": "bearer", "token": "{{ _.token }}" },
+      "body": {},
+      "metaSortKey": -10,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_2",
+      "parentId": "fld_1",
+      "name": "Create alert",
+      "method": "POST",
+      "url": "{{ _.base_url }}/alerts",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\"city\": \"Paris\", \"id\": \"{% uuid 'v4' %}\", \"at\": \"{% now 'iso-8601', '' %}\"}"
+      },
+      "headers": [{ "name": "Content-Type", "value": "application/json" }],
+      "authentication": { "type": "apikey", "key": "X-Api-Key", "value": "wk_9f8e7d6c5b4a3210fedcba98", "addTo": "header" },
+      "metaSortKey": -5,
+      "_type": "request"
+    },
+    {
+      "_id": "req_3",
+      "parentId": "wrk_1",
+      "name": "Upload station data",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/stations/upload",
+      "body": {
+        "mimeType": "multipart/form-data",
+        "params": [
+          { "name": "file", "type": "file", "fileName": "C:\\data\\station.csv" },
+          { "name": "station", "value": "PAR-01" }
+        ]
+      },
+      "authentication": {},
+      "metaSortKey": -1,
+      "_type": "request"
+    },
+    {
+      "_id": "req_4",
+      "parentId": "wrk_1",
+      "name": "Token",
+      "method": "POST",
+      "url": "{{ _.base_url }}/oauth/token",
+      "body": { "mimeType": "application/x-www-form-urlencoded", "params": [{ "name": "grant_type", "value": "client_credentials" }] },
+      "authentication": { "type": "basic", "username": "client", "password": "{{ _.client_secret }}" },
+      "metaSortKey": 0,
+      "_type": "request"
+    },
+    { "_id": "req_5", "parentId": "wrk_1", "name": "Live updates", "url": "wss://api.weather.test/live", "_type": "websocket_request" },
+    { "_id": "jar_1", "parentId": "wrk_1", "name": "Default Jar", "cookies": [], "_type": "cookie_jar" }
+  ]
+}

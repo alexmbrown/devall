@@ -1,0 +1,43 @@
+/* Import / export / code generation dialogs. Colours and sizes come from tokens.css only. */
+
+.imp-col { display: flex; flex-direction: column; gap: var(--space-5); min-height: 0; }
+.imp-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.imp-formats { font-size: var(--fs-xs); color: var(--text-subtle); line-height: 1.6; }
+.imp-paste { min-height: 140px; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre; }
+.imp-drop { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+.imp-drop svg { width: 22px; height: 22px; color: var(--text-subtle); }
+
+.imp-split { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: var(--space-6); min-height: 0; }
+@media (max-width: 760px) { .imp-split { grid-template-columns: 1fr; } }
+
+.imp-tree { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); max-height: 340px; overflow: auto; padding: var(--space-2) 0; }
+.imp-tree-row { display: flex; align-items: center; gap: var(--space-3); min-height: 24px; padding-right: var(--space-4); font-size: var(--fs-sm); color: var(--text); }
+.imp-tree-row.folder { color: var(--text-muted); font-weight: 500; }
+.imp-tree-row svg { width: 14px; height: 14px; color: var(--text-subtle); flex-shrink: 0; }
+.imp-tree-row .badge.method { min-width: 38px; height: 16px; padding: 0 3px; font-size: 9px; }
+.imp-tree-row .url { color: var(--text-subtle); font-family: var(--font-mono); font-size: var(--fs-2xs); margin-left: auto; padding-left: var(--space-4); }
+
+.imp-options { display: flex; flex-direction: column; gap: var(--space-4); }
+.imp-section-title { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.imp-list { margin: 0; padding-left: var(--space-6); font-size: var(--fs-sm); }
+.imp-list li + li { margin-top: var(--space-1); }
+.imp-env { display: flex; align-items: baseline; gap: var(--space-3); font-size: var(--fs-sm); }
+.imp-env .count { color: var(--text-subtle); font-size: var(--fs-xs); }
+
+.imp-secrets { width: 100%; }
+.imp-secrets td { vertical-align: middle; }
+.imp-secrets .value { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-subtle); }
+.imp-secrets .input { width: 100%; }
+
+/* Export */
+.exp-layout { display: flex; flex-direction: column; gap: var(--space-4); height: 100%; min-height: 0; }
+.exp-preview { flex: 1; min-height: 240px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+
+/* Code generation */
+.codegen { display: flex; height: 100%; min-height: 0; }
+.codegen-langs { width: 230px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--bg-subtle); overflow: auto; }
+.codegen-langs .list-group-header { cursor: default; }
+.codegen-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.codegen-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); min-height: 40px; }
+.codegen-code { flex: 1; min-height: 0; }
+.codegen-body { padding: 0 !important; }

@@ -1,0 +1,198 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string",
+      "default": ""
+    },
+    "name": {
+      "type": "string"
+    },
+    "brokerUrl": {
+      "type": "string",
+      "description": "`mqtt://host:1883`, `mqtts://host:8883`, `ws://host:8083/mqtt` or `wss://host/mqtt`.",
+      "default": ""
+    },
+    "clientId": {
+      "type": "string",
+      "description": "Empty = a random `devall-…` id per connection."
+    },
+    "username": {
+      "type": "string"
+    },
+    "password": {
+      "type": "string",
+      "description": "Use `{{secret.NAME}}`; never a literal password in a shared file."
+    },
+    "keepAlive": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "description": "Keep-alive interval in seconds."
+    },
+    "cleanSession": {
+      "type": "boolean"
+    },
+    "mqttVersion": {
+      "$ref": "#/$defs/MqttVersion",
+      "description": "Protocol version: `3.1.1` (default) or `5`."
+    },
+    "subscriptions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MqttSubscription"
+      }
+    },
+    "publishes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MqttPublish"
+      }
+    },
+    "lastWill": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MqttLastWill"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verifyTls": {
+      "type": "boolean"
+    },
+    "connectTimeoutMs": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "docs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "http/**/*.mqtt.yaml — an MQTT connection with subscriptions and publishes",
+  "title": "MqttFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "MqttVersion": {
+      "type": "string",
+      "enum": [
+        "3.1.1",
+        "5"
+      ]
+    },
+    "MqttSubscription": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "Topic filter; `+` and `#` wildcards allowed."
+        },
+        "qos": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Subscribed automatically on connect when enabled."
+        }
+      },
+      "required": [
+        "topic"
+      ]
+    },
+    "MqttPublish": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string",
+          "default": ""
+        },
+        "payload": {
+          "type": "string",
+          "default": ""
+        },
+        "format": {
+          "$ref": "#/$defs/MessageFormat"
+        },
+        "qos": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "retain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "MessageFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "text"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "json",
+          "description": "Sent as text; validated as JSON first."
+        },
+        {
+          "type": "string",
+          "const": "binary-base64",
+          "description": "Base64 in the file, sent as binary."
+        }
+      ],
+      "description": "How a composer message body is interpreted."
+    },
+    "MqttLastWill": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "string",
+          "default": ""
+        },
+        "qos": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "retain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "topic"
+      ]
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/mqtt.schema.json"
+}

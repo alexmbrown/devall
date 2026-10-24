@@ -1,0 +1,146 @@
+===== get-query =====
+// Cargo.toml: reqwest = { version = "0.13" }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .request(reqwest::Method::GET, "https://api.example.com/v1/users?page=2&q=ada+lovelace")
+        .header("Accept", "application/json")
+        .header("Authorization", "Bearer ••••••")
+        .header("X-Trace", "a\"b'c$d")
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== post-json =====
+// Cargo.toml: reqwest = { version = "0.13" }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .request(reqwest::Method::POST, "https://api.example.com/v1/users")
+        .header("Content-Type", "application/json")
+        .body(r#"{
+  "name": "Zoë \"Z\" O'Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}"#)
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== form =====
+// Cargo.toml: reqwest = { version = "0.13", features = ["form"] }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .request(reqwest::Method::PUT, "https://api.example.com/v1/settings")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&[("tag", "a&b"), ("tag", "c d"), ("mode", "dark")])
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== multipart =====
+// Cargo.toml: reqwest = { version = "0.13", features = ["multipart"] }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let form = reqwest::multipart::Form::new()
+        .text("note", "hello 'world'")
+        .part("file", reqwest::multipart::Part::bytes(std::fs::read("/project/files/a b.png")?).file_name("a b.png").mime_str("image/png")?);
+
+    let response = client
+        .request(reqwest::Method::POST, "https://api.example.com/v1/upload")
+        .header("X-Upload-Id", "42")
+        .multipart(form)
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== options =====
+// Cargo.toml: reqwest = { version = "0.13" }, tokio = { version = "1", features = ["full"] }
+// Digest auth (user "admin"): reqwest has no built-in digest support.
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .tls_danger_accept_invalid_certs(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_millis(2500))
+        .proxy(reqwest::Proxy::all("http://proxy.local:3128")?)
+        .build()?;
+
+    let response = client
+        .request(reqwest::Method::DELETE, "https://internal.example.com/v1/cache")
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== text-custom-method =====
+// Cargo.toml: reqwest = { version = "0.13" }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .request(reqwest::Method::from_bytes(b"PURGE")?, "https://cdn.example.com/assets/app.js")
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .body(r#"line 1 with 'quotes' and "double"
+'@ here-string end
+""" triple
+\ backslash `tick` ${x}"#)
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}
+===== binary =====
+// Cargo.toml: reqwest = { version = "0.13" }, tokio = { version = "1", features = ["full"] }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .request(reqwest::Method::POST, "https://api.example.com/v1/blobs")
+        .header("Content-Type", "application/octet-stream")
+        .body(std::fs::read("body.bin")?) // 4-byte binary body: save it as body.bin
+        .send()
+        .await?;
+
+    println!("{}", response.status());
+    println!("{}", response.text().await?);
+    Ok(())
+}

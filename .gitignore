@@ -1,0 +1,24 @@
+# Rust
+/target/
+
+# Frontend
+node_modules/
+/apps/desktop/dist/
+*.tsbuildinfo
+
+# Tauri generated files
+/apps/desktop/src-tauri/gen/
+
+# Release-only sidecar binaries (scripts/fetch-llama-server.mjs)
+/apps/desktop/src-tauri/binaries/
+
+# Local-only state and secrets (also added to every /dev/all project by `devall init`)
+.devall/
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.log

@@ -1,0 +1,26 @@
+id: hmac-signer
+name: HMAC signer
+version: 0.1.0
+apiVersion: 1
+description: Signs requests with HMAC-SHA256 (keyId, timestamp, nonce, body hash) and adds an HMAC utility.
+author: /dev/all examples
+capabilities:
+  # Used when the auth config / utility args leave the key empty.
+  secrets.read: [HMAC_SECRET]
+contributes:
+  utilities:
+    - id: sign
+      name: HMAC-SHA256 sign
+      description: HMAC-SHA256 of the input text
+      example: hello world
+      args:
+        - { name: key, label: Key (empty = the HMAC_SECRET plugin secret), kind: secret }
+        - { name: encoding, label: Encoding, kind: "select:hex|base64", default: hex }
+  auth:
+    - id: hmac
+      name: HMAC request signature
+      description: 'Authorization: HMAC-SHA256 keyId="…", ts="…", nonce="…", signature="…" over method, path, timestamp, nonce and the body hash.'
+      fields:
+        - { name: keyId, label: Key ID }
+        - { name: secret, label: Secret (empty = the HMAC_SECRET plugin secret), kind: secret }
+        - { name: header, label: Header, default: Authorization }

@@ -1,0 +1,124 @@
+===== get-query =====
+import httpx
+
+url = "https://api.example.com/v1/users?page=2&q=ada+lovelace"
+headers = {
+    "Accept": "application/json",
+    "Authorization": "Bearer ••••••",
+    "X-Trace": "a\"b'c$d",
+}
+
+response = httpx.request("GET", url, headers=headers, follow_redirects=True)
+
+print(response.status_code)
+print(response.text)
+===== post-json =====
+import httpx
+
+url = "https://api.example.com/v1/users"
+headers = {
+    "Content-Type": "application/json",
+}
+payload = {
+    "name": "Zoë \"Z\" O'Neil",
+    "path": "C:\\tmp",
+    "note": "line1\nline2 ${HOME} #{x} $x",
+    "tags": [
+        "a",
+        "b",
+    ],
+    "active": True,
+    "score": 1.5,
+    "parent": None,
+}
+
+response = httpx.request("POST", url, headers=headers, json=payload, follow_redirects=True)
+
+print(response.status_code)
+print(response.text)
+===== form =====
+import httpx
+
+url = "https://api.example.com/v1/settings"
+headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+}
+payload = {
+    "tag": ["a&b", "c d"],
+    "mode": "dark",
+}
+
+response = httpx.request("PUT", url, headers=headers, data=payload, follow_redirects=True)
+
+print(response.status_code)
+print(response.text)
+===== multipart =====
+import httpx
+
+url = "https://api.example.com/v1/upload"
+headers = {
+    "X-Upload-Id": "42",
+}
+files = [
+    ("note", (None, "hello 'world'")),
+    ("file", ("a b.png", open("/project/files/a b.png", "rb"), "image/png")),
+]
+
+response = httpx.request("POST", url, headers=headers, files=files, follow_redirects=True)
+
+print(response.status_code)
+print(response.text)
+===== options =====
+import httpx
+
+url = "https://internal.example.com/v1/cache"
+
+response = httpx.request(
+    "DELETE",
+    url,
+    verify=False,
+    timeout=2.5,
+    auth=httpx.DigestAuth("admin", "••••••"),
+    proxy="http://proxy.local:3128",
+)
+
+print(response.status_code)
+print(response.text)
+===== text-custom-method =====
+import httpx
+
+url = "https://cdn.example.com/assets/app.js"
+headers = {
+    "Content-Type": "text/plain; charset=utf-8",
+}
+payload = "line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}"
+
+response = httpx.request(
+    "PURGE",
+    url,
+    headers=headers,
+    content=payload.encode("utf-8"),
+    follow_redirects=True,
+)
+
+print(response.status_code)
+print(response.text)
+===== binary =====
+import httpx
+
+url = "https://api.example.com/v1/blobs"
+headers = {
+    "Content-Type": "application/octet-stream",
+}
+# 4-byte binary body: save it as body.bin
+
+response = httpx.request(
+    "POST",
+    url,
+    headers=headers,
+    content=open("body.bin", "rb").read(),
+    follow_redirects=True,
+)
+
+print(response.status_code)
+print(response.text)

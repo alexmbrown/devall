@@ -1,0 +1,51 @@
+[package]
+name = "devall-db"
+description = "SQL (Postgres, MySQL/MariaDB, SQLite), Redis and MongoDB clients with SSH tunnels for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core = { path = "../devall-core", default-features = false }
+devall-data = { path = "../devall-data" }
+base64.workspace = true
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+indexmap.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time", "net", "io-util"] }
+trash.workspace = true
+ulid.workspace = true
+url.workspace = true
+percent-encoding.workspace = true
+
+# TLS: rustls with the aws-lc provider only (the workspace never enables rustls/ring, so the
+# process-wide default provider stays unambiguous).
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging", "aws_lc_rs"] }
+rustls-platform-verifier = "0.7"
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
+
+# One native driver per engine (full column metadata, multiple result sets, cancellation).
+tokio-postgres = { version = "0.7.18", default-features = false, features = ["runtime"] }
+mysql_async = { version = "0.37.1", default-features = false, features = ["minimal-rust", "rustls-tls", "aws-lc-rs", "tls12"] }
+# Same version as crates/devall-history so only one libsqlite3-sys is linked.
+rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
+redis = { version = "1.7.1", default-features = false, features = ["tokio-comp", "tokio-rustls-comp", "tls-rustls-insecure", "streams", "acl", "script"] }
+mongodb = { version = "3.9.1", default-features = false, features = ["compat-3-0-0", "rustls-tls-aws-lc", "dns-resolver"] }
+# SQL Server / Azure SQL: pure-Rust TDS 7.3–8.0 with rustls (aws-lc; no native-tls/OpenSSL),
+# SQL Browser lookup for named instances.
+tiberius = { version = "0.13.0", default-features = false, features = ["tds80", "rustls", "sql-browser-tokio"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+# SHOWPLAN_XML → plan tree (already in the workspace graph through Tauri).
+quick-xml = "0.42"
+# Pure-Rust SSH client for tunnels (no libssh2 / OpenSSL).
+russh = { version = "0.64.1", default-features = false, features = ["aws-lc-rs", "flate2", "rsa"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }

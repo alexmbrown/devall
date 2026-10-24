@@ -1,0 +1,15 @@
+meta {
+  name: Get owner
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/owners/:ownerId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  ownerId: 1
+}

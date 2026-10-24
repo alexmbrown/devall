@@ -1,0 +1,174 @@
+/* Database clients. Tokens only (see src/styles/tokens.css) so both themes work. */
+
+/* ---------- colour chips ---------- */
+.db-chip { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--db-c, var(--text-disabled)); }
+.db-chip.none { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.c-red { --db-c: var(--danger); }
+.c-orange { --db-c: var(--chart-4xx); }
+.c-yellow { --db-c: var(--warning); }
+.c-green { --db-c: var(--success); }
+.c-teal { --db-c: var(--info); }
+.c-blue { --db-c: var(--m-post); }
+.c-purple { --db-c: var(--m-patch); }
+.c-gray { --db-c: var(--text-subtle); }
+
+/* ---------- page layout ---------- */
+.db-side { display: flex; flex-direction: column; }
+.db-conns { flex: 1 1 auto; min-height: 80px; }
+.db-conn { gap: var(--space-4); }
+.db-conn .badge { height: 15px; padding: 0 4px; font-size: 9px; }
+.badge.db-ro { background: var(--bg-muted); color: var(--text-muted); }
+.db-main { display: flex; flex-direction: column; min-width: 0; }
+.db-header { gap: var(--space-4); }
+.db-header h1 { flex-shrink: 1; min-width: 0; }
+.db-header .badge { cursor: default; border: 0; }
+.db-header button.badge { cursor: pointer; }
+.db-writable { background: color-mix(in srgb, var(--danger-subtle) 75%, var(--bg)); border-bottom-color: var(--danger-border); }
+.db-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-workspace > .split { flex: 1; min-height: 0; }
+.db-connect { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: var(--space-8) var(--space-6); overflow: auto; }
+.db-connect-card { width: min(560px, 100%); padding: var(--space-6); }
+.db-error { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: var(--fs-xs); }
+
+/* saved queries */
+.db-saved { border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; max-height: 45%; }
+.db-saved.open { flex: 0 1 auto; }
+.db-saved-head { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; user-select: none; padding: var(--space-3) var(--space-4); }
+.db-saved-toggle { height: 20px; padding: 0 var(--space-3); font-size: var(--fs-2xs); }
+.db-saved-list { flex: 1 1 auto; min-height: 0; }
+
+/* ---------- SQL workspace ---------- */
+.db-schema { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.db-tree .tree-row { gap: var(--space-2); height: 24px; }
+.db-col-row { color: var(--text-muted); font-size: var(--fs-xs); }
+.db-col-dot { width: 11px; display: inline-flex; justify-content: center; }
+.db-col-dot::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--text-disabled); }
+.db-type { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; flex-shrink: 1; }
+
+.db-sql { display: flex; flex-direction: column; min-width: 0; }
+.db-newtab { align-self: center; margin: 0 var(--space-3); }
+.db-editor { border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.db-hsplit { height: 5px; margin-top: -3px; cursor: row-resize; flex-shrink: 0; position: relative; z-index: 3; }
+.db-hsplit:hover, .db-hsplit:active { background: var(--accent-border); }
+.db-results { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.db-results > .subtabs { flex-shrink: 0; }
+.db-notices { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-5); max-height: 120px; overflow: auto; background: var(--bg-subtle); flex-shrink: 0; }
+.db-run-flash { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* ---------- results grid ---------- */
+.db-grid-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.db-grid-toolbar { flex-wrap: nowrap; }
+.db-grid-search { width: 200px; flex-shrink: 1; }
+.db-grid-body { flex: 1; min-height: 0; display: flex; }
+.db-grid { flex: 1; min-width: 0; overflow: auto; outline: none; position: relative; background: var(--bg); }
+.db-grid:focus-visible { box-shadow: inset 0 0 0 1px var(--focus-ring); }
+.db-grid-head { position: sticky; top: 0; z-index: 3; }
+.db-grid-row { display: flex; position: absolute; left: 0; right: 0; }
+.db-grid-head .db-grid-row { position: relative; }
+.db-cell {
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 23px;
+  color: var(--text);
+  background: var(--bg);
+  cursor: default;
+}
+.db-cell.num, .db-cell.k-int, .db-cell.k-float, .db-cell.k-decimal { text-align: right; }
+.db-gutter { position: sticky; left: 0; z-index: 1; text-align: right; color: var(--text-subtle); background: var(--bg-subtle); cursor: pointer; user-select: none; font-variant-numeric: tabular-nums; }
+.db-grid-header .db-cell { background: var(--bg-subtle); font-family: var(--font-sans); font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2); position: relative; cursor: pointer; }
+.db-grid-header .db-gutter { z-index: 4; cursor: default; }
+.db-hcell.sorted { color: var(--accent-fg); }
+.db-hcell .db-type { max-width: 50%; }
+.db-resize { position: absolute; right: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 2; }
+.db-resize:hover { background: var(--accent-border); }
+.db-grid-filters .db-cell { background: var(--bg-subtle); }
+.db-filter-input { width: 100%; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: var(--fs-2xs); padding: 0 var(--space-2); }
+.db-filter-input:focus { outline: none; border-color: var(--focus-ring); }
+.db-grid-row:hover .db-cell:not(.db-gutter) { background: var(--bg-hover); }
+.db-grid-row.selected .db-cell { background: var(--accent-subtle); }
+.db-grid-row.selected .db-gutter { color: var(--accent-fg); font-weight: 600; }
+.db-cell.cursor { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.db-cell.changed { background: color-mix(in srgb, var(--warning-subtle) 80%, var(--bg)) !important; }
+.db-grid-row.deleted .db-cell:not(.db-gutter) { text-decoration: line-through; color: var(--text-subtle); background: var(--danger-subtle); }
+.db-grid-row.inserted .db-cell { background: var(--success-subtle); }
+.db-cell.editing { padding: 0; }
+.db-cell-input { width: 100%; height: 100%; border: 0; outline: 2px solid var(--focus-ring); outline-offset: -2px; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: var(--fs-xs); padding: 0 var(--space-3); }
+.db-null { color: var(--text-disabled); font-style: italic; font-family: var(--font-sans); }
+.db-bool { color: var(--accent-fg); }
+.db-cell.k-bytes { color: var(--text-muted); }
+.db-grid-empty { position: absolute; left: 0; right: 0; top: 72px; text-align: center; color: var(--text-subtle); font-size: var(--fs-sm); }
+.db-grid-more { display: flex; justify-content: center; padding: var(--space-3); border-top: 1px solid var(--border); flex-shrink: 0; }
+
+.db-detail { width: 340px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg-subtle); display: flex; flex-direction: column; min-height: 0; }
+.db-detail-body { flex: 1; overflow: auto; padding: var(--space-3) 0; }
+.db-detail-item { padding: var(--space-2) var(--space-5); border-left: 2px solid transparent; cursor: pointer; }
+.db-detail-item.on { border-left-color: var(--accent); background: var(--bg); }
+.db-detail-name { display: flex; gap: var(--space-3); align-items: baseline; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+.db-detail-value { margin: var(--space-1) 0 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text); max-height: 260px; overflow: auto; }
+
+/* ---------- explain ---------- */
+.db-explain { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.db-explain-tree { flex: 1; overflow: auto; padding: var(--space-3) 0; }
+.db-plan-node { position: relative; display: flex; align-items: center; gap: var(--space-4); min-height: 26px; padding-right: var(--space-5); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.db-plan-node > * { position: relative; }
+.db-plan-bar { position: absolute !important; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 10%, transparent); pointer-events: none; }
+.db-explain-text { flex: 1; overflow: auto; margin: 0; padding: var(--space-5); font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre; }
+
+/* ---------- dialogs ---------- */
+.db-modal-body { display: flex; flex-direction: column; min-height: 420px; }
+.db-history-item { align-items: flex-start; }
+.db-history-item .dot { margin-top: 6px; }
+.db-conn-dialog { max-height: 72vh; overflow: auto; }
+.db-conn-grid { display: grid; grid-template-columns: minmax(0, 2fr) 90px minmax(0, 1.2fr); gap: var(--space-5); }
+.db-ssh { padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); }
+.db-secret-new { display: flex; gap: var(--space-3); align-items: center; }
+.db-secret-new .input { min-width: 0; }
+.db-colors { gap: var(--space-3); flex-wrap: wrap; }
+.db-color { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; background: var(--db-c, transparent); cursor: pointer; padding: 0; }
+.db-color.none { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.db-color.on { border-color: var(--bg); box-shadow: 0 0 0 2px var(--focus-ring); }
+.db-options summary { cursor: pointer; color: var(--text-muted); }
+
+/* ---------- Redis ---------- */
+.badge.db-rtype { min-width: 38px; justify-content: center; height: 16px; font-size: 9px; background: var(--bg-muted); color: var(--text-muted); }
+.rt-string { background: var(--m-get-bg) !important; color: var(--m-get) !important; }
+.rt-hash { background: var(--m-post-bg) !important; color: var(--m-post) !important; }
+.rt-list { background: var(--m-put-bg) !important; color: var(--m-put) !important; }
+.rt-set { background: var(--m-patch-bg) !important; color: var(--m-patch) !important; }
+.rt-zset { background: var(--m-delete-bg) !important; color: var(--m-delete) !important; }
+.rt-stream { background: var(--info-subtle) !important; color: var(--info) !important; }
+.rt-rejsonrl { background: var(--accent-subtle) !important; color: var(--accent-fg) !important; }
+.db-keys { flex: 1; }
+.db-key { gap: var(--space-3); padding-top: 3px; padding-bottom: 3px; }
+.db-key-status { padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); flex-shrink: 0; }
+.db-redis-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.db-keyview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.db-value { flex: 1; min-height: 0; padding: var(--space-4) var(--space-5); gap: var(--space-4); }
+.db-hex { margin: 0; height: 100%; overflow: auto; font-family: var(--font-mono); font-size: var(--fs-xs); background: var(--bg-code); padding: var(--space-4); border-radius: var(--radius); }
+.db-pairs td { padding: var(--space-2) var(--space-4); }
+.db-pair-cell { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 50%; }
+.db-console { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.db-console-script { border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.db-console-out { flex: 1; overflow: auto; padding: var(--space-4) var(--space-5); font-size: var(--fs-xs); background: var(--bg-code); }
+.db-console-entry { margin-bottom: var(--space-4); }
+.db-console-cmd { color: var(--text); font-weight: 600; }
+.db-console-reply { margin: var(--space-1) 0 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); color: var(--text-muted); }
+.db-console-input { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); flex-shrink: 0; }
+.db-pubsub { flex: 1; min-height: 0; padding: var(--space-4) var(--space-5); }
+.db-info .kv { grid-template-columns: minmax(180px, max-content) 1fr; }
+
+/* ---------- MongoDB ---------- */
+.db-mongo { display: flex; flex-direction: column; min-width: 0; }
+.db-mongo-editors { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.db-mongo-row { display: flex; align-items: center; gap: var(--space-4); }
+.db-mongo-row > .grow { min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
+.db-mongo-row > .input.grow { border-radius: var(--radius); overflow: visible; }
+.db-mongo-label { font-size: var(--fs-xs); color: var(--text-subtle); font-weight: 600; width: 46px; flex-shrink: 0; }
+.db-mongo-row .db-mongo-label + .input { margin-left: 0; }

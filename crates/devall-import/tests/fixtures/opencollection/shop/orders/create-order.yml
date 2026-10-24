@@ -1,0 +1,50 @@
+info:
+  name: Create order
+  type: http
+  seq: 1
+http:
+  method: POST
+  url: "{{baseUrl}}/shops/:shop/orders"
+  params:
+    - name: shop
+      value: main
+      type: path
+    - name: dryRun
+      value: "true"
+      type: query
+      disabled: true
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "sku": "A-1",
+        "quantity": 2
+      }
+  auth: inherit
+runtime:
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "201"
+    - expression: res.body.total
+      operator: gt
+      value: "0"
+  actions:
+    - type: set-variable
+      phase: after-response
+      selector:
+        expression: $.id
+        method: jsonq
+      variable:
+        name: orderId
+        scope: runtime
+  scripts:
+    - type: tests
+      code: |-
+        test("has id", () => expect(res.body.id).to.exist);
+settings:
+  timeout: 5000
+docs: Places an order.

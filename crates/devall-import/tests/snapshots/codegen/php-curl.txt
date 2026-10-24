@@ -1,0 +1,184 @@
+===== get-query =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://api.example.com/v1/users?page=2&q=ada+lovelace',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        'Accept: application/json',
+        'Authorization: Bearer ••••••',
+        'X-Trace: a"b\'c$d',
+    ],
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== post-json =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://api.example.com/v1/users',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'POST',
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: application/json',
+    ],
+    CURLOPT_POSTFIELDS => '{
+  "name": "Zoë \\"Z\\" O\'Neil",
+  "path": "C:\\\\tmp",
+  "note": "line1\\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}',
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== form =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://api.example.com/v1/settings',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'PUT',
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: application/x-www-form-urlencoded',
+    ],
+    CURLOPT_POSTFIELDS => 'tag=a%26b&tag=c+d&mode=dark',
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== multipart =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://api.example.com/v1/upload',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'POST',
+    CURLOPT_HTTPHEADER => [
+        'X-Upload-Id: 42',
+    ],
+    CURLOPT_POSTFIELDS => [
+        'note' => 'hello \'world\'',
+        'file' => new CURLFile('/project/files/a b.png', 'image/png', 'a b.png'),
+    ],
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== options =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://internal.example.com/v1/cache',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'DELETE',
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_SSL_VERIFYHOST => 0,
+    CURLOPT_TIMEOUT_MS => 2500,
+    CURLOPT_HTTPAUTH => CURLAUTH_DIGEST,
+    CURLOPT_USERPWD => 'admin:••••••',
+    CURLOPT_PROXY => 'http://proxy.local:3128',
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== text-custom-method =====
+<?php
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://cdn.example.com/assets/app.js',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'PURGE',
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: text/plain; charset=utf-8',
+    ],
+    CURLOPT_POSTFIELDS => 'line 1 with \'quotes\' and "double"
+\'@ here-string end
+""" triple
+\\ backslash `tick` ${x}',
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);
+===== binary =====
+<?php
+
+// 4-byte binary body: save it as body.bin
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => 'https://api.example.com/v1/blobs',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'POST',
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: application/octet-stream',
+    ],
+    CURLOPT_POSTFIELDS => file_get_contents('body.bin'),
+    CURLOPT_FOLLOWLOCATION => true,
+]);
+
+$response = curl_exec($ch);
+if ($response === false) {
+    echo 'Error: ' . curl_error($ch) . PHP_EOL;
+} else {
+    echo curl_getinfo($ch, CURLINFO_RESPONSE_CODE) . PHP_EOL;
+    echo $response . PHP_EOL;
+}
+curl_close($ch);

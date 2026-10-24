@@ -1,0 +1,159 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string",
+      "default": ""
+    },
+    "name": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "description": "`grpc://host:port` or `http://` = plaintext (h2c); `grpcs://` or `https://` = TLS.\nA bare `host:port` is plaintext.",
+      "default": ""
+    },
+    "service": {
+      "type": "string",
+      "description": "Fully-qualified service name, e.g. `helloworld.Greeter`.",
+      "default": ""
+    },
+    "method": {
+      "type": "string",
+      "default": ""
+    },
+    "message": {
+      "type": "string",
+      "description": "Request message as JSON (proto3 JSON mapping). For client-streaming methods a JSON array\nsends one message per element.",
+      "default": ""
+    },
+    "metadata": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      }
+    },
+    "useReflection": {
+      "type": "boolean",
+      "description": "Ask the server for its schema (gRPC server reflection v1, falling back to v1alpha)."
+    },
+    "protoFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "`.proto` files (relative to the project root) used when reflection is off."
+    },
+    "importPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Extra import directories (relative to the project root). The files' own directories and\nthe project root are always searched; Google's well-known types are built in."
+    },
+    "insecure": {
+      "type": "boolean",
+      "description": "Skip TLS certificate verification (self-signed development servers)."
+    },
+    "deadlineMs": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "description": "Call deadline in milliseconds (sent as `grpc-timeout`); 0 = none."
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SavedMessage"
+      },
+      "description": "Saved messages for streaming calls."
+    },
+    "docs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "http/**/*.grpc.yaml — a gRPC call",
+  "title": "GrpcFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A name/value row (query param, header, form field). Disabled rows stay in the file."
+    },
+    "SavedMessage": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "default": ""
+        },
+        "format": {
+          "$ref": "#/$defs/MessageFormat"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A named message preset shown in the composer."
+    },
+    "MessageFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "text"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "json",
+          "description": "Sent as text; validated as JSON first."
+        },
+        {
+          "type": "string",
+          "const": "binary-base64",
+          "description": "Base64 in the file, sent as binary."
+        }
+      ],
+      "description": "How a composer message body is interpreted."
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/grpc.schema.json"
+}

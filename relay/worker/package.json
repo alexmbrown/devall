@@ -1,0 +1,23 @@
+{
+  "name": "devall-relay-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "/dev/all hosted relay: tunnel edge + webhook inbox on Cloudflare Workers and Durable Objects (AGPL-3.0)",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.6",
+    "@cloudflare/workers-types": "5.20261019.1",
+    "@vitest/runner": "4.1.12",
+    "@vitest/snapshot": "4.1.12",
+    "typescript": "6.0.3",
+    "vitest": "4.1.12",
+    "wrangler": "4.151.3"
+  }
+}

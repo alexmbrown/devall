@@ -1,0 +1,25 @@
+meta {
+  name: List owners
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/owners?lastName=Davis
+  body: none
+  auth: inherit
+}
+
+params:query {
+  lastName: Davis
+  ~page: 2
+}
+
+assert {
+  res.status: eq 200
+  res.body: isArray
+}
+
+docs {
+  Lists owners, optionally filtered by last name.
+}

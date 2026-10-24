@@ -1,0 +1,4 @@
+# /dev/all — local-only state and secrets
+.devall/
+.env
+.env.*

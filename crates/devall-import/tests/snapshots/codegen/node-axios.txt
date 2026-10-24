@@ -1,0 +1,129 @@
+===== get-query =====
+import axios from "axios";
+
+const response = await axios.request({
+  method: "get",
+  url: "https://api.example.com/v1/users?page=2&q=ada+lovelace",
+  headers: {
+    "Accept": "application/json",
+    "Authorization": "Bearer ••••••",
+    "X-Trace": "a\"b'c$d",
+  },
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== post-json =====
+import axios from "axios";
+
+const response = await axios.request({
+  method: "post",
+  url: "https://api.example.com/v1/users",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  data: {
+    "name": "Zoë \"Z\" O'Neil",
+    "path": "C:\\tmp",
+    "note": "line1\nline2 ${HOME} #{x} $x",
+    "tags": [
+      "a",
+      "b"
+    ],
+    "active": true,
+    "score": 1.5,
+    "parent": null
+  },
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== form =====
+import axios from "axios";
+
+const response = await axios.request({
+  method: "put",
+  url: "https://api.example.com/v1/settings",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  data: new URLSearchParams([
+    ["tag", "a&b"],
+    ["tag", "c d"],
+    ["mode", "dark"],
+  ]),
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== multipart =====
+import axios from "axios";
+import fs from "node:fs";
+
+const form = new FormData();
+form.append("note", "hello 'world'");
+form.append("file", await fs.openAsBlob("/project/files/a b.png", { type: "image/png" }), "a b.png");
+
+const response = await axios.request({
+  method: "post",
+  url: "https://api.example.com/v1/upload",
+  headers: {
+    "X-Upload-Id": "42",
+  },
+  data: form,
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== options =====
+import axios from "axios";
+import https from "node:https";
+
+// Digest auth (user "admin") isn't built into axios: answer the 401 challenge yourself.
+const response = await axios.request({
+  method: "delete",
+  url: "https://internal.example.com/v1/cache",
+  maxRedirects: 0,
+  timeout: 2500,
+  httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+  proxy: { protocol: "http", host: "proxy.local", port: 3128 },
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== text-custom-method =====
+import axios from "axios";
+
+const response = await axios.request({
+  method: "purge",
+  url: "https://cdn.example.com/assets/app.js",
+  headers: {
+    "Content-Type": "text/plain; charset=utf-8",
+  },
+  data: "line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}",
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);
+===== binary =====
+import axios from "axios";
+import fs from "node:fs";
+
+const response = await axios.request({
+  method: "post",
+  url: "https://api.example.com/v1/blobs",
+  headers: {
+    "Content-Type": "application/octet-stream",
+  },
+  data: fs.readFileSync("body.bin"), // 4-byte binary body: save it as body.bin
+  validateStatus: () => true,
+});
+
+console.log(response.status);
+console.log(response.data);

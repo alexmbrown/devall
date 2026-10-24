@@ -1,0 +1,108 @@
+===== get-query =====
+$headers = @{
+    'Accept' = 'application/json'
+    'Authorization' = 'Bearer ••••••'
+    'X-Trace' = 'a"b''c$d'
+}
+
+$params = @{
+    Uri     = 'https://api.example.com/v1/users?page=2&q=ada+lovelace'
+    Method  = 'Get'
+    Headers = $headers
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== post-json =====
+$body = @'
+{
+  "name": "Zoë \"Z\" O'Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}
+'@
+
+$params = @{
+    Uri         = 'https://api.example.com/v1/users'
+    Method      = 'Post'
+    ContentType = 'application/json'
+    Body        = $body
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== form =====
+$params = @{
+    Uri         = 'https://api.example.com/v1/settings'
+    Method      = 'Put'
+    ContentType = 'application/x-www-form-urlencoded'
+    Body        = 'tag=a%26b&tag=c+d&mode=dark'
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== multipart =====
+$headers = @{
+    'X-Upload-Id' = '42'
+}
+# -Form needs PowerShell 7+
+$form = @{
+    'note' = 'hello ''world'''
+    'file' = Get-Item -Path '/project/files/a b.png'
+}
+
+$params = @{
+    Uri     = 'https://api.example.com/v1/upload'
+    Method  = 'Post'
+    Headers = $headers
+    Form    = $form
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== options =====
+$credential = New-Object System.Management.Automation.PSCredential('admin', (ConvertTo-SecureString '••••••' -AsPlainText -Force))
+
+$params = @{
+    Uri                  = 'https://internal.example.com/v1/cache'
+    Method               = 'Delete'
+    SkipCertificateCheck = $true
+    MaximumRedirection   = 0
+    TimeoutSec           = 3
+    Proxy                = 'http://proxy.local:3128'
+    Credential           = $credential
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== text-custom-method =====
+$body = 'line 1 with ''quotes'' and "double"
+''@ here-string end
+""" triple
+\ backslash `tick` ${x}'
+
+$params = @{
+    Uri          = 'https://cdn.example.com/assets/app.js'
+    CustomMethod = 'PURGE'
+    ContentType  = 'text/plain; charset=utf-8'
+    Body         = $body
+}
+
+$response = Invoke-RestMethod @params
+$response
+===== binary =====
+# 4-byte binary body: save it as body.bin
+
+$params = @{
+    Uri         = 'https://api.example.com/v1/blobs'
+    Method      = 'Post'
+    ContentType = 'application/octet-stream'
+    InFile      = 'body.bin'
+}
+
+$response = Invoke-RestMethod @params
+$response

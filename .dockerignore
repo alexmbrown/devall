@@ -1,0 +1,23 @@
+# Keep the Docker build context small: the image only compiles crates/devall-cli, but cargo needs
+# every workspace member's manifest and sources to resolve Cargo.lock.
+.git
+.github
+target
+**/target
+**/node_modules
+apps/desktop/dist
+apps/desktop/src
+apps/desktop/public
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/icons
+relay
+reports
+research_notes
+docs
+examples
+**/*.ipynb
+**/.devall
+**/.env
+**/.env.*
+.DS_Store
+Thumbs.db

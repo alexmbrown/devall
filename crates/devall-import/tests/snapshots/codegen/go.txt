@@ -1,0 +1,282 @@
+===== get-query =====
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+)
+
+func main() {
+	req, err := http.NewRequest("GET", "https://api.example.com/v1/users?page=2&q=ada+lovelace", nil)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", "Bearer ••••••")
+	req.Header.Add("X-Trace", "a\"b'c$d")
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== post-json =====
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+)
+
+func main() {
+	body := strings.NewReader(`{
+  "name": "Zoë \"Z\" O'Neil",
+  "path": "C:\\tmp",
+  "note": "line1\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}`)
+
+	req, err := http.NewRequest("POST", "https://api.example.com/v1/users", body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("Content-Type", "application/json")
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== form =====
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
+func main() {
+	form := url.Values{}
+	form.Add("tag", "a&b")
+	form.Add("tag", "c d")
+	form.Add("mode", "dark")
+	body := strings.NewReader(form.Encode())
+
+	req, err := http.NewRequest("PUT", "https://api.example.com/v1/settings", body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== multipart =====
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+)
+
+func main() {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("note", "hello 'world'"); err != nil {
+		panic(err)
+	}
+	// "file" is sent as application/octet-stream; use writer.CreatePart for image/png
+	{
+		file, err := os.Open("/project/files/a b.png")
+		if err != nil {
+			panic(err)
+		}
+		part, err := writer.CreateFormFile("file", "a b.png")
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			panic(err)
+		}
+		file.Close()
+	}
+	if err := writer.Close(); err != nil {
+		panic(err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.example.com/v1/upload", &body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("X-Upload-Id", "42")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== options =====
+package main
+
+import (
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+func main() {
+	req, err := http.NewRequest("DELETE", "https://internal.example.com/v1/cache", nil)
+	if err != nil {
+		panic(err)
+	}
+	// Digest auth (user "admin"): net/http has no built-in digest support.
+
+	client := &http.Client{
+		Timeout: 2500 * time.Millisecond,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			Proxy: func(*http.Request) (*url.URL, error) { return url.Parse("http://proxy.local:3128") },
+		},
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== text-custom-method =====
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+)
+
+func main() {
+	body := strings.NewReader("line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}")
+
+	req, err := http.NewRequest("PURGE", "https://cdn.example.com/assets/app.js", body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("Content-Type", "text/plain; charset=utf-8")
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}
+===== binary =====
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+)
+
+func main() {
+	// 4-byte binary body: save it as body.bin
+	body, err := os.Open("body.bin")
+	if err != nil {
+		panic(err)
+	}
+	defer body.Close()
+
+	req, err := http.NewRequest("POST", "https://api.example.com/v1/blobs", body)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Add("Content-Type", "application/octet-stream")
+
+	client := http.DefaultClient
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res.Status)
+	fmt.Println(string(data))
+}

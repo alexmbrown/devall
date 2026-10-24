@@ -1,0 +1,7 @@
+name: Dev
+color: green
+variables:
+  - name: baseUrl
+    value: http://localhost:3000
+  - secret: true
+    name: token

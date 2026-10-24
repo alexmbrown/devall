@@ -1,0 +1,17 @@
+/* OpenAPI lint / drift / linked specs — tokens only, both themes. */
+
+.oa-search { max-width: 220px; }
+.oa-table-wrap { max-height: 52vh; }
+.oa-table td { vertical-align: top; }
+.oa-table .oa-row.error td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
+.oa-table .oa-row.warning td:first-child { box-shadow: inset 2px 0 0 var(--warning); }
+.oa-table .oa-details td { padding-top: 0; }
+.oa-table .oa-details ul { margin: 0; padding-left: 18px; color: var(--text-muted); }
+.oa-table .oa-uncovered td { color: var(--text-subtle); }
+.oa-controls { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-6); align-items: flex-end; }
+.oa-controls .field { min-width: 260px; }
+.oa-sources { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5); align-items: center; }
+.oa-link-card { display: flex; flex-direction: column; gap: var(--space-3); }
+.ci-tabs pre.code { max-height: 360px; overflow: auto; white-space: pre; }
+.ci-tabs .ci-code { position: relative; }
+.ci-tabs .ci-code .copy { position: absolute; top: var(--space-2); right: var(--space-2); }

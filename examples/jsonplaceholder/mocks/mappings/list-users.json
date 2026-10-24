@@ -1,0 +1,13 @@
+{
+  "name": "List users (randomized)",
+  "request": {
+    "method": "GET",
+    "urlPath": "/users"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "[{{#each (range 1 3) as |id|}}{{#unless @first}},{{/unless}}{\"id\": {{id}}, \"name\": \"{{random 'Name.fullName'}}\", \"email\": \"{{random 'Internet.email'}}\"}{{/each}}]",
+    "transformers": ["response-template"]
+  }
+}

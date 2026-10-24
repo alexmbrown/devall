@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pattern": {
+      "type": "string"
+    },
+    "flags": {
+      "type": "string",
+      "description": "Subset of `imsxU`."
+    },
+    "flavor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "`rust` (linear time, the default) or `pcre-like` (look-around, backreferences)."
+    },
+    "replacement": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "shouldMatch": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Strings the pattern must find a match in."
+    },
+    "shouldNotMatch": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Strings it must not match anywhere."
+    }
+  },
+  "required": [
+    "name",
+    "pattern"
+  ],
+  "additionalProperties": true,
+  "description": "utilities/regex/*.regex.yaml — a saved regex with test cases",
+  "title": "RegexFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devall.dev/schemas/v1/regex.schema.json"
+}

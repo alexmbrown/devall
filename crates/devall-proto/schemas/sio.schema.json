@@ -1,0 +1,140 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "id": {
+      "type": "string",
+      "default": ""
+    },
+    "name": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "description": "Server URL; its path is the namespace, like the JS client (`http://host:3000/admin`).",
+      "default": ""
+    },
+    "path": {
+      "type": "string",
+      "description": "Engine.IO endpoint path."
+    },
+    "auth": {
+      "type": "string",
+      "description": "JSON object sent as the handshake `auth` payload."
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      }
+    },
+    "query": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/KeyValue"
+      },
+      "description": "Extra query parameters on the handshake URL."
+    },
+    "listen": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Event names to show. Empty = every event."
+    },
+    "emits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SioEmit"
+      }
+    },
+    "settings": {
+      "$ref": "#/$defs/SioSettings"
+    },
+    "docs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": true,
+  "description": "http/**/*.sio.yaml — a Socket.IO connection with listened and emitted events",
+  "title": "SioFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "description": "A name/value row (query param, header, form field). Disabled rows stay in the file."
+    },
+    "SioEmit": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string",
+          "default": ""
+        },
+        "args": {
+          "type": "string",
+          "description": "JSON. An array is spread into the event's arguments; any other value is one argument;\nempty = no arguments.",
+          "default": ""
+        },
+        "ack": {
+          "type": "boolean",
+          "description": "Ask the server for an acknowledgement."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "SioSettings": {
+      "type": "object",
+      "properties": {
+        "verifyTls": {
+          "type": "boolean",
+          "default": true
+        },
+        "connectTimeoutMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 10000
+        }
+      }
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/sio.schema.json"
+}

@@ -1,0 +1,123 @@
+===== get-query =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://api.example.com/v1/users?page=2&q=ada+lovelace')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTP::Get.new(uri)
+request['Accept'] = 'application/json'
+request['Authorization'] = 'Bearer ••••••'
+request['X-Trace'] = 'a"b\'c$d'
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== post-json =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://api.example.com/v1/users')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTP::Post.new(uri)
+request['Content-Type'] = 'application/json'
+request.body = '{
+  "name": "Zoë \\"Z\\" O\'Neil",
+  "path": "C:\\\\tmp",
+  "note": "line1\\nline2 ${HOME} #{x} $x",
+  "tags": ["a", "b"],
+  "active": true,
+  "score": 1.5,
+  "parent": null
+}'
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== form =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://api.example.com/v1/settings')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTP::Put.new(uri)
+request['Content-Type'] = 'application/x-www-form-urlencoded'
+request.body = URI.encode_www_form([['tag', 'a&b'], ['tag', 'c d'], ['mode', 'dark']])
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== multipart =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://api.example.com/v1/upload')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTP::Post.new(uri)
+request['X-Upload-Id'] = '42'
+request.set_form([
+  ['note', 'hello \'world\''],
+  ['file', File.open('/project/files/a b.png'), { filename: 'a b.png', content_type: 'image/png' }]
+], 'multipart/form-data')
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== options =====
+require 'net/http'
+require 'uri'
+require 'openssl'
+
+# Digest auth (user 'admin'): Net::HTTP needs the net-http-digest_auth gem.
+uri = URI('https://internal.example.com/v1/cache')
+http = Net::HTTP.new(uri.host, uri.port, 'proxy.local', 3128)
+http.use_ssl = uri.scheme == 'https'
+http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+http.open_timeout = 2.5
+http.read_timeout = 2.5
+
+request = Net::HTTP::Delete.new(uri)
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== text-custom-method =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://cdn.example.com/assets/app.js')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTPGenericRequest.new('PURGE', true, true, uri)
+request['Content-Type'] = 'text/plain; charset=utf-8'
+request.body = 'line 1 with \'quotes\' and "double"
+\'@ here-string end
+""" triple
+\\ backslash `tick` ${x}'
+
+response = http.request(request)
+puts response.code
+puts response.body
+===== binary =====
+require 'net/http'
+require 'uri'
+
+uri = URI('https://api.example.com/v1/blobs')
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == 'https'
+
+request = Net::HTTP::Post.new(uri)
+request['Content-Type'] = 'application/octet-stream'
+request.body = File.binread('body.bin') # 4-byte binary body: save it as body.bin
+
+response = http.request(request)
+puts response.code
+puts response.body

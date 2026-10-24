@@ -1,0 +1,28 @@
+[package]
+name = "devall-notebook"
+description = "Runnable notebooks for /dev/all: polyglot kernels (shell, PowerShell, cmd, Node.js, Python), streaming output, nbformat outputs and a trust store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core.workspace = true
+hex.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "sync", "rt", "time", "io-util", "macros"] }
+ulid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

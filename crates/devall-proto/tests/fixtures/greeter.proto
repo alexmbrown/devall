@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package test.v1;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply);
+  rpc Countdown (CountdownRequest) returns (stream HelloReply);
+  rpc Collect (stream HelloRequest) returns (HelloReply);
+  rpc Chat (stream HelloRequest) returns (stream HelloReply);
+}
+
+message HelloRequest {
+  string name = 1;
+  test.common.Mood mood = 2;
+  repeated string tags = 3;
+  google.protobuf.Timestamp at = 4;
+  oneof contact {
+    string email = 5;
+    string phone = 6;
+  }
+  map<string, int32> counts = 7;
+  int64 big = 8;
+  Inner inner = 9;
+  repeated Inner inners = 10;
+}
+
+// Recursive on purpose (templates must terminate).
+message Inner {
+  HelloRequest again = 1;
+  bool ok = 2;
+}
+
+message HelloReply {
+  string message = 1;
+  int32 n = 2;
+}
+
+message CountdownRequest {
+  int32 from = 1;
+}

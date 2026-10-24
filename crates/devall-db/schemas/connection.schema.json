@@ -1,0 +1,263 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/DbKind"
+    },
+    "url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A full connection URL (templated), e.g. `postgres://app:{{secret.DB_PASSWORD}}@{{dbHost}}/app`\nor `mongodb+srv://…`. Fields set below override the URL's parts."
+    },
+    "host": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "port": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PortSpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "database": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Database name; for SQLite the database file (project-relative or absolute, `:memory:`);\nfor Redis the database index."
+    },
+    "user": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "password": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Always a template such as `{{secret.DB_PASSWORD}}` — never a literal value."
+    },
+    "tls": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TlsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ssh": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SshConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "readOnly": {
+      "type": "boolean",
+      "description": "Sessions start read-only: mutating statements are rejected and the database session itself\nis read-only. The app can switch a session to read-write (with confirmation).",
+      "default": true
+    },
+    "protected": {
+      "type": "boolean",
+      "description": "Production-like: switching to read-write requires typing the connection name."
+    },
+    "color": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Colour chip in the UI (CSS colour or a token name such as `red`)."
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Engine options (templated values), e.g. `connectTimeout: \"10\"`, `applicationName`,\n`statementTimeout` (ms, Postgres/MySQL/SQL Server), `sentinelMaster` (Redis), `authSource`\n(MongoDB), `instance` / `applicationIntent: ReadOnly` / `encrypt: strict` (SQL Server)."
+    }
+  },
+  "required": [
+    "name",
+    "kind"
+  ],
+  "additionalProperties": true,
+  "description": "connections/*.conn.yaml — a database connection (no secret values)",
+  "title": "ConnectionFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DbKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "postgres",
+            "sqlite",
+            "redis",
+            "mongodb"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "mysql",
+          "description": "MySQL and MariaDB."
+        },
+        {
+          "type": "string",
+          "const": "sqlserver",
+          "description": "Microsoft SQL Server and Azure SQL (TDS)."
+        }
+      ]
+    },
+    "PortSpec": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A port number, or a `{{template}}` that resolves to one."
+    },
+    "TlsConfig": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/TlsMode",
+          "default": "prefer"
+        },
+        "caCert": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "PEM file with the CA certificate(s) to trust instead of the OS store (relative to the\nproject root, absolute, or `~/…`)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "TlsMode": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "disable",
+          "description": "Plain TCP."
+        },
+        {
+          "type": "string",
+          "const": "prefer",
+          "description": "TLS when the server offers it, without certificate checks (libpq's default)."
+        },
+        {
+          "type": "string",
+          "const": "require",
+          "description": "TLS, without certificate checks."
+        },
+        {
+          "type": "string",
+          "const": "verify-full",
+          "description": "TLS; the certificate must chain to the OS trust store (or `caCert`) and match the host."
+        }
+      ]
+    },
+    "SshConfig": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "user": {
+          "type": "string",
+          "default": ""
+        },
+        "privateKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "OpenSSH private key file (`~/.ssh/id_ed25519`, absolute, or project-relative)."
+        },
+        "passphrase": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Key passphrase, as a template (`{{secret.SSH_KEY_PASSPHRASE}}`)."
+        },
+        "password": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Password, as a template (`{{secret.SSH_PASSWORD}}`). Without key and password the SSH\nagent is used."
+        },
+        "knownHostsCheck": {
+          "$ref": "#/$defs/HostKeyCheck",
+          "default": "ask"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "additionalProperties": true,
+      "description": "SSH tunnel (local port forwarding) to reach a database behind a bastion host."
+    },
+    "HostKeyCheck": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "ask",
+          "description": "Unknown hosts need a one-time confirmation in the app (trust on first use), after which\nthe key is appended to `~/.ssh/known_hosts`. Changed keys are always rejected."
+        },
+        {
+          "type": "string",
+          "const": "strict",
+          "description": "Only hosts already in `~/.ssh/known_hosts` are accepted."
+        },
+        {
+          "type": "string",
+          "const": "off",
+          "description": "No verification (insecure; for throwaway lab machines only)."
+        }
+      ]
+    }
+  },
+  "$id": "https://devall.dev/schemas/v1/connection.schema.json"
+}

@@ -1,0 +1,184 @@
+===== get-query =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.example.com/v1/users?page=2&q=ada+lovelace"))
+            .header("Accept", "application/json")
+            .header("Authorization", "Bearer ••••••")
+            .header("X-Trace", "a\"b'c$d")
+            .method("GET", HttpRequest.BodyPublishers.noBody())
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== post-json =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.example.com/v1/users"))
+            .header("Content-Type", "application/json")
+            .method("POST", HttpRequest.BodyPublishers.ofString("{\n  \"name\": \"Zoë \\\"Z\\\" O'Neil\",\n  \"path\": \"C:\\\\tmp\",\n  \"note\": \"line1\\nline2 ${HOME} #{x} $x\",\n  \"tags\": [\"a\", \"b\"],\n  \"active\": true,\n  \"score\": 1.5,\n  \"parent\": null\n}"))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== form =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.example.com/v1/settings"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .method("PUT", HttpRequest.BodyPublishers.ofString("tag=a%26b&tag=c+d&mode=dark"))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== multipart =====
+import java.io.ByteArrayOutputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.UUID;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        String boundary = "----devall" + UUID.randomUUID();
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.write(("--" + boundary + "\r\n" + "Content-Disposition: form-data; name=\"note\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write("hello 'world'".getBytes(StandardCharsets.UTF_8));
+        body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        body.write(("--" + boundary + "\r\n" + "Content-Disposition: form-data; name=\"file\"; filename=\"a b.png\"\r\nContent-Type: image/png\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(Files.readAllBytes(Path.of("/project/files/a b.png")));
+        body.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        body.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.example.com/v1/upload"))
+            .header("X-Upload-Id", "42")
+            .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+            .method("POST", HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== options =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+
+// TLS certificate checks are off for this request: build the client with an SSLContext that trusts the server.
+// Digest auth (user "admin"): HttpClient's Authenticator only answers Basic challenges.
+// Proxy http://proxy.local:3128: add .proxy(ProxySelector.of(new InetSocketAddress(host, port))) to the client builder.
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://internal.example.com/v1/cache"))
+            .timeout(Duration.ofMillis(2500))
+            .method("DELETE", HttpRequest.BodyPublishers.noBody())
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== text-custom-method =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://cdn.example.com/assets/app.js"))
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .method("PURGE", HttpRequest.BodyPublishers.ofString("line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` ${x}"))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}
+===== binary =====
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Path;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+
+        // 4-byte binary body: save it as body.bin
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.example.com/v1/blobs"))
+            .header("Content-Type", "application/octet-stream")
+            .method("POST", HttpRequest.BodyPublishers.ofFile(Path.of("body.bin")))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.statusCode());
+        System.out.println(response.body());
+    }
+}

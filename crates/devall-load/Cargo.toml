@@ -1,0 +1,40 @@
+[package]
+name = "devall-load"
+description = "Load testing engine for /dev/all: open/closed executors, HDR latency with coordinated-omission correction, thresholds and run comparison"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+devall-core.workspace = true
+devall-http.workspace = true
+fastrand.workspace = true
+# Fixed-memory, mergeable latency histograms; V2 serialization ships agents' histograms to the
+# coordinator for exact merging.
+hdrhistogram = { version = "7.6", default-features = false, features = ["serialization"] }
+base64.workspace = true
+# Load agents (`devall load agent`): HTTP/1.1 + JSON with an NDJSON event stream, optional rustls.
+bytes = "1"
+http = "1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging", "aws_lc_rs"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"]}
+indexmap.workspace = true
+reqwest.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "net", "time", "io-util", "rt-multi-thread", "macros"] }
+trash.workspace = true
+ulid.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros", "net", "io-util", "time"] }

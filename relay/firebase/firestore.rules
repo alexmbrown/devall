@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// /dev/all relay. Clients may only read their own entitlement (plan, status, reserved
+// subdomains). Every write goes through Cloud Functions (Admin SDK bypasses these rules).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /entitlements/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // subdomains/{name}, stripeCustomers/{customerId}, and anything added later: server only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

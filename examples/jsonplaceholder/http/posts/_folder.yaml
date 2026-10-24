@@ -1,0 +1,10 @@
+version: 1
+name: Posts
+order:
+- get-post.req.yaml
+- create-post.req.yaml
+auth:
+  type: bearer
+  token: '{{secret.API_TOKEN}}'
+variables:
+  postId: '1'

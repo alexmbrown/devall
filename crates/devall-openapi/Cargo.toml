@@ -1,0 +1,21 @@
+[package]
+name = "devall-openapi"
+description = "OpenAPI 3.0/3.1 tooling for /dev/all: schema validation, a built-in linter and spec ↔ mock ↔ traffic drift checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+devall-core.workspace = true
+percent-encoding.workspace = true
+regex = "1.11"
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

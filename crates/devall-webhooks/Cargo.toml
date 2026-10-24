@@ -1,0 +1,43 @@
+[package]
+name = "devall-webhooks"
+description = "Local webhook inbox: receive, verify signatures, forward, replay with re-signing; bring-your-own tunnels"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core.workspace = true
+devall-http.workspace = true
+base64.workspace = true
+bytes = "1.12"
+chrono.workspace = true
+hex.workspace = true
+hmac.workspace = true
+http-body-util = "0.1.5"
+hyper = { version = "1.12", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+indexmap.workspace = true
+regex = "1.12"
+reqwest.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+subtle = "2.6"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "process"] }
+trash.workspace = true
+ulid.workspace = true
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# Runs the generated re-signing pre-request scripts in the real sandbox.
+devall-script = { path = "../devall-script" }
+tempfile.workspace = true

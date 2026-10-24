@@ -1,0 +1,66 @@
+type: collection.insomnia.rest/5.0
+name: Books API
+meta:
+  id: wrk_abc
+  created: 1720000000000
+  modified: 1720000000000
+collection:
+  - name: Books
+    meta:
+      id: fld_books
+      sortKey: -1
+    children:
+      - url: "{{ _.baseUrl }}/books"
+        name: List books
+        meta:
+          id: req_list
+          sortKey: -2
+          description: Returns every book.
+        method: GET
+        parameters:
+          - name: limit
+            value: "20"
+        headers:
+          - name: Accept
+            value: application/json
+        settings:
+          followRedirects: "off"
+      - url: "{{ _.baseUrl }}/books"
+        name: Add book
+        meta:
+          id: req_add
+          sortKey: -1
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "title": "Dune"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+        authentication:
+          type: bearer
+          token: "{{ _.token }}"
+        scripts:
+          afterResponse: |-
+            insomnia.test("created", () => insomnia.expect(insomnia.response.code).to.eql(201));
+  - url: "{{ _.baseUrl }}/health"
+    name: Health
+    meta:
+      id: req_health
+    method: GET
+environments:
+  name: Base Environment
+  meta:
+    id: env_base
+  data:
+    baseUrl: http://localhost:4000
+  subEnvironments:
+    - name: Staging
+      meta:
+        id: env_staging
+      data:
+        baseUrl: https://books.staging.test
+        token: books-staging-token-123

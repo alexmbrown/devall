@@ -1,0 +1,33 @@
+[package]
+name = "devall-mcp"
+description = "Model Context Protocol server exposing a /dev/all project to coding agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-ai = { path = "../devall-ai" }
+devall-core.workspace = true
+devall-http.workspace = true
+devall-utils.workspace = true
+fastrand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-std", "sync"] }
+# Official Rust MCP SDK: dual-era (2026-07-28 stateless `server/discover` + 2025-11-25
+# `initialize`), stdio and Streamable HTTP (Host/Origin validation) transports.
+rmcp = { version = "3.6", default-features = false, features = ["server", "base64", "transport-io", "transport-streamable-http-server"] }
+# Streamable HTTP plumbing (same versions rmcp resolves to).
+bytes = "1.12"
+http = "1.5"
+http-body-util = "0.1.5"
+hyper = { version = "1.12", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1", "service"] }
+tokio-util = "0.7"
+tower-service = "0.3"
+
+[dev-dependencies]
+tempfile.workspace = true
+reqwest.workspace = true

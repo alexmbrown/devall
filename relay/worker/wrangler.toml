@@ -1,0 +1,97 @@
+# /dev/all relay — Cloudflare Worker + Durable Objects (tunnel edge + hosted webhook inbox).
+# Deploy steps: relay/README.md. Everything marked TODO must be filled in by the operator.
+name = "devall-relay"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+# Every host under the tunnel domain goes to this Worker. Needs a proxied wildcard DNS record
+# (`*` AAAA 100::) plus `relay` and `hooks` records on the zone. TODO: replace devall.dev.
+routes = [
+  { pattern = "*.devall.dev/*", zone_name = "devall.dev" },
+]
+
+[vars]
+PUBLIC_DOMAIN = "devall.dev"                                    # TODO: your tunnel domain
+AUTH_MODE = "firebase"                                          # firebase | static | both
+FIREBASE_PROJECT_ID = "devall-relay"                            # TODO: your Firebase project id
+INTERSTITIAL = "auto"                                           # auto (free plan only) | off
+ABUSE_EMAIL = "abuse@devall.dev"                                # TODO
+SOURCE_URL = "https://example.com/TODO/dev-all/tree/main/relay"   # TODO: public repo URL (AGPL-3.0 section 13)
+UPGRADE_URL = "https://devall-relay.web.app/upgrade.html"       # TODO: hosted sign-in site
+# LIMITS_JSON = '{"free":{"bandwidthBytesPerMonth":2147483648}}'
+# STATIC_PLAN = "selfhost"
+# STATIC_PLANS = '{"friend":"free"}'
+# Custom domains: what customers CNAME to (Cloudflare for SaaS fallback origin). Default custom.<PUBLIC_DOMAIN>.
+# CUSTOM_DOMAIN_TARGET = "custom.devall.dev"
+# Self-host custom domains (each hostname also needs a route below or a Workers Custom Domain):
+# CUSTOM_HOSTS = '{"api.example.com":"staging-box"}'
+# Hosted mocks: <name>.<MOCK_DOMAIN> (default mock.<PUBLIC_DOMAIN>, needs a *.mock.<domain> certificate —
+# see relay/README.md) or path-style mock.<PUBLIC_DOMAIN>/<name>/ (always works). MOCK_URL_STYLE = host | path.
+MOCK_URL_STYLE = "path"
+# MOCK_DOMAIN = "devall-mock.dev"
+# Cloud load-generator regions (Supporter / self-host; verified targets only): `off` disables them
+# (so does POST /admin/load/disable). LOAD_VERIFY_DNS = "off" skips the DNS TXT check (HTTP file
+# only); LOAD_COLO_PROBE = a /cdn-cgi/trace URL (default www.cloudflare.com) or "off".
+# CLOUD_LOAD = "off"
+
+# Secrets (wrangler secret put …): RELAY_TOKENS (self-host static tokens), ADMIN_TOKEN,
+# MONITOR_SECRET_KEY (32+ random bytes, base64; encrypts secrets uploaded for scheduled monitors).
+
+[[durable_objects.bindings]]
+name = "TUNNEL"
+class_name = "TunnelDO"
+
+[[durable_objects.bindings]]
+name = "INBOX"
+class_name = "InboxDO"
+
+[[durable_objects.bindings]]
+name = "ACCOUNT"
+class_name = "AccountDO"
+
+[[durable_objects.bindings]]
+name = "MOCK"
+class_name = "MockDO"
+
+[[durable_objects.bindings]]
+name = "SHARE"
+class_name = "ShareDO"
+
+[[durable_objects.bindings]]
+name = "MONITOR"
+class_name = "MonitorDO"
+
+# Cloud load-generator regions: one object per region of a run (newUniqueId + locationHint).
+[[durable_objects.bindings]]
+name = "LOAD"
+class_name = "LoadDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TunnelDO", "InboxDO", "AccountDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MockDO", "ShareDO", "MonitorDO"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["LoadDO"]
+
+# Scheduled monitors: every 5 minutes the Worker arms the monitors that are due.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "RELAY_KV"
+id = "00000000000000000000000000000000"                        # TODO: wrangler kv namespace create RELAY_KV
+
+# Optional: rate-limit connect attempts per IP with the Workers Rate Limiting API.
+# [[ratelimits]]
+# name = "CONNECT_LIMITER"
+# namespace_id = "1001"
+# simple = { limit = 30, period = 60 }
+
+[observability]
+enabled = true

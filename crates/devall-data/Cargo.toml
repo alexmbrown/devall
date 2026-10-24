@@ -1,0 +1,33 @@
+[package]
+name = "devall-data"
+description = "Seeded, relational fake-data generator (schemas, inference, JSON Schema import, exports, WireMock template bridge) for /dev/all"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+devall-core = { path = "../devall-core", default-features = false }
+chrono.workspace = true
+indexmap.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+trash.workspace = true
+ulid.workspace = true
+uuid.workspace = true
+
+# Faker primitives and locales (en, fr_fr, de_de, it_it, pt_br, pt_pt, nl_nl, ja_jp, zh_cn, zh_tw, ar_sa, tr_tr, fa_ir, cy_gb).
+fake = { version = "5.1", default-features = false }
+# Same major as `fake` so the portable Xoshiro RNG plugs straight into its `Dummy` impls.
+rand = "0.10"
+# Strings matching a regex (`regex` field type, JSON Schema `pattern`).
+rand_regex = "0.19"
+regex-syntax = "0.8"
+# ASCII transliteration for e-mails/usernames derived from non-Latin names.
+deunicode = "1.6"
+
+[dev-dependencies]
+tempfile.workspace = true

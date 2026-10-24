@@ -1,0 +1,141 @@
+===== get-query =====
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+val client = OkHttpClient()
+
+val request = Request.Builder()
+    .url("https://api.example.com/v1/users?page=2&q=ada+lovelace")
+    .method("GET", null)
+    .addHeader("Accept", "application/json")
+    .addHeader("Authorization", "Bearer ••••••")
+    .addHeader("X-Trace", "a\"b'c\$d")
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== post-json =====
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+
+val client = OkHttpClient()
+
+val request = Request.Builder()
+    .url("https://api.example.com/v1/users")
+    .method("POST", "{\n  \"name\": \"Zoë \\\"Z\\\" O'Neil\",\n  \"path\": \"C:\\\\tmp\",\n  \"note\": \"line1\\nline2 \${HOME} #{x} \$x\",\n  \"tags\": [\"a\", \"b\"],\n  \"active\": true,\n  \"score\": 1.5,\n  \"parent\": null\n}".toRequestBody("application/json".toMediaType()))
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== form =====
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+val client = OkHttpClient()
+
+val formBody = FormBody.Builder()
+    .add("tag", "a&b")
+    .add("tag", "c d")
+    .add("mode", "dark")
+    .build()
+
+val request = Request.Builder()
+    .url("https://api.example.com/v1/settings")
+    .method("PUT", formBody)
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== multipart =====
+import java.io.File
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+
+val client = OkHttpClient()
+
+val multipartBody = MultipartBody.Builder()
+    .setType(MultipartBody.FORM)
+    .addFormDataPart("note", "hello 'world'")
+    .addFormDataPart("file", "a b.png", File("/project/files/a b.png").asRequestBody("image/png".toMediaType()))
+    .build()
+
+val request = Request.Builder()
+    .url("https://api.example.com/v1/upload")
+    .method("POST", multipartBody)
+    .addHeader("X-Upload-Id", "42")
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== options =====
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+// TLS certificate checks are off for this request: configure sslSocketFactory/hostnameVerifier to trust the server.
+// Digest auth (user "admin"): OkHttp needs an Authenticator (e.g. okhttp-digest).
+// Proxy http://proxy.local:3128: add .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))) to the client builder.
+val client = OkHttpClient.Builder()
+    .followRedirects(false)
+    .callTimeout(2500, TimeUnit.MILLISECONDS)
+    .build()
+
+val request = Request.Builder()
+    .url("https://internal.example.com/v1/cache")
+    .method("DELETE", null)
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== text-custom-method =====
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+
+val client = OkHttpClient()
+
+val request = Request.Builder()
+    .url("https://cdn.example.com/assets/app.js")
+    .method("PURGE", "line 1 with 'quotes' and \"double\"\n'@ here-string end\n\"\"\" triple\n\\ backslash `tick` \${x}".toRequestBody("text/plain; charset=utf-8".toMediaType()))
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}
+===== binary =====
+import java.io.File
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+
+val client = OkHttpClient()
+
+// 4-byte binary body: save it as body.bin
+val request = Request.Builder()
+    .url("https://api.example.com/v1/blobs")
+    .method("POST", File("body.bin").asRequestBody("application/octet-stream".toMediaType()))
+    .build()
+
+client.newCall(request).execute().use { response ->
+    println(response.code)
+    println(response.body?.string())
+}

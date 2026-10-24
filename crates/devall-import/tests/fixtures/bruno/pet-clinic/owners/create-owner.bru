@@ -1,0 +1,31 @@
+meta {
+  name: Create owner
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/owners
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "firstName": "George",
+    "lastName": "Franklin",
+    "city": "{{city}}"
+  }
+}
+
+vars:pre-request {
+  city: Madison
+}
+
+vars:post-response {
+  ownerId: res.body.id
+}
+
+script:pre-request {
+  req.setHeader("X-Request-Id", bru.interpolate("{{$guid}}"));
+}

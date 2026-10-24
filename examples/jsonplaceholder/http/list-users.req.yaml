@@ -1,0 +1,38 @@
+version: 1
+id: 01JD0000000000000000USERS1
+name: List users
+method: GET
+url: '{{baseUrl}}/users'
+params:
+- name: _limit
+  value: '3'
+captures:
+- name: firstUserId
+  from: jsonPath
+  path: $[0].id
+tests:
+- assert: status
+  op: eq
+  value: '200'
+- assert: jsonPath
+  path: $.length
+  op: notExists
+- assert: jsonPath
+  path: $[0].email
+  op: contains
+  value: '@'
+- assert: responseTime
+  op: lt
+  value: '5000'
+scripts:
+  preRequest: |
+    // Runs before the request: set a variable and add a header.
+    pm.variables.set('requestedAt', new Date().toISOString());
+    pm.request.headers.upsert({ key: 'X-Requested-At', value: pm.variables.get('requestedAt') });
+  postResponse: |
+    // Runs after the response: Postman-style tests and a captured variable.
+    const users = pm.response.json();
+    pm.test('returns three users', () => pm.expect(users).to.have.lengthOf(3));
+    pm.test('every user has an email', () => users.forEach((u) => pm.expect(u.email).to.include('@')));
+    pm.variables.set('firstUserName', users[0].name);
+    console.log(`first user: ${users[0].name}`);

@@ -1,0 +1,89 @@
+/* WebSocket / gRPC / MQTT / Socket.IO editors and the GraphQL schema panel. Tokens only. */
+
+.proto-kind {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--fs-2xs);
+  min-width: 44px;
+  justify-content: center;
+  height: 22px;
+  flex-shrink: 0;
+}
+.proto-kind.ws { background: var(--info-subtle); color: var(--info); }
+.proto-kind.grpc { background: var(--m-patch-bg); color: var(--m-patch); }
+.proto-kind.mqtt { background: var(--success-subtle); color: var(--success); }
+.proto-kind.socketio { background: var(--warning-subtle); color: var(--warning); }
+
+.proto-status { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+
+.proto-composer { display: flex; flex-direction: column; gap: var(--space-4); flex: 1; min-height: 0; }
+.proto-composer .editor-shell { flex: 1; min-height: 140px; display: flex; flex-direction: column; }
+.proto-fields { display: flex; align-items: flex-end; gap: var(--space-4); flex-wrap: wrap; }
+.proto-fields .field { margin: 0; }
+.proto-fields .grow-field { flex: 1; min-width: 200px; }
+
+/* ---------- message log ---------- */
+.plog { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.plog-list { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) 0; font-size: var(--fs-sm); }
+.plog-row { border-bottom: 1px solid var(--border); }
+.plog-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 26px;
+  padding: var(--space-2) var(--space-5);
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.plog-main:hover { background: var(--bg-hover); }
+.plog-main:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.plog-row.open > .plog-main { background: var(--bg-subtle); }
+.plog-dir { width: 14px; height: 14px; flex-shrink: 0; }
+.plog-row.in .plog-dir { color: var(--success); }
+.plog-row.out .plog-dir { color: var(--accent); }
+.plog-row.error { color: var(--danger); }
+.plog-row.error .plog-dir { color: var(--danger); }
+.plog-row.system .plog-main { color: var(--text-muted); }
+.plog-time { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-subtle); flex-shrink: 0; }
+.plog-label { flex-shrink: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.plog-preview { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plog-size { font-size: var(--fs-2xs); color: var(--text-subtle); flex-shrink: 0; }
+.plog-detail { padding: 0 var(--space-5) var(--space-4) calc(var(--space-5) + 22px); display: flex; flex-direction: column; gap: var(--space-3); }
+.plog-detail pre.code { margin: 0; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.plog-meta { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.plog-more { padding: var(--space-3) var(--space-5); color: var(--text-subtle); font-size: var(--fs-xs); }
+
+/* ---------- gRPC ---------- */
+.grpc-picker { display: flex; gap: var(--space-3); min-width: 0; flex: 1.2; }
+.grpc-picker .select { min-width: 0; height: 32px; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.grpc-status { display: flex; align-items: center; gap: var(--space-4); }
+
+/* ---------- MQTT ---------- */
+.sub-row { display: grid; grid-template-columns: 22px 1fr 76px auto; gap: var(--space-3); align-items: center; padding: var(--space-2) 0; }
+
+/* ---------- chips (listen events, proto files) ---------- */
+.chip-list { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.chip { display: inline-flex; align-items: center; gap: var(--space-2); height: 24px; padding: 0 var(--space-2) 0 var(--space-4); border: 1px solid var(--border); border-radius: 999px; background: var(--bg-subtle); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.chip .icon-btn { width: 18px; height: 18px; }
+
+/* ---------- GraphQL schema panel ---------- */
+.gql-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); overflow: hidden; }
+.gql-tree { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) 0; font-size: var(--fs-sm); }
+.gql-group { padding: var(--space-3) var(--space-4) var(--space-2); font-size: var(--fs-2xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-subtle); display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; }
+.gql-row { display: flex; align-items: center; gap: var(--space-2); min-height: 24px; padding-right: var(--space-4); cursor: pointer; }
+.gql-row:hover { background: var(--bg-hover); }
+.gql-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.gql-row .chev { width: 13px; height: 13px; color: var(--text-subtle); transition: transform var(--dur); flex-shrink: 0; }
+.gql-row .chev.open { transform: rotate(90deg); }
+.gql-row .chev.none { visibility: hidden; }
+.gql-name { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.gql-type { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--accent-fg); margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.gql-row.deprecated .gql-name { text-decoration: line-through; color: var(--text-subtle); }
+.gql-desc { padding: 0 var(--space-4) var(--space-2); color: var(--text-subtle); font-size: var(--fs-xs); }
+.gql-insert { opacity: 0; }
+.gql-row:hover .gql-insert, .gql-row:focus-within .gql-insert { opacity: 1; }

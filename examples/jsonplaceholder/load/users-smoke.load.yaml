@@ -1,0 +1,17 @@
+version: 1
+name: Users smoke (mock baseline)
+environment: public
+# Runs against this project's own mock server, so it never loads the public JSONPlaceholder API.
+target: mock
+scenario:
+  requests:
+    - path: list-users.req.yaml
+executor:
+  type: constantArrivalRate
+  rate: 20
+  duration: 5s
+  preAllocatedVus: 5
+  maxVus: 20
+thresholds:
+  - p95 < 300ms
+  - errorRate < 1%
