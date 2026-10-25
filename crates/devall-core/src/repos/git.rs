@@ -2,11 +2,12 @@
 //! apply). Shared by the desktop app's source control, `devall repos` and the MCP server; callers
 //! resolve the folder from the project's repo list ([`super::resolve`]) — never from user input.
 
-use std::collections::VecDeque;
-use std::io::Read;
+use std::collections::{HashMap, VecDeque};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 
@@ -15,10 +16,12 @@ pub const PARALLEL: usize = 6;
 
 pub type GitResult<T> = std::result::Result<T, String>;
 
-fn command(dir: &Path) -> Command {
+/// `git -C <dir>` with the settings every call shares: no credential prompts, reads that don't
+/// rewrite the index (which the app watches), and paths printed as they are (no `"\303\251"`
+/// quoting) — callers also use `-z` wherever paths come back.
+pub(crate) fn command(dir: &Path) -> Command {
     let mut cmd = Command::new("git");
-    // No credential prompts; status reads don't rewrite the index (which the app watches).
-    cmd.arg("-C").arg(dir).env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+    cmd.arg("-C").arg(dir).args(["-c", "core.quotePath=false"]).env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -27,14 +30,146 @@ fn command(dir: &Path) -> Command {
     cmd
 }
 
+fn spawn_error(e: std::io::Error) -> String {
+    format!("git is not installed or not on PATH ({e})")
+}
+
+fn failure(out: &Output) -> String {
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err }
+}
+
 /// Runs `git -C <dir> <args>`; the error is git's own message.
 pub fn run(dir: &Path, args: &[&str]) -> GitResult<String> {
-    let out = command(dir).args(args).stdin(Stdio::null()).output().map_err(|e| format!("git is not installed or not on PATH ({e})"))?;
+    run_bytes(dir, args).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// [`run`] with the raw output (file contents, patches that must be applied byte for byte).
+pub fn run_bytes(dir: &Path, args: &[&str]) -> GitResult<Vec<u8>> {
+    let out = command(dir).args(args).stdin(Stdio::null()).output().map_err(spawn_error)?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err });
+        return Err(failure(&out));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout)
+}
+
+/// Runs git with `input` on stdin (`apply -`, `hash-object --stdin-paths`, `check-attr --stdin`).
+pub fn run_input(dir: &Path, args: &[&str], input: &[u8]) -> GitResult<Vec<u8>> {
+    let out = output_with_input(dir, args, input)?;
+    if !out.status.success() {
+        return Err(failure(&out));
+    }
+    Ok(out.stdout)
+}
+
+/// The whole result, whatever the exit code (`merge-tree` exits 1 for "conflicts").
+pub fn output(dir: &Path, args: &[&str]) -> GitResult<Output> {
+    command(dir).args(args).stdin(Stdio::null()).output().map_err(spawn_error)
+}
+
+fn output_with_input(dir: &Path, args: &[&str], input: &[u8]) -> GitResult<Output> {
+    let mut child = command(dir).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(spawn_error)?;
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let data = input.to_vec();
+    // Written from another thread so a large input can't deadlock against a full stdout pipe.
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&data);
+    });
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let _ = writer.join();
+    Ok(out)
+}
+
+/// The installed git's version (`git version 2.48.1.windows.1` → `(2, 48, 1)`), read once.
+pub fn version() -> Option<(u32, u32, u32)> {
+    static V: OnceLock<Option<(u32, u32, u32)>> = OnceLock::new();
+    *V.get_or_init(|| {
+        let mut cmd = Command::new("git");
+        cmd.arg("--version").stdin(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let out = cmd.output().ok()?;
+        parse_version(&String::from_utf8_lossy(&out.stdout))
+    })
+}
+
+/// `git version 2.39.3 (Apple Git-146)` → `(2, 39, 3)`.
+pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
+    let v = s.split_whitespace().find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))?;
+    let mut parts = v.split('.').map(|p| p.chars().take_while(char::is_ascii_digit).collect::<String>().parse::<u32>().ok());
+    Some((parts.next()??, parts.next().flatten().unwrap_or(0), parts.next().flatten().unwrap_or(0)))
+}
+
+/// The installed git is at least `major.minor`.
+pub fn version_at_least(major: u32, minor: u32) -> bool {
+    version().is_some_and(|(a, b, _)| (a, b) >= (major, minor))
+}
+
+/// `2.48.1` (or `unknown`) for messages.
+pub fn version_text() -> String {
+    version().map(|(a, b, c)| format!("{a}.{b}.{c}")).unwrap_or_else(|| "unknown".into())
+}
+
+// ---------- one writer per repository ----------
+
+fn repo_lock(dir: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone()
+}
+
+/// `index.lock` of a work tree, if one exists, and how old it is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexLock {
+    pub path: String,
+    pub age_secs: u64,
+}
+
+/// A lock older than this is treated as left behind by a crashed git (nothing holds one that long).
+pub const STALE_LOCK_SECS: u64 = 120;
+
+pub fn index_lock(dir: &Path) -> Option<IndexLock> {
+    let p = run(dir, &["rev-parse", "--git-path", "index.lock"]).ok()?.trim().to_string();
+    let path = if Path::new(&p).is_absolute() { PathBuf::from(p) } else { dir.join(p) };
+    let meta = std::fs::metadata(&path).ok()?;
+    let age_secs = meta.modified().ok().and_then(|m| SystemTime::now().duration_since(m).ok()).map_or(0, |d| d.as_secs());
+    Some(IndexLock { path: path.display().to_string(), age_secs })
+}
+
+/// Runs a mutating git operation: one at a time per repository (two clicks can't race for
+/// `index.lock`), after waiting briefly for another git process (an editor, a terminal) to let go
+/// of the index. A lock that stays is reported — "stale" when it's older than [`STALE_LOCK_SECS`].
+pub fn mutate<T>(dir: &Path, f: impl FnOnce() -> GitResult<T>) -> GitResult<T> {
+    let lock = repo_lock(dir);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut waited = Duration::ZERO;
+    while let Some(l) = index_lock(dir) {
+        if waited >= Duration::from_millis(1500) {
+            return Err(if l.age_secs >= STALE_LOCK_SECS {
+                format!("{} has been there for {} min — probably left behind by a git that crashed. If no git is running, remove the stale lock and try again.", l.path, l.age_secs / 60)
+            } else {
+                format!("another git process is using this repository ({} exists); try again in a moment", l.path)
+            });
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        waited += Duration::from_millis(150);
+    }
+    f()
+}
+
+/// Removes `index.lock` when it is stale (older than [`STALE_LOCK_SECS`]); `false` when there's none.
+pub fn clear_stale_lock(dir: &Path) -> GitResult<bool> {
+    let lock = repo_lock(dir);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    match index_lock(dir) {
+        None => Ok(false),
+        Some(l) if l.age_secs < STALE_LOCK_SECS => Err(format!("{} is only {} s old — a git process may still be running", l.path, l.age_secs)),
+        Some(l) => std::fs::remove_file(&l.path).map(|_| true).map_err(|e| format!("{}: {e}", l.path)),
+    }
 }
 
 /// `git` can be started.

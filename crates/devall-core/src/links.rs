@@ -44,6 +44,8 @@ pub const KINDS: &[(&str, &str)] = &[
     ("webhook", "a webhook inbox by id (its file name under webhooks/ without .webhook.yaml)"),
     ("utility", "a utility by operation id (e.g. jwt.decode)"),
     ("repo", "a repository of the project by name"),
+    ("commit", "a commit: <repo>/<sha> (opens it in the commit graph)"),
+    ("compare", "a branch comparison: <repo>/<base>...<head> (three dots: changes since the head branched off, what a merge request shows; two dots: tip to tip)"),
     ("page", "any page of the app: <section>[/<param>] (e.g. page/settings)"),
 ];
 

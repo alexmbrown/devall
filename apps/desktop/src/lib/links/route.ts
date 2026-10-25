@@ -27,8 +27,16 @@ export function linkForRoute(section: string, param?: string): string {
       return formatLink('webhook', p);
     case 'utilities':
       return formatLink('utility', p);
-    case 'git':
-      return formatLink('repo', p);
+    case 'git': {
+      // `<repo>`, `<repo>:compare:<base>...<head>`, `<repo>:commit:<sha>` (features/git/model.ts).
+      const i = p.indexOf(':');
+      if (i < 0) return formatLink('repo', p);
+      const repo = p.slice(0, i);
+      const rest = p.slice(i + 1);
+      if (repo && rest.startsWith('compare:')) return formatLink('compare', `${repo}/${rest.slice('compare:'.length)}`);
+      if (repo && rest.startsWith('commit:')) return formatLink('commit', `${repo}/${rest.slice('commit:'.length)}`);
+      return repo ? formatLink('repo', repo) : pageLink(section, p);
+    }
     default:
       return pageLink(section, p);
   }

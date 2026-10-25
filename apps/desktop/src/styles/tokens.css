@@ -111,6 +111,16 @@
   --chart-5xx: #be123c;
   --chart-other: #8b8b96;
   --chart-grid: #ececf0;
+
+  /* Commit graph lanes (source control), cycled by lane. */
+  --git-lane-0: #4f46e5;
+  --git-lane-1: #0f9d8a;
+  --git-lane-2: #d97706;
+  --git-lane-3: #db2777;
+  --git-lane-4: #2563eb;
+  --git-lane-5: #65a30d;
+  --git-lane-6: #9333ea;
+  --git-lane-7: #dc2626;
 }
 
 [data-theme='dark'] {
@@ -178,6 +188,15 @@
   --chart-5xx: #d9415e;
   --chart-other: #6b6b76;
   --chart-grid: #24242b;
+
+  --git-lane-0: #7c78f7;
+  --git-lane-1: #2cc5ae;
+  --git-lane-2: #e5a23a;
+  --git-lane-3: #ec5f9f;
+  --git-lane-4: #5b93f0;
+  --git-lane-5: #8cc63f;
+  --git-lane-6: #b07ef5;
+  --git-lane-7: #ef5f5f;
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow: 0 4px 16px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.4);

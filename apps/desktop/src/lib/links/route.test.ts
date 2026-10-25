@@ -18,6 +18,8 @@ describe('linkForRoute', () => {
     expect(linkForRoute('webhooks', 'stripe')).toBe('devall:webhook/stripe');
     expect(linkForRoute('utilities', 'jwt.decode|eyJhbGci')).toBe('devall:utility/jwt.decode');
     expect(linkForRoute('git', 'api')).toBe('devall:repo/api');
+    expect(linkForRoute('git', 'web:compare:origin/main...feature/x')).toBe('devall:compare/web/origin/main...feature/x');
+    expect(linkForRoute('git', 'web:commit:abc1234')).toBe('devall:commit/web/abc1234');
   });
 
   it('falls back to the page and its param', () => {

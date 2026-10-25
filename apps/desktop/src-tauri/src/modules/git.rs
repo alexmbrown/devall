@@ -8,6 +8,10 @@
 //! repo list — the renderer never passes a path to run git in. Clone, pull and branch switches
 //! only run on explicit user actions (the UI confirms).
 //!
+//! Mutating commands run one at a time per repository (`git::mutate`: no two clicks racing for
+//! `index.lock`; a lock left behind by a crashed git is reported and can be cleared). Compare &
+//! review, the commit graph, hunk/line staging and commit operations are in `git_review.rs`.
+//!
 //! Registration: `pub mod git;`, `.manage(git::GitWatchState::default())`, the `git_*` and
 //! `repos_*` commands. Emits `git-changed` (`{ root, repos }`) when a watched repo's `HEAD`,
 //! `index` or fetch/merge state changes.
@@ -19,7 +23,7 @@ use std::time::Duration;
 
 use devall_core::Project;
 use devall_core::repos::git::{self, Branches, Commit, GitFile, Summary};
-use devall_core::repos::{self, Repo, RepoState, RepoSuggestion};
+use devall_core::repos::{self, Repo, RepoState, RepoSuggestion, ops};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -27,11 +31,11 @@ use tauri::{AppHandle, Emitter, State};
 
 type R<T> = Result<T, String>;
 
-fn err(e: impl std::fmt::Display) -> String {
+pub(crate) fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
 }
 
@@ -41,7 +45,7 @@ fn open(root: &str) -> R<Project> {
 
 /// The work tree a command acts on, from the project's own repo list. `None` = the default repo
 /// (the one containing the project folder, else the first present one).
-fn repo_of(root: &str, repo: Option<&str>) -> R<Repo> {
+pub(crate) fn repo_of(root: &str, repo: Option<&str>) -> R<Repo> {
     let p = open(root)?;
     let r = match repo.filter(|r| !r.is_empty()) {
         Some(name) => p.repo(name).ok_or_else(|| format!("{name} isn't a repository of this project"))?,
@@ -55,12 +59,17 @@ fn repo_of(root: &str, repo: Option<&str>) -> R<Repo> {
 }
 
 /// `repo_of` + run `f` with the work tree on a worker thread.
-async fn in_repo<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path) -> R<T> + Send + 'static) -> R<T> {
+pub(crate) async fn in_repo<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path) -> R<T> + Send + 'static) -> R<T> {
     blocking(move || {
         let r = repo_of(&root, repo.as_deref())?;
         f(&r.path)
     })
     .await
+}
+
+/// `in_repo` for commands that change the repository: serialized per repo (`git::mutate`).
+pub(crate) async fn in_repo_mut<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path) -> R<T> + Send + 'static) -> R<T> {
+    in_repo(root, repo, move |top| git::mutate(top, || f(top))).await
 }
 
 fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
@@ -119,6 +128,10 @@ pub struct GitStatus {
     behind: u32,
     files: Vec<GitFile>,
     has_scan_hook: bool,
+    /// A merge, rebase, cherry-pick or revert git has paused.
+    operation: Option<ops::Operation>,
+    /// `index.lock` exists (another git is running, or one crashed and left it).
+    index_lock: Option<git::IndexLock>,
 }
 
 #[tauri::command]
@@ -137,12 +150,16 @@ pub async fn git_status(root: String, repo: Option<String>) -> R<GitStatus> {
                 behind: 0,
                 files: vec![],
                 has_scan_hook: false,
+                operation: None,
+                index_lock: None,
             });
         }
         let r = repo_of(&root, repo.as_deref())?;
         let s = git::status(&r.path, true)?;
         Ok(GitStatus {
             is_repo: true,
+            operation: ops::operation(&r.path),
+            index_lock: git::index_lock(&r.path),
             has_scan_hook: git::has_scan_hook(&r.path),
             repo: Some(r.name),
             repo_root: Some(r.path.display().to_string()),
@@ -186,18 +203,18 @@ pub async fn git_diff(root: String, repo: Option<String>, path: String, staged: 
 
 #[tauri::command]
 pub async fn git_stage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo(root, repo, move |top| git::run(top, &with_paths(&["add"], &paths)).map(|_| ())).await
+    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["add"], &paths)).map(|_| ())).await
 }
 
 #[tauri::command]
 pub async fn git_unstage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo(root, repo, move |top| git::run(top, &with_paths(&["restore", "--staged"], &paths)).map(|_| ())).await
+    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["restore", "--staged"], &paths)).map(|_| ())).await
 }
 
 /// Throws away working-tree changes (tracked files) — the UI confirms first.
 #[tauri::command]
 pub async fn git_discard(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo(root, repo, move |top| git::run(top, &with_paths(&["restore"], &paths)).map(|_| ())).await
+    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["restore"], &paths)).map(|_| ())).await
 }
 
 #[tauri::command]
@@ -205,7 +222,7 @@ pub async fn git_commit(root: String, repo: Option<String>, message: String, ame
     if message.trim().is_empty() && !amend {
         return Err("commit message is empty".into());
     }
-    in_repo(root, repo, move |top| {
+    in_repo_mut(root, repo, move |top| {
         let mut args = vec!["commit", "-m", message.as_str()];
         if amend {
             args.push("--amend");
@@ -232,7 +249,7 @@ fn sync_args(action: &str) -> R<&'static [&'static str]> {
 #[tauri::command]
 pub async fn git_sync(root: String, repo: Option<String>, action: String) -> R<String> {
     let args = sync_args(&action)?;
-    in_repo(root, repo, move |top| git::run(top, args)).await
+    in_repo_mut(root, repo, move |top| git::run(top, args)).await
 }
 
 #[tauri::command]
@@ -245,7 +262,7 @@ pub async fn git_checkout(root: String, repo: Option<String>, branch: String, cr
     if !git::valid_branch(&branch) {
         return Err(format!("“{branch}” isn't a valid branch name"));
     }
-    in_repo(root, repo, move |top| git::run(top, &if create { vec!["switch", "-c", &branch] } else { vec!["switch", &branch] }).map(|_| ())).await
+    in_repo_mut(root, repo, move |top| git::run(top, &if create { vec!["switch", "-c", &branch] } else { vec!["switch", &branch] }).map(|_| ())).await
 }
 
 /// `git init` in the project folder (no repo yet) or in a listed folder that isn't a repo.
@@ -319,7 +336,7 @@ pub async fn git_bulk(root: String, repos: Vec<String>, action: String) -> R<Vec
         "fetch" | "pull" => sync_args(&action)?,
         other => return Err(format!("{other} isn't a bulk action")),
     };
-    each_repo(root, repos, move |dir| git::run(dir, args).map(|o| tail(&o))).await
+    each_repo(root, repos, move |dir| git::mutate(dir, || git::run(dir, args)).map(|o| tail(&o))).await
 }
 
 #[derive(Serialize)]
@@ -355,7 +372,7 @@ pub async fn git_switch_all(root: String, repos: Vec<String>, branch: String, cr
         return Err(format!("“{branch}” isn't a valid branch name"));
     }
     each_repo(root, repos, move |dir| {
-        git::switch(dir, &branch, create).map(|s| {
+        git::mutate(dir, || git::switch(dir, &branch, create)).map(|s| {
             match s {
                 git::Switched::Already => "already on it",
                 git::Switched::Local => "switched",

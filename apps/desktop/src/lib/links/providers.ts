@@ -14,6 +14,7 @@ import { fakeDataLinks } from '@/features/data/linkProvider';
 import { dbLinks } from '@/features/db/linkProvider';
 import { webhookLinks } from '@/features/webhooks/linkProvider';
 import { utilityLinks } from '@/features/utilities/linkProvider';
+import { gitLinks } from '@/features/git/linkProvider';
 import { useWorkbench } from '@/store/workbench';
 import { pageLinks, repoLinks } from './core';
 import { configureLinks, registerLinkProvider } from './registry';
@@ -28,5 +29,5 @@ export function registerLinkProviders() {
     go: (section, param, opts) => useWorkbench.getState().open(section, param, opts ?? {}),
     info: (title, detail) => toast.info(title, detail),
   });
-  for (const p of [requestLinks, noteLinks, todoLinks, envLinks, stubLinks, loadLinks, fakeDataLinks, dbLinks, webhookLinks, utilityLinks, repoLinks, pageLinks]) registerLinkProvider(p);
+  for (const p of [requestLinks, noteLinks, todoLinks, envLinks, stubLinks, loadLinks, fakeDataLinks, dbLinks, webhookLinks, utilityLinks, repoLinks, gitLinks, pageLinks]) registerLinkProvider(p);
 }

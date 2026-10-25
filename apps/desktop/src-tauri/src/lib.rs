@@ -43,6 +43,7 @@ pub fn run() {
             modules::notes::start_reminders(app.handle());
             app.manage(modules::watch::WatchState::default());
             app.manage(modules::git::GitWatchState::default());
+            app.manage(modules::git_review::GitGraphState::default());
             // Per-project history and caches live under this folder (shared with the CLI).
             devall_core::local::set_app_data_dir(data_dir.clone());
             app.manage(modules::history::HistoryState::default());
@@ -211,6 +212,32 @@ pub fn run() {
             modules::git::git_switch_all,
             modules::git::git_watch,
             modules::git::git_unwatch,
+            modules::git_review::git_compare_defaults,
+            modules::git_review::git_refs,
+            modules::git_review::git_compare,
+            modules::git_review::git_compare_conflicts,
+            modules::git_review::git_compare_hint,
+            modules::git_review::git_commit_range,
+            modules::git_review::git_file_diff,
+            modules::git_review::git_commit_info,
+            modules::git_review::git_range_files,
+            modules::git_review::git_review_get,
+            modules::git_review::git_review_set,
+            modules::git_review::git_graph_open,
+            modules::git_review::git_graph_rows,
+            modules::git_review::git_graph_search,
+            modules::git_review::git_graph_find,
+            modules::git_review::git_patch,
+            modules::git_review::git_apply_lines,
+            modules::git_review::git_branch_create,
+            modules::git_review::git_tag_create,
+            modules::git_review::git_checkout_commit,
+            modules::git_review::git_checkout_ref,
+            modules::git_review::git_cherry_pick,
+            modules::git_review::git_revert,
+            modules::git_review::git_operation_abort,
+            modules::git_review::git_operation_continue,
+            modules::git_review::git_clear_lock,
             modules::git::repos_suggest,
             modules::git::repos_add,
             modules::git::repos_update,

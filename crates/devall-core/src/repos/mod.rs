@@ -22,7 +22,14 @@
 //! Files inside a listed repo are referenced portably as `repo:<name>/<path>` (links in notes and
 //! to-dos, OpenAPI spec sources, notebook working directories) — see [`parse_link`].
 
+pub mod compare;
 pub mod git;
+pub mod graph;
+pub mod ops;
+pub mod patch;
+pub mod review;
+#[cfg(test)]
+pub(crate) mod testgit;
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

@@ -107,8 +107,26 @@ export function CodeEditor({
   );
 }
 
-export function CodeDiff({ original, modified, language = 'json', height = '100%' }: { original: string; modified: string; language?: CodeLanguage; height?: number | string }) {
-  const wordWrap = usePrefs((s) => s.wordWrap);
+export interface CodeDiffProps {
+  original: string;
+  modified: string;
+  language?: CodeLanguage;
+  height?: number | string;
+  /** Side by side (default) or one column (unified). */
+  sideBySide?: boolean;
+  /** Ignore leading/trailing whitespace changes (Monaco's default: true). */
+  ignoreWhitespace?: boolean;
+  /** Wrap long lines (default: the app's word-wrap preference). */
+  wrap?: boolean;
+  /** Collapse unchanged regions (default) or show whole files. */
+  hideUnchanged?: boolean;
+  /** The diff editor once it exists (next/previous change, …). */
+  onMount?(editor: monaco.editor.IStandaloneDiffEditor): void;
+}
+
+export function CodeDiff({ original, modified, language = 'json', height = '100%', sideBySide = true, ignoreWhitespace, wrap, hideUnchanged = true, onMount }: CodeDiffProps) {
+  const prefWrap = usePrefs((s) => s.wordWrap);
+  const wordWrap = wrap ?? prefWrap;
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   // @monaco-editor/react disposes the text models before the diff widget lets go of them, which
   // throws "TextModel got disposed before DiffEditorWidget model got reset". Keep the models and
@@ -133,15 +151,19 @@ export function CodeDiff({ original, modified, language = 'json', height = '100%
         loading={<Spinner />}
         keepCurrentOriginalModel
         keepCurrentModifiedModel
-        onMount={(ed) => (diffRef.current = ed)}
+        onMount={(ed) => {
+          diffRef.current = ed;
+          onMount?.(ed);
+        }}
         options={{
           ...BASE_OPTIONS,
           readOnly: true,
-          renderSideBySide: true,
+          renderSideBySide: sideBySide,
           wordWrap: wordWrap ? 'on' : 'off',
           originalEditable: false,
           diffWordWrap: wordWrap ? 'on' : 'off',
-          hideUnchangedRegions: { enabled: true, minimumLineCount: 3, contextLineCount: 2 },
+          ...(ignoreWhitespace === undefined ? {} : { ignoreTrimWhitespace: ignoreWhitespace }),
+          hideUnchangedRegions: { enabled: hideUnchanged, minimumLineCount: 3, contextLineCount: 2 },
         }}
       />
     </div>

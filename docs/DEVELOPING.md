@@ -76,7 +76,7 @@ behaves as before) and unlisted nested repos (depth ≤ 3, "discovered"). `repos
   project's repo list — the renderer never passes a path to run git in. Clone, bulk pull and branch switches run
   only on explicit, confirmed user actions.
 - **UI:** Source control (side pane of repos by group, "All repositories" overview, bulk fetch/pull/switch branch,
-  per-repo changes/history), Repositories dialog (project menu, Projects page, Source control, palette), the new/open
+  per-repo changes with hunk/line staging, commit graph and Compare & review), Repositories dialog (project menu, Projects page, Source control, palette), the new/open
   project flow (offers nested repos), Docker (Compose files in repos), Logs (open files from a repo).
 
 ### Links between items (`devall:`)
@@ -96,6 +96,8 @@ Notes, to-dos (links, descriptions, comments), AI answers and agents link to any
 | `webhook` | inbox id (file stem under `webhooks/`) | `devall:webhook/stripe` |
 | `utility` | op id | `devall:utility/jwt.decode` |
 | `repo` | repository name (opens it in Source control; files stay `repo:<name>/<path>`) | `devall:repo/api` |
+| `commit` | `<repo>/<sha>` (opens it in the commit graph) | `devall:commit/api/4ed566a` |
+| `compare` | `<repo>/<base>...<head>` — a branch comparison (`...` since the head branched off, `..` tip to tip) | `devall:compare/web/origin/main...feature/x` |
 | `page` | any page: `<section>[/<param>]` (the generic fallback) | `devall:page/settings/sidebar` |
 
 - **Syntax:** each `/`-separated id segment is percent-encoded where Markdown needs it (space, `(`, `)`, `#`, `?`, `%`,
@@ -151,6 +153,7 @@ Per project: `<app data>/projects/<folder slug>-<12 hex of SHA-256(canonical roo
 | `captures/*.har` | `devall-proxy::session` | saved inspector captures |
 | `relay-inbox/<date>.jsonl` | desktop `modules::relay` | hosted-inbox fallback sink |
 | `repos.json` | `devall_core::repos` | this machine's repository locations `{ "<name>": "<absolute path>" }` (multi-repo projects; never committed) |
+| `git-review.json` | `devall_core::repos::review` | reviewed files of branch comparisons: repo → `<base>...<head>` → path → blob id when marked (≤ 100 comparisons per repo) |
 
 Device-wide: `<app data>/history/utilities.sqlite` (utility runs: input ≤ 64 KB, secret-looking and
 `secret`-kind arguments masked, output preview ≤ 2 KB, no input/output for TOTP/password/bcrypt ops;

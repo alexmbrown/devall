@@ -14,7 +14,7 @@
 
 export const SCHEME = 'devall:';
 
-export type LinkKind = 'request' | 'folder' | 'note' | 'todo' | 'env' | 'variables' | 'stub' | 'load' | 'fakedata' | 'query' | 'connection' | 'webhook' | 'utility' | 'repo' | 'page';
+export type LinkKind = 'request' | 'folder' | 'note' | 'todo' | 'env' | 'variables' | 'stub' | 'load' | 'fakedata' | 'query' | 'connection' | 'webhook' | 'utility' | 'repo' | 'commit' | 'compare' | 'page';
 
 export interface KindMeta {
   /** Singular name ("Request"), shown in tooltips. */
@@ -41,6 +41,8 @@ export const KIND_META: Record<LinkKind, KindMeta> = {
   webhook: { label: 'Webhook inbox', group: 'Webhook inboxes', aliases: ['webhook', 'webhooks', 'inbox'] },
   utility: { label: 'Utility', group: 'Utilities', aliases: ['utility', 'utilities', 'util', 'tool'] },
   repo: { label: 'Repository', group: 'Repositories', aliases: ['repo', 'repos', 'repository', 'git'] },
+  commit: { label: 'Commit', group: 'Commits', aliases: ['commit', 'commits', 'sha'] },
+  compare: { label: 'Branch comparison', group: 'Comparisons', aliases: ['compare', 'comparison', 'review', 'mr', 'pr'] },
   page: { label: 'Page', group: 'Pages', aliases: ['page', 'pages', 'go'] },
 };
 
