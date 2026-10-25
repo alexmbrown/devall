@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use devall_ai::Redactor;
 use devall_core::secrets::SecretResolver;
+use devall_core::links;
 use devall_core::tree::TreeNode;
 use devall_core::vars::SecretLookup;
 use devall_core::{Project, Resolver, SecretStore};
@@ -65,7 +66,7 @@ pub fn list_requests(ctx: &Ctx) -> Result<Value, String> {
                     walk(c, &f, out);
                 }
             }
-            TreeNode::Request { name, method, path, protocol, .. } => out.push(json!({ "path": path, "name": name, "method": method, "protocol": protocol, "folder": folder })),
+            TreeNode::Request { name, method, path, protocol, .. } => out.push(json!({ "path": path, "name": name, "method": method, "protocol": protocol, "folder": folder, "link": links::format("request", path) })),
         }
     }
     let mut out = Vec::new();
@@ -95,7 +96,7 @@ pub fn list_environments(ctx: &Ctx) -> Result<Value, String> {
         .map(|e| {
             let r = SecretResolver::new(ctx.store, ctx.project.id(), Some(e.id.as_str()), ctx.project.root());
             let secrets: Vec<Value> = e.file.secrets.iter().map(|n| json!({ "name": n, "set": r.source_of(n).is_some() })).collect();
-            json!({ "id": e.id, "name": e.file.name, "protected": e.file.protected, "variables": e.file.variables, "secrets": secrets })
+            json!({ "id": e.id, "name": e.file.name, "protected": e.file.protected, "variables": e.file.variables, "secrets": secrets, "link": links::format("env", &e.id) })
         })
         .collect();
     Ok(ctx.clean_value(json!({ "projectVariables": ctx.project.manifest.variables, "environments": list, "note": "Secret values are never returned; reference them as {{secret.NAME}}." })))
@@ -103,7 +104,8 @@ pub fn list_environments(ctx: &Ctx) -> Result<Value, String> {
 
 pub fn search_notes(ctx: &Ctx, query: &str, limit: usize) -> Result<Value, String> {
     let hits = ctx.project.search_notes(query, limit.clamp(1, 50)).map_err(err)?;
-    Ok(ctx.clean_value(serde_json::to_value(hits).map_err(err)?))
+    let hits: Vec<Value> = hits.into_iter().map(|h| json!({ "link": links::format("note", &h.path), "path": h.path, "title": h.title, "snippet": h.snippet, "matches": h.matches })).collect();
+    Ok(ctx.clean_value(Value::Array(hits)))
 }
 
 /// Meaning-based search over notes, requests, mocks and environment names, using the project's
@@ -148,6 +150,7 @@ pub fn list_todos(ctx: &Ctx, include_done: bool, filter: Option<&str>) -> Result
         .map(|(depth, t)| {
             json!({
                 "id": t.id,
+                "link": links::format("todo", &t.id),
                 "content": t.content,
                 "description": t.description,
                 "status": status_name(&data, t),
@@ -296,6 +299,7 @@ fn task_json(ctx: &Ctx, data: &devall_core::todos::TodoData, id: &str) -> Value 
     let Some(t) = data.task(id) else { return json!({ "id": id }) };
     ctx.clean_value(json!({
         "id": t.id,
+        "link": links::format("todo", &t.id),
         "content": t.content,
         "description": t.description,
         "status": status_name(data, t),
@@ -309,12 +313,18 @@ fn task_json(ctx: &Ctx, data: &devall_core::todos::TodoData, id: &str) -> Value 
     }))
 }
 
+/// Rejects malformed `devall:` links (other links — paths, URLs, `repo:…` — pass as they are).
+fn check_links<'a>(list: impl IntoIterator<Item = &'a String>) -> Result<(), String> {
+    list.into_iter().try_for_each(|l| links::check(l))
+}
+
 /// Adds a task to the project's list. `text` uses quick-add syntax unless `parse` is false.
 pub fn add_todo(ctx: &Ctx, text: &str, description: Option<&str>, parent: Option<&str>, links: Vec<String>, parse: bool) -> Result<Value, String> {
     use devall_core::todos::{NewTask, Now, TodoOp, TodoStore};
     let (base, project) = todo_scope(ctx)?;
     let mut store = TodoStore::open(&base).map_err(err)?;
     store.data.ensure_lists(Some(&project));
+    check_links(&links)?;
     let mut task = NewTask::new(text.trim()).in_list(project.id.clone());
     task.parse = parse;
     task.description = description.unwrap_or_default().to_string();
@@ -335,6 +345,9 @@ pub fn update_todo(ctx: &Ctx, id: &str, args: &serde_json::Map<String, Value>) -
     let full = project_task(&store.data, &project.id, id)?;
     let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
     let list = |k: &str| args.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(|x| x.trim_start_matches('@').to_string()).collect::<Vec<_>>());
+    let link_list = |k: &str| args.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>());
+    let (set_links, add_links) = (link_list("links"), link_list("addLinks").unwrap_or_default());
+    check_links(set_links.iter().flatten().chain(&add_links))?;
     let priority = match s("priority") {
         Some(p) => Some(serde_json::from_value::<Priority>(json!(p.trim().to_lowercase())).map_err(|_| format!("priority must be p1, p2, p3 or p4 (got {p})"))?),
         None => None,
@@ -354,7 +367,8 @@ pub fn update_todo(ctx: &Ctx, id: &str, args: &serde_json::Map<String, Value>) -
         labels: list("labels"),
         add_labels: list("addLabels").unwrap_or_default(),
         remove_labels: list("removeLabels").unwrap_or_default(),
-        add_links: list("addLinks").unwrap_or_default(),
+        links: set_links,
+        add_links,
         status,
         ..Default::default()
     };
@@ -467,9 +481,11 @@ pub fn list_mocks(ctx: &Ctx) -> Result<Value, String> {
         for m in mappings {
             let rq = &m["request"];
             let url = ["url", "urlPath", "urlPattern", "urlPathPattern", "urlPathTemplate"].iter().find_map(|k| rq[*k].as_str().map(|u| format!("{u} ({k})")));
+            let id = m["id"].as_str().or(m["uuid"].as_str());
             stubs.push(json!({
                 "file": rel,
-                "id": m["id"].as_str().or(m["uuid"].as_str()),
+                "id": id,
+                "link": id.map(|i| links::format("stub", i)),
                 "name": m["name"],
                 "method": rq["method"].as_str().unwrap_or("ANY"),
                 "url": url,

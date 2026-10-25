@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import {
   AppWindow,
@@ -24,9 +24,11 @@ import {
   Hash,
   History,
   Inbox,
+  Link2,
   ListTree,
   MessageSquare,
   MoreHorizontal,
+  PanelRight,
   Paperclip,
   Plus,
   Repeat,
@@ -36,15 +38,20 @@ import {
 } from 'lucide-react';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Markdown } from '@/components/Markdown';
+import { BacklinksSection } from '@/components/links/Backlinks';
+import { copyLinkItems, LinkChip, useFollowLink } from '@/components/links/LinkChip';
+import { pickLink } from '@/components/links/LinkPicker';
+import { useTextareaLinks } from '@/components/links/useTextareaLinks';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Modal } from '@/components/ui/Modal';
 import { copyText, formatBytes, isMac, RelTime, Resizer } from '@/components/ui/misc';
 import { toast } from '@/components/ui/toast';
-import { notesApi, type NoteNode } from '@/lib/api/notes';
 import { reposApi } from '@/lib/api/git';
 import { todosApi, type Attachment, type Snapshot, type TaskList, type TaskView } from '@/lib/api/todos';
 import { errorMessage } from '@/lib/ipc';
-import type { TreeNode } from '@/lib/types';
+import { linkShortcutLabel } from '@/lib/links/insert';
+import { describe } from '@/lib/links/registry';
+import { formatLink, isDevallLink } from '@/lib/links/syntax';
 import { resolveProjectLink } from '@/features/notes/links';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
 import { useNav } from '@/store/nav';
@@ -60,24 +67,11 @@ import { usePopover } from './Popover';
 import { appDocument, classifyLink, colorVar, dayLabel, dueInfo, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
 import { useTodoUi } from './ui';
 
-function flattenRequests(n: TreeNode | null, out: string[] = []): string[] {
-  if (!n) return out;
-  if (n.kind === 'request') out.push(`http/${n.path}`);
-  else n.children.forEach((c) => flattenRequests(c, out));
-  return out;
-}
-
-function flattenNotes(n: NoteNode | null, out: string[] = []): string[] {
-  if (!n) return out;
-  if (n.kind === 'note') out.push(`notes/${n.path}`);
-  else n.children.forEach((c) => flattenNotes(c, out));
-  return out;
-}
-
 const REVEAL_LABEL = isMac ? 'Reveal in Finder' : typeof navigator !== 'undefined' && navigator.platform.startsWith('Win') ? 'Show in Explorer' : 'Show in folder';
 
 /**
- * Following a task's links: URLs open in the browser; files are revealed in Explorer/Finder —
+ * Following a task's links: `devall:` links open the item in /dev/all (to the side with
+ * Ctrl/Cmd or the middle button); URLs open in the browser; files are revealed in Explorer/Finder —
  * absolute paths as they are, project-relative ones (`http/users/list.req.yaml`, `notes/x.md`)
  * inside the task's project. Project documents can also open in /dev/all when that project is the
  * open one.
@@ -86,6 +80,7 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
   const project = useWorkspace((s) => s.project);
   const go = useNav((s) => s.go);
   const openProjectLink = useProjectLinkOpener();
+  const follow = useFollowLink();
   const projectList = list?.kind === 'project';
   const inOpenProject = !!project && (!projectList || list?.id === snap.projectList);
   // A project's list resolves against that project's folder (even when it isn't open); the Inbox
@@ -122,8 +117,9 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
     inApp,
     openInApp,
     reveal,
-    /** A click on a link: browser / file manager; Ctrl/Cmd+click opens project documents in /dev/all. */
-    activate(l: string, e?: { ctrlKey: boolean; metaKey: boolean }) {
+    /** A click on a link: an app item opens; else browser / file manager, Ctrl/Cmd+click opens project documents in /dev/all. */
+    activate(l: string, e?: { ctrlKey: boolean; metaKey: boolean; button?: number }) {
+      if (isDevallLink(l)) return follow(l, e);
       const t = target(l);
       if (t.kind === 'url') browse(t.url);
       else if ((e?.ctrlKey || e?.metaKey) && inApp(l)) openInApp(l);
@@ -137,6 +133,15 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
       else reveal(l);
     },
     menu(l: string): MenuItemDef[] {
+      const remove: MenuItemDef = { label: 'Remove link', icon: <X />, danger: true, onSelect: () => void updateTasks([task.id], { links: (task.links ?? []).filter((x) => x !== l) }) };
+      if (isDevallLink(l))
+        return [
+          { label: 'Open', icon: <AppWindow />, onSelect: () => follow(l) },
+          { label: 'Open to the side', icon: <PanelRight />, hint: isMac ? '⌘-click' : 'Ctrl+click', onSelect: () => follow(l, { ctrlKey: true, metaKey: false }) },
+          ...copyLinkItems(l, describe(l).title),
+          { separator: true },
+          remove,
+        ];
       const t = target(l);
       return [
         ...(t.kind === 'url'
@@ -147,7 +152,7 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
             ]),
         { label: 'Copy link', icon: <Copy />, onSelect: () => void copyText(t.kind === 'file' ? t.path : l) },
         { separator: true },
-        { label: 'Remove link', icon: <X />, danger: true, onSelect: () => void updateTasks([task.id], { links: (task.links ?? []).filter((x) => x !== l) }) },
+        remove,
       ];
     },
   };
@@ -193,9 +198,19 @@ function Title({ task }: { task: TaskView }) {
   );
 }
 
+/** "Link to…" button next to a Markdown field (the picker inserts `[Title](devall:…)` at the cursor). */
+function LinkButton({ onClick }: { onClick(): void }) {
+  return (
+    <button className="icon-btn sm td-field-link" onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={`Link to a request, note, to-do… (${linkShortcutLabel(isMac)}, or type [[)`} aria-label="Insert link">
+      <Link2 />
+    </button>
+  );
+}
+
 function Description({ task, links }: { task: TaskView; links: LinkActions }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(task.description ?? '');
+  const linker = useTextareaLinks(setText);
   useEffect(() => {
     setText(task.description ?? '');
     setEditing(false);
@@ -206,23 +221,29 @@ function Description({ task, links }: { task: TaskView; links: LinkActions }) {
   };
   if (editing)
     return (
-      <textarea
-        className="textarea"
-        autoFocus
-        rows={Math.min(16, Math.max(4, text.split('\n').length + 1))}
-        value={text}
-        placeholder="Description — Markdown: **bold**, `code`, - lists, [links](http/…)"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save();
-          if (e.key === 'Escape') {
-            setText(task.description ?? '');
-            setEditing(false);
-          }
-        }}
-      />
+      <div className="td-field">
+        <textarea
+          ref={linker.ref}
+          className="textarea"
+          autoFocus
+          rows={Math.min(16, Math.max(4, text.split('\n').length + 1))}
+          value={text}
+          placeholder="Description — Markdown: **bold**, `code`, - lists; [[ links to anything"
+          onChange={linker.onChange}
+          // The link picker takes focus for a moment: that's not leaving the field.
+          onBlur={() => !linker.picking.current && save()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (linker.onKeyDown(e)) return;
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save();
+            if (e.key === 'Escape') {
+              setText(task.description ?? '');
+              setEditing(false);
+            }
+          }}
+        />
+        <LinkButton onClick={() => void linker.insert()} />
+      </div>
     );
   return (
     <div className={clsx('td-desc-view', !task.description?.trim() && 'placeholder')} onClick={(e) => !(e.target as HTMLElement).closest('a') && setEditing(true)} title="Click to edit">
@@ -232,24 +253,33 @@ function Description({ task, links }: { task: TaskView; links: LinkActions }) {
 }
 
 function Links({ task, links }: { task: TaskView; links: LinkActions }) {
-  const project = useWorkspace((s) => s.project);
-  const tree = useWorkspace((s) => s.tree);
-  const [adding, setAdding] = useState(false);
-  const [value, setValue] = useState('');
-  const [notes, setNotes] = useState<string[]>([]);
-  useEffect(() => {
-    if (adding && project) notesApi.tree(project.root).then((n) => setNotes(flattenNotes(n))).catch(() => setNotes([]));
-  }, [adding, project]);
-  const suggestions = useMemo(() => [...flattenRequests(tree), ...notes], [tree, notes]);
-  const add = () => {
-    const v = value.trim();
+  /** "Add link…": anything in the app, or a typed URL / file path. */
+  const add = async (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const picked = await pickLink({ anchor: { x: r.left, y: r.bottom }, freeform: true, placeholder: 'Link to a request, note, to-do, page… or paste a URL or file path' });
+    const v = picked?.link.trim();
     if (v) void updateTasks([task.id], { addLinks: [v] });
-    setValue('');
-    setAdding(false);
   };
   return (
     <div className="td-links">
       {(task.links ?? []).map((l) => {
+        if (isDevallLink(l))
+          return (
+            <div key={l} className="td-link">
+              <button className="td-link-label td-link-chip" onClick={(e) => links.activate(l, e)} onAuxClick={(e) => e.button === 1 && links.activate(l, e)} onMouseDown={(e) => e.button === 1 && e.preventDefault()}>
+                <LinkChip href={l} />
+              </button>
+              <Menu
+                align="right"
+                items={() => links.menu(l)}
+                trigger={(p) => (
+                  <button className="icon-btn sm" {...p} aria-label="Link actions" title="Link actions">
+                    <MoreHorizontal />
+                  </button>
+                )}
+              />
+            </div>
+          );
         const t = links.target(l);
         const hint =
           t.kind === 'url'
@@ -277,33 +307,9 @@ function Links({ task, links }: { task: TaskView; links: LinkActions }) {
           </div>
         );
       })}
-      {adding ? (
-        <>
-          <input
-            className="input sm"
-            autoFocus
-            list="td-link-suggestions"
-            placeholder="http/users/list.req.yaml, notes/auth.md, a file path or a URL"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={add}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Enter') add();
-              if (e.key === 'Escape') setAdding(false);
-            }}
-          />
-          <datalist id="td-link-suggestions">
-            {suggestions.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </>
-      ) : (
-        <button className="td-prop-btn placeholder" onClick={() => setAdding(true)}>
-          <Plus /> <span className="truncate">Link a request, note, file or URL</span>
-        </button>
-      )}
+      <button className="td-prop-btn placeholder" onClick={(e) => void add(e)} title="Anything in /dev/all (requests, notes, to-dos, environments, stubs, pages…), a URL or a file">
+        <Plus /> <span className="truncate">Add link…</span>
+      </button>
     </div>
   );
 }
@@ -492,6 +498,7 @@ const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files');
 
 function Comments({ task, links }: { task: TaskView; links: LinkActions }) {
   const [text, setText] = useState('');
+  const linker = useTextareaLinks(setText);
   const post = async () => {
     if (!text.trim()) return;
     const r = await useTodos.getState().apply({ type: 'addComment', id: task.id, text });
@@ -510,17 +517,22 @@ function Comments({ task, links }: { task: TaskView; links: LinkActions }) {
           <Markdown source={c.text} onProjectLink={links.fromMarkdown} />
         </div>
       ))}
-      <textarea
-        className="textarea"
-        rows={2}
-        placeholder="Comment (Markdown) — Ctrl+Enter to post"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void post();
-        }}
-      />
+      <div className="td-field">
+        <textarea
+          ref={linker.ref}
+          className="textarea"
+          rows={2}
+          placeholder="Comment (Markdown, [[ links to anything) — Ctrl+Enter to post"
+          value={text}
+          onChange={linker.onChange}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (linker.onKeyDown(e)) return;
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void post();
+          }}
+        />
+        <LinkButton onClick={() => void linker.insert()} />
+      </div>
       {text.trim() && (
         <button className="btn btn-sm btn-primary" style={{ alignSelf: 'flex-end' }} onClick={() => void post()}>
           Comment
@@ -614,6 +626,15 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
           {section ? ` / ${section.name}` : ''}
           {parent ? ` / ${parent.content}` : ''}
         </span>
+        <Menu
+          align="right"
+          items={() => copyLinkItems(formatLink('todo', task.id), task.content)}
+          trigger={(p) => (
+            <button className="icon-btn sm" {...p} title="Copy a link to this to-do (for notes and other to-dos)" aria-label="Copy link">
+              <Link2 />
+            </button>
+          )}
+        />
         <button className="icon-btn sm" onClick={() => go(-1)} disabled={order.indexOf(task.id) <= 0} title="Previous task (K)" aria-label="Previous task">
           <ChevronUp />
         </button>
@@ -705,6 +726,7 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
             <Links task={task} links={links} />
           </span>
         </div>
+        <BacklinksSection link={formatLink('todo', task.id)} />
         {foreign?.root && (
           <button className="btn btn-sm btn-ghost td-open-project" onClick={() => void useWorkspace.getState().openProject(foreign.root!)} title={`Open ${foreign.root} to follow links in /dev/all`}>
             <FolderOpen /> <span className="truncate">Open {foreign.name}</span>

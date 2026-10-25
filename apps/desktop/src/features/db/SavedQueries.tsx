@@ -4,6 +4,8 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { AlertTriangle, ChevronDown, ChevronRight, FileCode2, FileJson, FolderOpen, History, Plus, Terminal, Trash2 } from 'lucide-react';
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { useContextMenu } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
@@ -119,6 +121,7 @@ export function SavedQueries({ root, selected, onOpen }: Props) {
                   { label: 'Open', onSelect: () => onOpen(q) },
                   { label: 'Reveal file', icon: <FolderOpen />, onSelect: () => void revealItemInDir(`${root}/queries/${q.path}`).catch((err) => toast.error('Could not reveal', errorMessage(err))) },
                   { label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root, path: `queries/${q.path}` }) },
+                  ...copyLinkItems(formatLink('query', q.path), q.path.includes('/') ? q.path.replace(/\.(sql|redis|mongo\.json)$/, '') : q.name),
                   { separator: true },
                   { label: 'Delete', icon: <Trash2 />, danger: true, onSelect: () => void remove(q) },
                 ])

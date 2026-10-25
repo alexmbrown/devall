@@ -4,6 +4,8 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { AlertTriangle, Database, DatabaseZap, Dices, FolderOpen, History, Lock, LockOpen, Network, Pencil, Plug, PlugZap, Plus, RotateCw, Shield, Trash2, Unplug } from 'lucide-react';
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { Menu, useContextMenu } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { Callout, Empty, Kbd, Spinner } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog } from '@/components/ui/dialogs';
@@ -181,10 +183,10 @@ export default function DbPage() {
     }
   };
 
-  // Deep link `query:<path>` (e.g. from a note) opens a saved query on its connection.
+  // Deep link `query:<path>[|<nonce>]` (e.g. from a note) opens a saved query on its connection.
   useEffect(() => {
     if (!root || !conns || !param?.startsWith('query:')) return;
-    const path = param.slice('query:'.length);
+    const path = param.slice('query:'.length).split('|')[0];
     dbApi
       .readQuery(root, path)
       .then((q) => openSaved({ path, kind: q.kind }))
@@ -261,6 +263,7 @@ export default function DbPage() {
                       { label: 'Edit…', icon: <Pencil />, onSelect: () => setDialog({ path: c.path }) },
                       { label: 'Reveal file', icon: <FolderOpen />, onSelect: () => void revealItemInDir(`${root}/connections/${c.path}`).catch((err) => toast.error('Could not reveal', errorMessage(err))) },
                       { label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root, path: `connections/${c.path}`, title: c.name }) },
+                      ...copyLinkItems(formatLink('connection', c.path), c.name),
                       { separator: true },
                       { label: 'Delete', icon: <Trash2 />, danger: true, onSelect: () => void remove(c) },
                     ])

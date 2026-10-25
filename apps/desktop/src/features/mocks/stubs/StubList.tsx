@@ -53,6 +53,8 @@ import {
 } from '@/features/mocks/lib/stub-utils';
 import { MethodBadge, StatusCode, SearchInput, Checkbox, Spinner, Empty, copyText } from '@/features/mocks/components/ui';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { promptDialog } from '@/components/ui/dialogs';
 import { useStubActions } from './actions';
 import { openNewStub, openStub, BLANK_STUB } from './open';
@@ -184,6 +186,7 @@ export function StubList({ activeStubId }: { activeStubId?: string }) {
       { separator: true },
       ...(!many
         ? [
+            ...copyLinkItems(formatLink('stub', stubId(s)), displayName(s)),
             { label: 'Copy JSON', icon: <Braces />, onSelect: () => copyText(JSON.stringify(s, null, 2), 'Stub JSON copied') },
             { label: 'Copy as cURL', icon: <Code2 />, onSelect: () => copyText(curlForStub(client?.base ?? server?.url ?? '', s), 'cURL copied') },
             { label: 'Open in Requests', icon: <Send />, disabled: !client, onSelect: () => openInRequests(s, client?.base ?? '') },

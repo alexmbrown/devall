@@ -68,7 +68,8 @@ export function useGlobalShortcuts() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (mod && key === 'k') {
+      // Ctrl/Cmd+Alt+K is "Link to…" in Markdown editors.
+      if (mod && !e.altKey && key === 'k') {
         e.preventDefault();
         usePalette.getState().setOpen(!usePalette.getState().open);
         return;

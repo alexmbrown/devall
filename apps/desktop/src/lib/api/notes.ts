@@ -28,7 +28,17 @@ export const notesApi = {
   rename: (root: string, path: string, name: string) => invoke<string>('notes_rename', { root, path, name }),
   remove: (root: string, path: string) => invoke<void>('notes_delete', { root, path }),
   search: (root: string, query: string) => invoke<NoteHit[]>('notes_search', { root, query }),
+  /** Notes that link to project items, with their link targets (the "Linked from" index). */
+  links: (root: string) => invoke<NoteLinks[]>('notes_links', { root }),
 };
+
+/** One note's link targets (`devall_core::links::NoteLinks`). */
+export interface NoteLinks {
+  /** Relative to `notes/`. */
+  path: string;
+  title: string;
+  targets: string[];
+}
 
 export const contextApi = {
   docs: (root: string, query?: string, limit?: number) => invoke<ContextDoc[]>('context_docs', { root, query, limit }),

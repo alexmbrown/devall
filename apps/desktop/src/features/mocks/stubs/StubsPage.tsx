@@ -9,7 +9,8 @@ import { confirmDialog } from '@/components/ui/dialogs';
 import { StubList } from './StubList';
 import { StubEditor } from './StubEditor';
 import { openNewStub, openStub, BLANK_STUB } from './open';
-import { findStubForFile, stubFileParam } from './openFile';
+import { findStubForFile, stubFileParam, stubIdParam } from './openFile';
+import { stubId } from '@/features/mocks/lib/stub-utils';
 import { useNav } from '@/features/mocks/store/nav';
 import { useWorkspace } from '@/store/workspace';
 import { toast } from '@/components/ui/toast';
@@ -34,6 +35,16 @@ export default function StubsPage() {
       .then((stub) => (stub ? openStub(stub) : toast.info('Stub not loaded', `mocks/${file} isn't served by the active mock server — select the built-in engine for this project.`)))
       .catch((e) => toast.error(`Could not open mocks/${file}`, errorMessage(e)));
   }, [param, mappings, root]);
+
+  // Deep link from a `devall:stub/<id>` link: `stubs/id:<id>` opens that stub.
+  useEffect(() => {
+    const id = stubIdParam(param);
+    if (!id || !mappings) return;
+    useNav.getState().go('stubs');
+    const stub = mappings.find((m) => stubId(m) === id);
+    if (stub) openStub(stub);
+    else toast.info('Stub not found', `No stub with id ${id} on the active mock server.`);
+  }, [param, mappings]);
 
   const activeTab = tabs.find((t) => t.key === active);
 

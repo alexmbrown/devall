@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import clsx from 'clsx';
 import { Check, Columns3, History, KeyRound, Layers, Link2, Lock, PanelRightClose, PanelRightOpen, Pipette, Plus, Save, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useContextMenu } from '@/components/ui/Menu';
+import { BacklinksButton } from '@/components/links/Backlinks';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { Callout, Empty, Field, Switch } from '@/components/ui/misc';
 import { EnvChip } from '@/components/EnvChip';
 import { SidePane } from '@/components/layout/SidePane';
@@ -99,7 +102,7 @@ export default function EnvironmentsPage() {
           <div
             className={clsx('list-item', selected === PROJECT && 'on')}
             onClick={() => go('environments', PROJECT)}
-            onContextMenu={(e) => ctx.open(e, [{ label: 'Local history…', icon: <History />, onSelect: () => setHistoryOf(PROJECT) }])}
+            onContextMenu={(e) => ctx.open(e, [{ label: 'Local history…', icon: <History />, onSelect: () => setHistoryOf(PROJECT) }, ...copyLinkItems(formatLink('variables'), 'Project variables')])}
           >
             <Layers size={14} />
             <span className="grow truncate">Project variables</span>
@@ -119,7 +122,7 @@ export default function EnvironmentsPage() {
               key={e.id}
               className={clsx('list-item', selected === e.id && 'on')}
               onClick={() => go('environments', e.id)}
-              onContextMenu={(ev) => ctx.open(ev, [{ label: 'Local history…', icon: <History />, onSelect: () => setHistoryOf(e.id) }])}
+              onContextMenu={(ev) => ctx.open(ev, [{ label: 'Local history…', icon: <History />, onSelect: () => setHistoryOf(e.id) }, ...copyLinkItems(formatLink('env', e.id), e.file.name)])}
             >
               <EnvChip env={e.file} />
               <span className="grow truncate">{e.file.name}</span>
@@ -182,6 +185,7 @@ function ProjectVars() {
         <h1>Project variables</h1>
         <span className="subtle xs mono">devall.yaml</span>
         <span className="spacer" />
+        <BacklinksButton link={formatLink('variables')} />
         <button className="btn btn-sm btn-ghost" onClick={() => setHistory(true)} title="Earlier versions of the project variables (kept on this computer)">
           <History /> History
         </button>
@@ -433,6 +437,7 @@ function EnvEditor({ id }: { id: string }) {
           environments/{id}.env.yaml
         </span>
         <span className="spacer" />
+        <BacklinksButton link={formatLink('env', id)} />
         <button className={clsx('icon-btn', inspector && 'active')} onClick={toggleInspector} title={inspector ? 'Hide the inspector' : 'Show values across environments and where they are used'} aria-pressed={inspector} aria-label="Toggle inspector">
           {inspector ? <PanelRightClose /> : <PanelRightOpen />}
         </button>

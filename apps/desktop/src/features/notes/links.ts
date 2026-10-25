@@ -1,5 +1,6 @@
 import type { Section } from '@/store/nav';
 import { parseRepoLink } from '@/lib/api/git';
+import { canonicalLink, formatLink, isDevallLink } from '@/lib/links/syntax';
 
 /** Where a link inside a note points. */
 export type LinkTarget =
@@ -87,5 +88,41 @@ export function resolveProjectLink(href: string, fromNote?: string): LinkTarget 
       return { kind: 'section', section: 'utilities', param: rest.endsWith('.regex.yaml') ? 'regex.cases' : undefined };
     default:
       return { kind: 'unknown', path };
+  }
+}
+
+/**
+ * The canonical `devall:` link a note or to-do link points at — `devall:` links as they are, the
+ * older project-relative forms (`http/x.req.yaml`, `../ops/run.md`, `queries/top.sql`…) mapped to
+ * theirs — or null (web links, files, folders). Backlinks count both spellings with it.
+ */
+export function toDevallLink(href: string, fromNote?: string): string | null {
+  if (isDevallLink(href)) return canonicalLink(href);
+  const t = resolveProjectLink(href, fromNote);
+  switch (t.kind) {
+    case 'request':
+      return formatLink('request', t.path);
+    case 'repo':
+      return t.path ? null : formatLink('repo', t.repo);
+    case 'section':
+      if (!t.param) return null;
+      switch (t.section) {
+        case 'notes':
+          return formatLink('note', t.param);
+        case 'load':
+          return formatLink('load', t.param);
+        case 'fakedata':
+          return formatLink('fakedata', t.param);
+        case 'environments':
+          return formatLink('env', t.param);
+        case 'webhooks':
+          return formatLink('webhook', t.param);
+        case 'data':
+          return t.param.startsWith('query:') ? formatLink('query', t.param.slice('query:'.length)) : formatLink('connection', t.param);
+        default:
+          return null;
+      }
+    default:
+      return null;
   }
 }

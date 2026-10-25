@@ -18,6 +18,12 @@ export function stubFileParam(param: string | undefined): string | null {
   return param.slice(5).split('|')[0] || null;
 }
 
+/** `id:<stub id>|<nonce>` deep-link param (`devall:stub/<id>` links) → the stub id. */
+export function stubIdParam(param: string | undefined): string | null {
+  if (!param?.startsWith('id:')) return null;
+  return param.slice(3).split('|')[0] || null;
+}
+
 const canon = (v: unknown) => JSON.stringify(v ?? null);
 
 /**

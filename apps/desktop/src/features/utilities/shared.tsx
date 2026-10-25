@@ -1,5 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ClipboardPaste, Globe, Sparkles } from 'lucide-react';
+import { ClipboardPaste, Globe, Link2, Sparkles } from 'lucide-react';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { Menu } from '@/components/ui/Menu';
+import { formatLink } from '@/lib/links/syntax';
 import type { CodeLanguage } from '@/components/editor/CodeEditor';
 import { Field, formatBytes } from '@/components/ui/misc';
 import { errorMessage } from '@/lib/ipc';
@@ -232,6 +235,15 @@ export function ToolHeader({ op, onExample, children }: { op: OpInfo; onExample?
       <span className="spacer" />
       {children}
       {onExample && <ExampleButton op={op} onApply={onExample} />}
+      <Menu
+        align="right"
+        items={() => copyLinkItems(formatLink('utility', op.id), op.name)}
+        trigger={(p) => (
+          <button className="icon-btn" {...p} title="Copy a link to this utility (for notes and to-dos)" aria-label="Copy link">
+            <Link2 />
+          </button>
+        )}
+      />
       <button className="btn btn-sm" onClick={pasteAndDetect} title="Read the clipboard and pick the matching tool">
         <ClipboardPaste /> Paste &amp; detect
       </button>

@@ -44,6 +44,9 @@ pub use http::{HttpInfo, HttpServer, serve_http, serve_http_with, serve_server};
 
 pub const NOTE_URI_PREFIX: &str = "devall://notes/";
 
+/// What a to-do link can be (tool schemas).
+const LINKS_DESC: &str = "Links the user opens with a click: /dev/all items as devall:<kind>/<id> (e.g. devall:request/payments/refund.req.yaml, devall:note/design/auth.md, devall:todo/<id>, devall:env/staging — see the server instructions for every kind; list results give each item's `link`), project paths (http/payments/refund.req.yaml), repo:<name>/<path> or URLs";
+
 #[derive(Debug, thiserror::Error)]
 pub enum McpError {
     #[error("{0}")]
@@ -266,7 +269,7 @@ impl DevallMcp {
                         "text": { "type": "string", "description": "e.g. \"Fix refund webhook retries tomorrow p1 @payments\"" },
                         "description": { "type": "string", "description": "Optional details (Markdown)" },
                         "parentId": { "type": "string", "description": "Make it a sub-task of this task id" },
-                        "links": { "type": "array", "items": { "type": "string" }, "description": "Project paths or URLs, e.g. http/payments/refund.req.yaml" },
+                        "links": { "type": "array", "items": { "type": "string" }, "description": LINKS_DESC },
                         "parse": { "type": "boolean", "description": "Set false to keep the text literally (no date/priority parsing)" }
                     },
                     "required": ["text"], "additionalProperties": false
@@ -284,7 +287,8 @@ impl DevallMcp {
                         "labels": { "type": "array", "items": { "type": "string" }, "description": "Replace all labels" },
                         "addLabels": { "type": "array", "items": { "type": "string" } },
                         "removeLabels": { "type": "array", "items": { "type": "string" } },
-                        "addLinks": { "type": "array", "items": { "type": "string" } }
+                        "links": { "type": "array", "items": { "type": "string" }, "description": "Replace all links (same forms as addLinks)" },
+                        "addLinks": { "type": "array", "items": { "type": "string" }, "description": LINKS_DESC }
                     },
                     "required": ["id"], "additionalProperties": false
                 }))).annotate(local("Update a to-do", true)),
@@ -307,7 +311,10 @@ impl DevallMcp {
         let name = devall_core::Project::open(&self.inner.root).map(|p| p.manifest.name).unwrap_or_else(|_| "project".into());
         format!(
             "/dev/all project \"{name}\": saved HTTP requests, environments, mocks, shared notes and the user's personal to-dos. Start with get_context. \
-             {}send_request {}. Secret values are masked as ••••••; refer to secrets as {{{{secret.NAME}}}}.",
+             {}send_request {}. Secret values are masked as ••••••; refer to secrets as {{{{secret.NAME}}}}. \
+             Link items with devall:<kind>/<id> links — in notes as Markdown, e.g. [Create order](devall:request/orders/create.req.yaml), and in to-do `links` — \
+             so the user opens them with one click in /dev/all; list results carry each item's `link`. Kinds: {}. \
+             Personal to-dos exist only on the user's machine: a devall:todo/… link in a shared note resolves for them alone.",
             if self.inner.options.read_only_local {
                 "All tools are read-only except "
             } else {
@@ -319,7 +326,8 @@ impl DevallMcp {
                 (WriteMode::Confirm, true) => "sends GET/HEAD/OPTIONS directly and asks the user to approve other methods and anything in protected environments",
                 (_, true) => "only sends GET/HEAD/OPTIONS; protected environments need the user's approval",
                 (_, false) => "only sends GET/HEAD/OPTIONS and never runs in protected environments",
-            }
+            },
+            devall_core::links::syntax_help()
         )
     }
 

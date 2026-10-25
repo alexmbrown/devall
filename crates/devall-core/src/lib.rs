@@ -9,6 +9,7 @@ pub mod context;
 pub mod curl;
 pub mod error;
 pub mod fsutil;
+pub mod links;
 pub mod local;
 pub mod model;
 pub mod notebook;

@@ -22,6 +22,11 @@ import { initLocalHistoryEvents } from '@/lib/api/history';
 import { initAiDownloads } from '@/features/ai/downloads';
 import { setLogViewerOpener } from '@/features/infra/logViewer';
 import { openInLogViewer } from '@/features/logs';
+import { LinkPickerHost } from '@/components/links/LinkPicker';
+import { registerLinkProviders } from '@/lib/links/providers';
+
+// `devall:` links (notes, to-dos, agents) resolve and open through the features' link providers.
+registerLinkProviders();
 
 // Container/pod logs from the Docker & K8s page open in the log viewer.
 setLogViewerOpener(({ name, text }) => openInLogViewer({ type: 'text', name, text }));
@@ -149,6 +154,7 @@ export function App() {
       <NewProjectHost />
       <McpApprovalHost />
       <LocalHistoryHost />
+      <LinkPickerHost />
       <DialogHost />
       <Toaster />
     </div>

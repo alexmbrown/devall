@@ -8,6 +8,9 @@ import { ScriptsEditor } from '@/features/scripts';
 import { scriptCount } from '@/lib/api/scripts';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Menu } from '@/components/ui/Menu';
+import { BacklinksButton } from '@/components/links/Backlinks';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { Field, Switch, copyText } from '@/components/ui/misc';
 import { ResponsiveTabs, type TabDef } from '@/components/ui/ResponsiveTabs';
 import { LayoutToggle, ReqResSplit } from '@/components/layout/ReqResSplit';
@@ -138,11 +141,13 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             <Save /> Save
           </button>
         )}
+        <BacklinksButton link={formatLink('request', tab.path)} />
         <LayoutToggle />
         <Menu
           align="right"
           items={[
             { label: 'Copy as cURL (secrets masked)', icon: <Copy />, onSelect: () => curl(false) },
+            ...copyLinkItems(formatLink('request', tab.path), d.name),
             { label: 'Copy as cURL with secrets', icon: <KeyRound />, onSelect: () => curl(true) },
             { label: 'Generate code…', icon: <Code2 />, onSelect: () => setCodegenOpen(true) },
             { separator: true },

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import clsx from 'clsx';
-import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, GitBranch, Layers, PanelLeft, Plus, Rows2, Search, Server, Split, Sun, Binary, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, GitBranch, Layers, Link2, PanelLeft, Plus, Rows2, Search, Server, Split, Sun, Binary, Sparkles, X } from 'lucide-react';
 import { useImportExport } from '@/features/import';
 import { useOpenApi } from '@/features/openapi';
 import { openReposDialog, openSwitchBranch } from '@/features/git/dialogs';
@@ -11,7 +11,12 @@ import { HitIcon } from '@/features/ai/SearchTab';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
 import { aiApi, type SearchResult } from '@/lib/api/ai';
 import { pluginOps, usePluginCatalog } from '@/lib/api/plugins';
-import { MOD, MethodBadge } from '@/components/ui/misc';
+import { copyText, MOD, MethodBadge } from '@/components/ui/misc';
+import { pickLink } from '@/components/links/LinkPicker';
+import { describe } from '@/lib/links/registry';
+import { linkForRoute } from '@/lib/links/route';
+import { formatLink, markdownLink } from '@/lib/links/syntax';
+import { useTodos } from '@/store/todos';
 import { promptDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { api, errorMessage } from '@/lib/ipc';
@@ -43,6 +48,15 @@ function flatten(n: TreeNode | null, out: Extract<TreeNode, { kind: 'request' }>
   if (n.kind === 'request') out.push(n);
   else n.children.forEach((c) => flatten(c, out));
   return out;
+}
+
+/** Copies the active view's `devall:` link (the open to-do on the to-dos page), plain or as Markdown. */
+function copyCurrentLink(markdown: boolean) {
+  const v = activeViewOf(useWorkbench.getState());
+  if (!v) return;
+  const openTodo = v.section === 'todos' ? useTodos.getState().openId : null;
+  const link = openTodo ? formatLink('todo', openTodo) : linkForRoute(v.section, v.param);
+  void copyText(markdown ? markdownLink(describe(link, v.label).title, link) : link, markdown ? 'Markdown link copied' : 'Link copied');
 }
 
 export function CommandPalette() {
@@ -113,6 +127,21 @@ function PaletteInner({ close }: { close(): void }) {
       for (const e of project.environments)
         out.push({ id: `env-${e.id}`, group: 'Switch environment', label: e.file.name, text: `env environment switch ${e.file.name} ${e.id}`, icon: <Layers />, run: () => ws.setActiveEnv(e.id) });
     }
+    out.push(
+      { id: 'copy-link', group: 'Actions', label: 'Copy link to this page', text: 'copy link page item devall share reference', icon: <Link2 />, run: () => copyCurrentLink(false) },
+      { id: 'copy-link-md', group: 'Actions', label: 'Copy Markdown link to this page', text: 'copy markdown link page item devall share reference', icon: <Link2 />, run: () => copyCurrentLink(true) },
+      {
+        id: 'link-to',
+        group: 'Actions',
+        label: 'Copy a Markdown link to…',
+        text: 'copy link to find item request note todo environment devall markdown',
+        icon: <Link2 />,
+        run: async () => {
+          const p = await pickLink({ placeholder: 'Copy a link to… requests, notes, to-dos, environments, pages' });
+          if (p) void copyText(markdownLink(p.title, p.link), 'Markdown link copied');
+        },
+      },
+    );
     out.push({
       id: 'theme',
       group: 'Actions',

@@ -3,17 +3,19 @@
 //!
 //! Registration: `mod notes;` in modules/mod.rs, `.manage(notes::NotesState::new(app_data_dir))`,
 //! `notes::start_reminders(app.handle())` in setup (needs `tauri_plugin_notification::init()`), and
-//! the `notes_*`, `todos_*`, `context_docs` commands in `generate_handler!`.
+//! the `notes_*` (incl. `notes_links`), `todos_*` (incl. `todos_get`), `context_docs` commands in
+//! `generate_handler!`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use devall_core::context::{self, ContextDoc, ContextOptions};
+use devall_core::links::NoteLinks;
 use devall_core::notes::{NoteHit, NoteNode};
 use devall_core::todos::dates::{self, DateCtx};
 use devall_core::todos::quickadd::QuickAdd;
-use devall_core::todos::{attachments, Applied, Attachment, CompletedEntry, Due, FilterGroup, Now, ProjectRef, Snapshot, TodoOp, TodoStore};
+use devall_core::todos::{attachments, Applied, Attachment, CompletedEntry, Due, FilterGroup, Now, ProjectRef, Snapshot, TaskView, TodoOp, TodoStore};
 use devall_core::Project;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{InvokeBody, Request, Response};
@@ -80,6 +82,12 @@ pub fn notes_search(root: String, query: String) -> R<Vec<NoteHit>> {
     open(&root)?.search_notes(&query, 50).map_err(|e| e.to_string())
 }
 
+/// Notes that link to project items, with their link targets (the "Linked from" index).
+#[tauri::command]
+pub fn notes_links(root: String) -> R<Vec<NoteLinks>> {
+    open(&root)?.note_links().map_err(|e| e.to_string())
+}
+
 /// The open project's identity for its to-do list (`None` = no project: Inbox and user lists only).
 fn project_ref(root: Option<&str>) -> R<Option<ProjectRef>> {
     match root.filter(|r| !r.is_empty()) {
@@ -139,6 +147,12 @@ pub fn todos_parse_date(text: String, date_only: Option<bool>) -> R<Option<Due>>
 #[tauri::command]
 pub fn todos_filter(state: State<'_, NotesState>, query: String) -> R<Vec<FilterGroup>> {
     TodoStore::read(&state.data_dir).map_err(e)?.run_filter(&query, None, &Now::local())
+}
+
+/// Tasks by id, however old (`devall:todo/<id>` links to tasks the snapshot leaves out).
+#[tauri::command]
+pub fn todos_get(state: State<'_, NotesState>, ids: Vec<String>) -> R<Vec<TaskView>> {
+    Ok(TodoStore::read(&state.data_dir).map_err(e)?.tasks_by_id(&ids))
 }
 
 /// Completion history, newest first (`before`: Unix ms cursor for paging).

@@ -79,6 +79,55 @@ behaves as before) and unlisted nested repos (depth ≤ 3, "discovered"). `repos
   per-repo changes/history), Repositories dialog (project menu, Projects page, Source control, palette), the new/open
   project flow (offers nested repos), Docker (Compose files in repos), Logs (open files from a repo).
 
+### Links between items (`devall:`)
+
+Notes, to-dos (links, descriptions, comments), AI answers and agents link to anything in the app with one format,
+`devall:<kind>/<id>`, readable as plain Markdown: `[Create order](devall:request/orders/create.req.yaml)`.
+
+| Kind | Id | Example |
+|---|---|---|
+| `request` | path under `http/` (also `.ws/.grpc/.mqtt/.sio.yaml`) | `devall:request/orders/create.req.yaml` |
+| `folder` | request folder under `http/` (opens its settings) | `devall:folder/orders` |
+| `note` | path under `notes/` (`.md`, `.ipynb`) | `devall:note/design/auth.md` |
+| `todo` | personal task id | `devall:todo/01JC8Z6Q3W7Y2V5T9R4N0M1K8H` |
+| `env` / `variables` | environment id (file stem) / the project variables (no id) | `devall:env/staging`, `devall:variables` |
+| `stub` | mock stub id (on the Mock server page's active server) | `devall:stub/7f3c…` |
+| `load`, `fakedata`, `query`, `connection` | path under `load/`, `data/`, `queries/`, `connections/` | `devall:query/orders/top.sql` |
+| `webhook` | inbox id (file stem under `webhooks/`) | `devall:webhook/stripe` |
+| `utility` | op id | `devall:utility/jwt.decode` |
+| `repo` | repository name (opens it in Source control; files stay `repo:<name>/<path>`) | `devall:repo/api` |
+| `page` | any page: `<section>[/<param>]` (the generic fallback) | `devall:page/settings/sidebar` |
+
+- **Syntax:** each `/`-separated id segment is percent-encoded where Markdown needs it (space, `(`, `)`, `#`, `?`, `%`,
+  non-ASCII); everything else stays readable. The scheme is case-insensitive, `?…`/`#…` are ignored, ids never contain
+  `..`. Rust: `devall_core::links` (`format`, `parse`, `check`, `extract_targets`, `Project::note_links`); TypeScript
+  mirror: `src/lib/links/syntax.ts`. The older forms keep working: project-relative paths (`http/…req.yaml`,
+  `notes/…md`, relative note links), `repo:<name>/<path>`, URLs and absolute paths.
+- **Registry** (`src/lib/links/`): `describe(link)` → `{ kind, title, icon, state, detail, note }` resolved live
+  (renames show up; states `ok`/`missing`/`loading`/`unavailable`/`invalid`), `useLinkInfo`, `openLink(link, { toSide,
+  go })`, `allLinkItems()` for the picker. Each feature registers a provider next to its code
+  (`features/<name>/linkProvider.tsx`: items, resolve one id, open it — selecting the to-do, the stub, the saved
+  query…), wired in `lib/links/providers.ts` (pages and repos: `lib/links/core.tsx`). Providers read their stores or a
+  lazily loaded `listSource` (reloaded on file changes) and call `notifyLinks()` when that data changes. Adding a
+  kind: the id rule in both `syntax` modules (+ tests), a provider, a case in `route.ts` if a page shows it.
+- **UI:** `Markdown` renders `devall:` links as `LinkChip`s (kind icon — method badge, to-do circle, environment
+  chip —, live title, struck through when gone, a flag such as "personal to-do — not on this machine"); click opens
+  in the current group, Ctrl/Cmd+click or middle-click to the side. `pickLink()` is the "Link to…" picker (fuzzy,
+  grouped, `todo:`/`note:`… narrows, `freeform` accepts URLs/paths). Markdown fields insert links with `[[`, a Link
+  button and **Ctrl+Alt+K / ⌘⌥K** (Ctrl/Cmd+K is the palette): Monaco in the note editor, `useTextareaLinks` for
+  textareas. Menus offer `copyLinkItems(link, title)` ("Copy link", "Copy as Markdown link"); the palette has "Copy
+  link to this page" (`route.ts`: `linkForRoute`). "Linked from": `BacklinksSection` (task detail, notes) and
+  `BacklinksButton` (request and environment editors), from `notes_links` (Rust scans every note's link targets) plus
+  the to-do snapshot, both spellings counted (`lib/links/backlinks.ts`).
+- **Safety:** a `devall:` link only navigates inside the app — never the webview, the browser, a shell or a file write.
+  The Markdown sanitizer allows exactly one extra scheme for it.
+- **Personal to-dos** live on each machine: a `devall:todo/…` link in a shared note resolves only where the task
+  exists and shows "personal to-do — not on this machine" elsewhere. Tasks completed long ago (outside the snapshot)
+  resolve through `todos_get`.
+- **Agents:** MCP `add_todo`/`update_todo` (`links`, `addLinks`) take `devall:` links (malformed ones are rejected with
+  the list of kinds); `list_requests`, `list_environments`, `list_mocks`, `list_todos` and `search_notes` return each
+  item's `link`; the server instructions explain the syntax. Notes and to-do links come back unchanged.
+
 ## Local data & history
 
 Nothing history-like is written to the repository. Everything below lives in the **app data

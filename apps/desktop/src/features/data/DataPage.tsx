@@ -4,6 +4,8 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { AlertTriangle, Database, DatabaseZap, Dices, FolderOpen, History, Plus, Trash2 } from 'lucide-react';
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { useContextMenu } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { Empty, Spinner } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
@@ -178,6 +180,7 @@ export default function DataPage() {
                   ctx.open(e, [
                     { label: 'Reveal file', icon: <FolderOpen />, onSelect: () => void revealItemInDir(`${project.root}/data/${f.path}`).catch((err) => toast.error('Could not reveal', errorMessage(err))) },
                     { label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root: project.root, path: `data/${f.path}`, title: f.name }) },
+                    ...copyLinkItems(formatLink('fakedata', f.path), f.name),
                     { separator: true },
                     { label: 'Delete', icon: <Trash2 />, danger: true, onSelect: () => void remove(f) },
                   ])

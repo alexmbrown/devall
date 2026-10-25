@@ -1,7 +1,9 @@
 import { Fragment, useRef, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { AlignLeft, ArrowRightLeft, AtSign, CalendarDays, Check, ChevronDown, CopyPlus, GripVertical, Link2, ListTree, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, Target, Trash2 } from 'lucide-react';
+import { copyLinkItems } from '@/components/links/LinkChip';
 import { Menu } from '@/components/ui/Menu';
+import { formatLink } from '@/lib/links/syntax';
 import type { NewTask, TaskView } from '@/lib/api/todos';
 import { addTask, completeTasks, deleteTasks, moveTasks, setStatus, updateTasks, useTodos } from '@/store/todos';
 import { statusChip, statusOf } from './boardModel';
@@ -159,6 +161,8 @@ export function TaskRow({ row, context, dueMode = 'full', drop }: { row: Row; co
     },
     { label: 'Move to…', icon: <ArrowRightLeft />, hint: '', onSelect: () => ref.current && move.openAt(ref.current.querySelector('.td-more') ?? ref.current) },
     { label: 'Labels…', icon: <AtSign />, onSelect: () => ref.current && labels.openAt(ref.current.querySelector('.td-more') ?? ref.current) },
+    { separator: true },
+    ...copyLinkItems(formatLink('todo', t.id), t.content),
     { separator: true },
     { label: ids().length > 1 ? `Delete ${ids().length} tasks` : 'Delete', icon: <Trash2 />, danger: true, hint: 'Del', onSelect: () => void deleteTasks(ids()) },
   ];

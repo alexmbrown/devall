@@ -304,6 +304,15 @@
 .td-link > svg, .td-file > svg { width: 13px; height: 13px; color: var(--text-subtle); flex-shrink: 0; }
 .td-link-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none; padding: 0; text-align: left; color: var(--accent-fg); cursor: pointer; font: inherit; }
 .td-link-label:hover { text-decoration: underline; }
+/* A devall: link: the chip carries icon and title. */
+.td-link-label.td-link-chip { display: flex; overflow: visible; }
+.td-link-label.td-link-chip:hover { text-decoration: none; }
+.td-link-chip .dl-chip { max-width: 100%; }
+/* Markdown fields with a "Link to…" button in the corner. */
+.td-field { position: relative; min-width: 0; }
+.td-field > .textarea { width: 100%; padding-right: 28px; }
+.td-field > .td-field-link { position: absolute; top: 4px; right: 4px; opacity: 0.55; }
+.td-field > .td-field-link:hover, .td-field:focus-within > .td-field-link { opacity: 1; }
 .td-link .icon-btn, .td-file .icon-btn { flex-shrink: 0; opacity: 0.55; }
 .td-link:hover .icon-btn, .td-file:hover .icon-btn, .td-link .icon-btn[aria-expanded='true'], .td-file .icon-btn[aria-expanded='true'] { opacity: 1; }
 .td-file-size { flex-shrink: 0; font-variant-numeric: tabular-nums; }

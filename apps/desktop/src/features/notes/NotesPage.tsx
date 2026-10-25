@@ -4,9 +4,13 @@ import { BookOpenCheck, ChevronRight, FilePlus, FolderOpen, FolderPlus, Folder, 
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { CodeEditor } from '@/components/editor/CodeEditor';
+import { monaco } from '@/components/editor/monaco';
 import { Markdown } from '@/components/Markdown';
+import { BacklinksSection } from '@/components/links/Backlinks';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { pickLink } from '@/components/links/LinkPicker';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
-import { Empty, SearchInput, Segmented } from '@/components/ui/misc';
+import { Empty, isMac, SearchInput, Segmented } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
@@ -18,19 +22,13 @@ import { NotebookEditor, createNotebook, useRunnableCodeBlocks } from '@/feature
 import { AiAssistButton } from '@/features/ai';
 import { openStubFile } from '@/features/mocks';
 import { resolveProjectLink } from './links';
-import type { TreeNode } from '@/lib/types';
+import { linkShortcutLabel, wikiTrigger } from '@/lib/links/insert';
+import { formatLink, markdownLink } from '@/lib/links/syntax';
 import { useKeepView, useNav } from '@/store/nav';
 import { useFsVersion, useWorkspace } from '@/store/workspace';
 
 type Mode = 'edit' | 'split' | 'preview';
 const SAVE_MS = 700;
-
-function flattenRequests(n: TreeNode | null, out: { path: string; name: string; method: string }[] = []) {
-  if (!n) return out;
-  if (n.kind === 'request') out.push({ path: n.path, name: n.name, method: n.method });
-  else n.children.forEach((c) => flattenRequests(c, out));
-  return out;
-}
 
 /**
  * Opens project links from rendered Markdown: requests (`http/…`), notes (also relative to the
@@ -72,7 +70,6 @@ export function useProjectLinkOpener() {
 
 export default function NotesPage() {
   const project = useWorkspace((s) => s.project!);
-  const requestTree = useWorkspace((s) => s.tree);
   const param = useNav((s) => s.param);
   const go = useNav((s) => s.go);
   const [tree, setTree] = useState<NoteNode | null>(null);
@@ -151,7 +148,7 @@ export default function NotesPage() {
         ]
       : []),
     { label: 'Rename…', icon: <Pencil />, onSelect: () => rename(n) },
-    ...(n.kind === 'folder' ? [] : [{ label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root: project.root, path: `notes/${n.path}`, title: n.title }) }]),
+    ...(n.kind === 'folder' ? [] : [{ label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root: project.root, path: `notes/${n.path}`, title: n.title }) }, ...copyLinkItems(formatLink('note', n.path), n.title)]),
     { label: 'Reveal in file manager', icon: <FolderOpen />, onSelect: () => revealItemInDir(`${project.root}/notes/${n.path}`).catch(() => {}) },
     { separator: true },
     { label: 'Move to trash', icon: <Trash2 />, danger: true, onSelect: () => remove(n) },
@@ -193,8 +190,6 @@ export default function NotesPage() {
       </div>
     );
   };
-
-  const requests = useMemo(() => flattenRequests(requestTree), [requestTree]);
 
   return (
     <div className="split">
@@ -251,7 +246,7 @@ export default function NotesPage() {
         {selected?.endsWith('.ipynb') ? (
           <NotebookEditor key={`${project.root}|${selected}`} root={project.root} path={selected} onSaved={reload} />
         ) : selected ? (
-          <NoteEditor key={`${project.root}|${selected}`} root={project.root} path={selected} requests={requests} onSaved={reload} />
+          <NoteEditor key={`${project.root}|${selected}`} root={project.root} path={selected} onSaved={reload} />
         ) : (
           <Empty icon={<NotebookText />} title="Shared project notes">
             Write runbooks, decisions and API quirks next to the requests they describe. Notes are plain Markdown in <code className="code-inline">notes/</code>, so they’re reviewed in pull requests and the local AI can
@@ -263,7 +258,7 @@ export default function NotesPage() {
   );
 }
 
-function NoteEditor({ root, path, requests, onSaved }: { root: string; path: string; requests: { path: string; name: string; method: string }[]; onSaved(): void }) {
+function NoteEditor({ root, path, onSaved }: { root: string; path: string; onSaved(): void }) {
   const [text, setText] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('devall.noteMode') as Mode) ?? 'split');
   const [saved, setSaved] = useState(true);
@@ -327,6 +322,57 @@ function NoteEditor({ root, path, requests, onSaved }: { root: string; path: str
     timer.current = setTimeout(flush, SAVE_MS);
   };
 
+  // Links to anything: `[[`, the Link button or Ctrl+Alt+K / ⌘⌥K open the picker; the pick goes in
+  // at the cursor as `[Title](devall:…)` (a selection becomes the link text).
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const picking = useRef(false);
+  const insertLink = async (range?: monaco.IRange) => {
+    if (picking.current) return;
+    const ed = editorRef.current;
+    const model = ed?.getModel();
+    if (!ed || !model) {
+      // Preview only: append it.
+      const picked = await pickLink();
+      if (picked) change(`${latest.current.replace(/\s*$/, '')}\n\n${markdownLink(picked.title, picked.link)}\n`);
+      return;
+    }
+    const sel = range ?? ed.getSelection();
+    if (!sel) return;
+    const selected = range ? '' : model.getValueInRange(sel).trim();
+    const pos = ed.getPosition();
+    const vis = pos ? ed.getScrolledVisiblePosition(pos) : null;
+    const box = ed.getDomNode()?.getBoundingClientRect();
+    picking.current = true;
+    const picked = await pickLink({ anchor: vis && box ? { x: box.left + vis.left, y: box.top + vis.top + vis.height } : undefined });
+    picking.current = false;
+    ed.focus();
+    if (!picked) return;
+    ed.executeEdits('devall-link', [{ range: sel, text: markdownLink(selected && !selected.includes('\n') ? selected : picked.title, picked.link), forceMoveMarkers: true }]);
+    ed.pushUndoStop();
+  };
+  const insertRef = useRef(insertLink);
+  insertRef.current = insertLink;
+  const onEditor = (ed: monaco.editor.IStandaloneCodeEditor) => {
+    editorRef.current = ed;
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyK, () => void insertRef.current());
+    ed.onDidChangeModelContent((e) => {
+      const c = e.changes[0];
+      if (e.isUndoing || e.isRedoing || e.isFlush || e.changes.length !== 1 || !c.text.includes('[') || c.text.length > 2) return;
+      // After the cursor moved past what was typed (and an auto-closed `]`).
+      setTimeout(() => {
+        const model = ed.getModel();
+        const at = ed.getPosition();
+        if (!model || !at) return;
+        const t = wikiTrigger(model.getValue(), model.getOffsetAt(at));
+        if (!t) return;
+        const a = model.getPositionAt(t.from);
+        const b = model.getPositionAt(t.to);
+        void insertRef.current(new monaco.Range(a.lineNumber, a.column, b.lineNumber, b.column));
+      }, 0);
+    });
+  };
+  useEffect(() => () => void (editorRef.current = null), []);
+
   if (text === null) return null;
   const setModeP = (m: Mode) => {
     setMode(m);
@@ -339,19 +385,9 @@ function NoteEditor({ root, path, requests, onSaved }: { root: string; path: str
         <span className="subtle xs">{saved ? 'Saved' : 'Saving…'}</span>
         <span className="spacer" />
         <AiAssistButton feature="summarizeNotes" label="Summarize" title="Summarize this note (local AI)" align="right" input={() => ({ paths: [path] })} />
-        <Menu
-          align="right"
-          items={() =>
-            requests.length
-              ? requests.slice(0, 60).map((r) => ({ label: `${r.method} ${r.name}`, onSelect: () => change(`${latest.current.replace(/\s*$/, '')}\n\n[${r.method} ${r.name}](http/${r.path})\n`) }))
-              : [{ label: 'No requests in this project', disabled: true }]
-          }
-          trigger={(p) => (
-            <button className="btn btn-sm btn-ghost" {...p} title="Append a link to a saved request">
-              <Link2 /> Link request
-            </button>
-          )}
-        />
+        <button className="btn btn-sm btn-ghost" onClick={() => void insertLink()} title={`Link to a request, note, to-do, environment… (${linkShortcutLabel(isMac)}, or type [[)`}>
+          <Link2 /> Link to…
+        </button>
         <Segmented
           value={mode}
           onChange={setModeP}
@@ -365,7 +401,7 @@ function NoteEditor({ root, path, requests, onSaved }: { root: string; path: str
       <div className={clsx('note-body', mode)}>
         {mode !== 'preview' && (
           <div className="note-editor">
-            <CodeEditor value={text} onChange={change} language="markdown" onSave={flush} lineNumbers={false} />
+            <CodeEditor value={text} onChange={change} language="markdown" onSave={flush} lineNumbers={false} onMount={onEditor} />
           </div>
         )}
         {mode !== 'edit' && (
@@ -374,6 +410,7 @@ function NoteEditor({ root, path, requests, onSaved }: { root: string; path: str
           </div>
         )}
       </div>
+      <BacklinksSection link={formatLink('note', path)} className="note-backlinks" />
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { AlertTriangle, Cloud, Globe, History, Inbox, MoreHorizontal, Pencil, Play, Plus, Square, Trash2, Webhook } from 'lucide-react';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { confirmDialog } from '@/components/ui/dialogs';
 import { Callout, CopyButton, Empty, Resizer, Spinner, Switch, copyText } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
@@ -152,6 +154,7 @@ function WebhooksView({ root }: { root: string }) {
     { separator: true },
     { label: 'Copy local URL', disabled: !it.localUrl, onSelect: () => it.localUrl && copyText(it.localUrl, 'Local URL copied') },
     { label: 'Copy public URL', disabled: !it.publicUrl, onSelect: () => it.publicUrl && copyText(it.publicUrl, 'Public URL copied') },
+    ...copyLinkItems(formatLink('webhook', it.id), it.file?.name ?? it.id),
     { separator: true },
     {
       label: 'Clear events',

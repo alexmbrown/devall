@@ -2,9 +2,11 @@ import { useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { create } from 'zustand';
 import { Link2 } from 'lucide-react';
+import { LinkChip } from '@/components/links/LinkChip';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
+import { isDevallLink } from '@/lib/links/syntax';
 import { todosApi, type NewTask } from '@/lib/api/todos';
 import { addTask, useTodos } from '@/store/todos';
 import { QuickAddInput, type QuickAddInputHandle } from './QuickAddInput';
@@ -127,11 +129,15 @@ function QuickAddModal({ opts, onClose }: { opts: QuickAddOptions; onClose(): vo
             {defaults.due ? ` · ${dayLabel(defaults.due.date, today)}` : ''}
             {defaults.labels?.length ? ` · ${defaults.labels.map((l) => `@${l}`).join(' ')}` : ''}
           </span>
-          {defaults.links?.map((l) => (
-            <span key={l} className="tag" title={l}>
-              <Link2 /> {linkLabel(l)}
-            </span>
-          ))}
+          {defaults.links?.map((l) =>
+            isDevallLink(l) ? (
+              <LinkChip key={l} href={l} />
+            ) : (
+              <span key={l} className="tag" title={l}>
+                <Link2 /> {linkLabel(l)}
+              </span>
+            ),
+          )}
         </div>
       </div>
     </Modal>

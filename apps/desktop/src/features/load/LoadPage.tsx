@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { Activity, AlertTriangle, CloudUpload, Gauge, History, Network, Play, Plus, Save, Server, Trash2 } from 'lucide-react';
 import { useContextMenu } from '@/components/ui/Menu';
+import { copyLinkItems } from '@/components/links/LinkChip';
+import { formatLink } from '@/lib/links/syntax';
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { Callout, Empty, Kbd, MOD, Spinner } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
@@ -108,7 +110,7 @@ export default function LoadPage() {
                   tabIndex={0}
                   className={clsx('list-item', t.path === selected && 'on', t.error && 'invalid')}
                   onClick={() => go('load', t.path)}
-                  onContextMenu={(e) => ctx.open(e, [{ label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root, path: `load/${t.path}`, title: t.name }) }])}
+                  onContextMenu={(e) => ctx.open(e, [{ label: 'Local history…', icon: <History />, onSelect: () => openLocalHistory({ root, path: `load/${t.path}`, title: t.name }) }, ...copyLinkItems(formatLink('load', t.path), t.name)])}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();

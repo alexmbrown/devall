@@ -300,6 +300,8 @@ const asciiJson = (v: unknown) => JSON.stringify(v).replace(/[\u007f-￿]/g, (c)
 /** `root`: the open project (its list is in scope), or null. */
 export const todosApi = {
   snapshot: (root: string | null) => invoke<Snapshot>('todos_snapshot', { root }),
+  /** Tasks by id, however old (the snapshot leaves out tasks completed more than a week ago). */
+  get: (ids: string[]) => invoke<TaskView[]>('todos_get', { ids }),
   apply: (root: string | null, op: TodoOp) => invoke<TodoApplyResult>('todos_apply', { root, op }),
   parse: (root: string | null, text: string, listId?: string | null, ignore?: string[]) => invoke<QuickAdd>('todos_parse', { root, text, listId, ignore }),
   parseDate: (text: string, dateOnly?: boolean) => invoke<Due | null>('todos_parse_date', { text, dateOnly }),

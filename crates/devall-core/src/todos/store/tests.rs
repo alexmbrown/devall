@@ -335,6 +335,10 @@ fn snapshot_views_and_history() {
     let ids: Vec<&str> = snap.tasks.iter().map(|t| t.task.id.as_str()).collect();
     assert!(ids.contains(&kid.as_str()), "done sub-task of an open parent");
     assert!(!ids.contains(&old.as_str()), "old completed tasks stay out of the snapshot");
+    // …but links to them still resolve.
+    let found = s.tasks_by_id(&[old.clone(), "nope".into(), a.clone()]);
+    assert_eq!(found.iter().map(|t| t.task.id.as_str()).collect::<Vec<_>>(), [old.as_str(), a.as_str()]);
+    assert!(found[0].task.done);
     assert_eq!(snap.completed_count, 3);
     assert_eq!(snap.project_list.as_deref(), Some("01PROJECT"));
     assert_eq!(snap.today, "2026-10-23");

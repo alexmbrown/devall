@@ -19,6 +19,8 @@ interface CodeEditorProps {
   onValidate?(markers: monaco.editor.IMarker[]): void;
   lineNumbers?: boolean;
   autoHeight?: { min: number; max: number };
+  /** The Monaco editor once it exists (extra commands, content listeners). */
+  onMount?(editor: monaco.editor.IStandaloneCodeEditor): void;
 }
 
 const BASE_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
@@ -51,6 +53,7 @@ export function CodeEditor({
   onValidate,
   lineNumbers = true,
   autoHeight,
+  onMount: onMountProp,
 }: CodeEditorProps) {
   const wordWrap = usePrefs((s) => s.wordWrap);
   const saveRef = useRef(onSave);
@@ -71,6 +74,7 @@ export function CodeEditor({
       editor.onDidContentSizeChange(update);
       update();
     }
+    onMountProp?.(editor);
   };
 
   useEffect(() => () => void (editorRef.current = null), []);

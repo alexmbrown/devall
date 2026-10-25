@@ -10,12 +10,14 @@ import { useRunner } from './RunnerModal';
 import { useMoveToProject } from '@/features/projects/MoveToProject';
 import { openQuickAdd } from '@/features/todos/QuickAddDialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { copyLinkItems } from '@/components/links/LinkChip';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
 import { MethodBadge, SearchInput } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { api, errorMessage } from '@/lib/ipc';
+import { formatLink } from '@/lib/links/syntax';
 import type { TreeNode } from '@/lib/types';
 import { useNav } from '@/store/nav';
 import { docParam, useWorkspace } from '@/store/workspace';
@@ -123,7 +125,7 @@ export function RequestTree() {
   ];
 
   // Personal to-do linked to this item; quick-add syntax works (tomorrow, p1, @label, #list).
-  const todoAbout = (node: TreeNode) => () => openQuickAdd({ root: project.root, title: `Add to-do about “${node.name}”`, defaults: { links: [`http/${node.path}`] } });
+  const todoAbout = (node: TreeNode) => () => openQuickAdd({ root: project.root, title: `Add to-do about “${node.name}”`, defaults: { links: [formatLink(node.kind === 'folder' ? 'folder' : 'request', node.path)] } });
 
   const itemMenu = (node: TreeNode): MenuItemDef[] => [
     ...(node.kind === 'folder'
@@ -149,6 +151,7 @@ export function RequestTree() {
         ]),
     { label: 'Rename…', icon: <Pencil />, onSelect: () => renameItem(node) },
     { label: 'Add to-do about this…', icon: <CheckSquare />, onSelect: todoAbout(node) },
+    ...copyLinkItems(formatLink(node.kind === 'folder' ? 'folder' : 'request', node.path), node.name),
     { label: project.isScratch ? 'Move to project…' : 'Copy to another project…', icon: <ArrowRightLeft />, onSelect: () => useMoveToProject.getState().show([node.path]) },
     {
       label: 'Reveal in file manager',

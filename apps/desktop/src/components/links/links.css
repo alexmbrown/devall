@@ -1,0 +1,47 @@
+/* Links between items: inline chips for `devall:` links, the "Link to…" picker, "Linked from". */
+
+/* A devall: anchor in rendered Markdown hosts a chip: no underline of its own. */
+.markdown a.dl-anchor { text-decoration: none; color: inherit; }
+
+.dl-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline; padding: 0 6px 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-subtle); color: var(--accent-fg); font-size: 0.95em; line-height: 1.5; cursor: pointer; white-space: nowrap; text-decoration: none; }
+.dl-chip:hover { background: var(--accent-subtle); border-color: var(--accent); }
+.dl-chip .dl-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dl-chip .dl-flag { color: var(--text-subtle); font-size: var(--fs-2xs); font-style: italic; flex-shrink: 0; }
+.dl-chip .dl-badge, .dl-badge { font-size: var(--fs-2xs); color: var(--text-muted); background: var(--bg-muted); border-radius: var(--radius-sm); padding: 0 4px; flex-shrink: 0; }
+.dl-chip.dl-loading { color: var(--text-muted); }
+.dl-chip.dl-missing, .dl-chip.dl-invalid { color: var(--text-subtle); background: transparent; border-style: dashed; }
+.dl-chip.dl-missing .dl-title, .dl-chip.dl-invalid .dl-title { text-decoration: line-through; }
+.dl-chip.dl-unavailable { color: var(--text-muted); background: transparent; border-style: dashed; }
+.dl-chip.dl-done .dl-title { text-decoration: line-through; color: var(--text-muted); }
+
+/* Icons: lucide icons, method badges, environment chips and to-do circles at text size. */
+.dl-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-subtle); }
+.dl-icon > svg, .dl-icon .dl-todo svg { width: 12px; height: 12px; }
+.dl-icon .badge.method { font-size: 9px; height: 14px; padding: 0 3px; }
+.dl-icon .env-chip { font-size: 9px; height: 14px; }
+.dl-todo { display: inline-flex; color: var(--text-subtle); }
+.dl-todo.p1 { color: var(--danger); }
+.dl-todo.p2 { color: var(--warning); }
+.dl-todo.p3 { color: var(--m-post); }
+
+/* The picker: the palette's look; anchored next to the caret when opened from an editor. */
+.dl-overlay-anchored { background: transparent; padding: 0; }
+.dl-picker { max-width: 520px; }
+.dl-picker input { height: 40px; font-size: var(--fs-md); }
+.dl-picker .results { max-height: 44vh; }
+.dl-picker .item { gap: var(--space-3); }
+.dl-picker .item .dl-icon > svg { width: 14px; height: 14px; }
+.dl-picker .dl-pick-title { flex-shrink: 1; min-width: 0; max-width: 60%; }
+.dl-picker .item svg.dl-enter { width: 12px; height: 12px; margin-left: auto; color: var(--text-subtle); }
+
+/* "Linked from". */
+.dl-backlinks { display: flex; flex-direction: column; gap: var(--space-2); }
+.dl-backlinks-title { display: flex; align-items: center; gap: var(--space-3); font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+.dl-backlinks-title .count { color: var(--text-subtle); font-weight: 500; }
+.dl-backlinks-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.dl-backlink { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-subtle); color: var(--text); font-size: var(--fs-xs); cursor: pointer; }
+.dl-backlink:hover { background: var(--accent-subtle); border-color: var(--accent); }
+.dl-backlink.done .truncate { text-decoration: line-through; color: var(--text-muted); }
+.dl-backlinks-btn svg { width: 13px; height: 13px; }
+/* Under a note: a strip below the editor/preview. */
+.dl-backlinks.note-backlinks { padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--bg-subtle); flex-shrink: 0; max-height: 30%; overflow: auto; }

@@ -165,6 +165,7 @@ async fn legacy_initialize_handshake_and_tools() {
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     assert!(init["result"]["capabilities"]["tools"].is_object());
     assert!(init["result"]["instructions"].as_str().unwrap().contains("Shop API"));
+    assert!(init["result"]["instructions"].as_str().unwrap().contains("devall:request/"), "agents learn the link syntax");
     c.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
 
     let tools = c.request("tools/list", json!({})).await;
@@ -199,6 +200,8 @@ async fn legacy_initialize_handshake_and_tools() {
     let reqs = c.call("list_requests", json!({}), None).await;
     let paths: Vec<&str> = reqs["structuredContent"]["requests"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap()).collect();
     assert!(paths.contains(&"me.req.yaml") && paths.contains(&"create-order.req.yaml"), "{paths:?}");
+    let me = reqs["structuredContent"]["requests"].as_array().unwrap().iter().find(|r| r["path"] == "me.req.yaml").unwrap();
+    assert_eq!(me["link"], "devall:request/me.req.yaml");
 
     // Read-only by default: POST is refused with a tool-level error.
     let post = c.call("send_request", json!({ "path": "create-order.req.yaml" }), None).await;
@@ -234,6 +237,8 @@ async fn legacy_initialize_handshake_and_tools() {
     assert!(t.contains("Add idempotency keys to orders"), "{t}");
     assert_eq!(todos["structuredContent"]["items"][0]["priority"], "p1");
     assert_eq!(todos["structuredContent"]["items"][0]["status"], "To do");
+    let first = &todos["structuredContent"]["items"][0];
+    assert_eq!(first["link"].as_str().unwrap(), format!("devall:todo/{}", first["id"].as_str().unwrap()));
     let statuses: Vec<&str> = todos["structuredContent"]["statuses"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(statuses, ["To do", "In progress", "Done"]);
     assert!(!t.contains("Private errand"), "other lists stay private");
@@ -413,8 +418,14 @@ async fn agents_keep_notes_and_todos() {
     assert!(p.read_note("payments.md").unwrap().contains("tok-live-998877"));
 
     // To-dos: quick-add syntax, short ids, only this project's list.
-    let added = srv.call("add_todo", &a(json!({ "text": "Write refund tests tomorrow p2 @payments", "description": "From the agent", "links": ["http/me.req.yaml"] }))).await.unwrap();
+    let added = srv
+        .call("add_todo", &a(json!({ "text": "Write refund tests tomorrow p2 @payments", "description": "From the agent", "links": ["http/me.req.yaml", "devall:note/payments.md"] })))
+        .await
+        .unwrap();
     let t = &added["task"];
+    assert_eq!(t["links"], json!(["http/me.req.yaml", "devall:note/payments.md"]));
+    let bad_link = srv.call("add_todo", &a(json!({ "text": "x", "links": ["devall:requests/me.req.yaml"] }))).await.unwrap_err();
+    assert!(bad_link.contains("not a valid /dev/all link"), "{bad_link}");
     assert_eq!((t["content"].as_str(), t["priority"].as_str()), (Some("Write refund tests"), Some("p2")));
     assert_eq!(t["labels"], json!(["payments"]));
     assert!(t["due"]["date"].is_string());
@@ -425,6 +436,12 @@ async fn agents_keep_notes_and_todos() {
     assert_eq!(up["task"]["labels"], json!(["payments", "tests"]));
     assert!(up["task"]["due"].is_null());
     assert!(srv.call("update_todo", &a(json!({ "id": short, "priority": "urgent" }))).await.is_err());
+    // Links: added (devall: links checked) or replaced, returned as given.
+    let linked = srv.call("update_todo", &a(json!({ "id": short, "addLinks": ["devall:request/me.req.yaml"] }))).await.unwrap();
+    assert_eq!(linked["task"]["links"], json!(["http/me.req.yaml", "devall:note/payments.md", "devall:request/me.req.yaml"]));
+    let replaced = srv.call("update_todo", &a(json!({ "id": short, "links": ["devall:env/prod"] }))).await.unwrap();
+    assert_eq!(replaced["task"]["links"], json!(["devall:env/prod"]));
+    assert!(srv.call("update_todo", &a(json!({ "id": short, "addLinks": ["devall:nope/1"] }))).await.is_err());
     // Status: the board column, by name in any case; unknown names list the columns.
     assert_eq!(t["status"], "To do");
     let moved = srv.call("update_todo", &a(json!({ "id": short, "status": "in PROGRESS" }))).await.unwrap();

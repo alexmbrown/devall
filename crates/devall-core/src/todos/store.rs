@@ -1268,6 +1268,12 @@ impl TodoData {
         TaskView { task: t.clone(), due_local, due_at }
     }
 
+    /// The tasks with these ids, however old (the snapshot leaves out tasks completed more than a
+    /// week ago) — for `devall:todo/<id>` links. Unknown ids are skipped.
+    pub fn tasks_by_id(&self, ids: &[String]) -> Vec<TaskView> {
+        ids.iter().filter_map(|id| self.task(id)).map(|t| self.view(t, &chrono::Local)).collect()
+    }
+
     /// Open tasks matching a filter query, grouped like the query (`a, b`), sorted by due date,
     /// time and priority. `lists` restricts the search (MCP: the project's list only).
     pub fn run_filter_in<Tz: TimeZone>(&self, query: &str, lists: Option<&[String]>, now: &Now, local: &Tz) -> std::result::Result<Vec<FilterGroup>, String> {
