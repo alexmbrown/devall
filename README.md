@@ -1,93 +1,88 @@
-# /dev/all
+# Dev All (/dev/all)
 
-A developer swiss army knife toolbox. Http client, mock server, webhook tester, load tester. What other tools can I build in. The goal is to prevent users from having multiple subs for different dev tools. Build synergy between tools by having them in one connected app.
+A local-first developer toolkit in one desktop app: HTTP client, mock server, webhooks, tunnels,
+load testing, databases, logs, Docker & Kubernetes, notes, to-dos, utilities and local AI —
+connected to each other and organised around your projects.
 
-# Function Ideas
-* Http Client
-* Mock Server
-* Webhook tester
-* Ngrok like reverse proxy
-* load tester
-* jwt encoder/decoder
-* encoder/decoder base64, etc
-* formmaaters
-* regex sandbox
-* text diff
-* light weight sql, redis, mongo client
-* random data generator
-* log file viewer
-* wiremock viewer
-* GCP/K8s viewer (use kubectl and other tools)
-* Docker 
+- **Project-centric, in your repo.** Requests, environments, mocks, notes, load tests and data
+  schemas are plain YAML/Markdown files next to your code, reviewed and shared with git. A project
+  can span several repositories (e.g. frontends and backends) with shared requests and environments.
+- **Secrets never touch the repo.** They live in the OS keychain; files only reference them.
+- **History stays on your machine.** Responses, file versions, utility runs, activity and load runs
+  are kept in the app data folder, never in the project.
+- **Free and local.** Everything that runs on your machine is free, with no account. Optional
+  hosted extras (public tunnels, an always-on webhook inbox, shares, monitors) run on a relay you can
+  also self-host ([relay/](relay/)).
+- **Windows and macOS** are first-class (Linux builds work too).
 
-# Potential AI features
-* smart mock data generation
-* error & stack trace analysis
-* regext/query builder/translator
-* traffice to spec reverse engineer
+## What's in it
 
-# Technology
-* Rust Tauri Desktop App
-* Firebase functions/store when needed
-* Locall LLM (Bring your own model). Should have a few options to download or use their own
-
-# Goals
-* Project based. All http calls, mocks, etc should be stored as files in a repo. So that users can use standard version control
-* Should have scratch pad or default project where users can store personal htt requests, mocks, etc
-* no secrets are stored in project files only locally and never commited
-* History (responses, file versions, utility runs, activity, load runs) stays on the user's device in the app data folder — never in the repo (see [docs/DEVELOPING.md](docs/DEVELOPING.md#local-data--history))
-* Should tie features together for synergy between features. For example I could take and http request and create a mock endpoint form it. then randomize data
-* Should use local AI to enhance functionality
-* Should try and setup everything locally thats possible. For some features like an ngrok reverse proxy, or webhook tester setup firebase
-
-Style ine ../wiremock-ui. you can also bring in the wiremock functionality from this app
-
-What other features can I inclue. ideate first and be as through as possible and research online. Look at other apps and the features that have. how can we improve on those app and create something that is truly unique by bringing eveyrhign together in a project cetneric space
-
----
-
-# Status and docs
-
-| Document | What's in it |
+| Area | Highlights |
 |---|---|
-| [reports/Developer toolkit competitive research.md](reports/Developer%20toolkit%20competitive%20research.md) | Competitor research, pricing, gaps, synergy workflows, technical choices (notes in `research_notes/`) |
-| [docs/FEATURES.md](docs/FEATURES.md) | Prioritized features in two groups: **Free (local, $0 to run)** and **Hosted (needs our cloud; free tier + Supporter tier)** |
-| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Decisions, architecture, project file format, milestones M0–M7 |
+| **Requests** | HTTP, GraphQL, WebSocket, gRPC, MQTT, Socket.IO; environments and variables; auth (OAuth2 and more); tests and scripts; runner; history with diffs; import (Postman, Insomnia, Bruno, HAR, OpenAPI, cURL, `.http`/`.hurl`) and code generation |
+| **Mock server** | WireMock-compatible engine with the full wiremock-ui admin: stubs, request journal, near misses, recording, scenarios, verification, OpenAPI drift; mock from a response in one click |
+| **Webhooks & tunnels** | Local webhook receiver with inboxes and replay; expose any port through your own ngrok, cloudflared or Tailscale Funnel — or the relay |
+| **Load testing** | Load tests from saved requests, live results, run history, thresholds for CI, distributed agents |
+| **Data** | Postgres, MySQL, SQL Server, SQLite, Redis and MongoDB clients (SSH tunnels, TLS); fake-data generator with schemas |
+| **Source control** | Multi-repo status and bulk actions, commit graph, compare a branch with its base and review every file before opening a merge request, hunk/line staging, secret scanning on commit |
+| **Logs & infra** | Large log files with queries, patterns and SQL; Docker, Kubernetes and GCP emulator views; a traffic inspector |
+| **Notes & to-dos** | Markdown notes and runnable notebooks in the repo; personal Todoist-style to-dos (lists, board, recurrence, reminders, attachments) kept on your machine; link anything to anything with `devall:` links |
+| **Utilities** | 70+ encoders, decoders, formatters, hashes, JWT, regex, diff, string compare, time, network tools |
+| **Local AI** | Bring your own model (or the managed local one): ask questions about the project, semantic search, AI-assisted features; an MCP server so coding agents can use your requests, notes and to-dos |
 
-**Milestone M0 (foundations + first vertical slice) is implemented:** project files in git, scratch pad,
-environments with keychain-backed secrets, an HTTP client, utilities (JWT, encoders, hashes, ids, time,
-formats), a CLI for CI, and the desktop app with the wiremock-ui design system.
+The full feature list, with priorities and what is free vs hosted, is in [docs/FEATURES.md](docs/FEATURES.md).
 
-## Repository layout
+## Install
 
-```
-crates/devall-core    project format (YAML, one entity per file), variables, secrets, cURL import
-crates/devall-http    HTTP engine: resolve → send → timings; export as cURL
-crates/devall-utils   utility operations shared by the app, the CLI and (later) MCP
-crates/devall-cli     `devall` binary for terminals and CI
-apps/desktop          Tauri 2 + React 19 app (src-tauri = thin command layer)
-schemas/              JSON Schemas for every project file (generated from the Rust model)
-examples/             a demo project you can open or run
-```
+There are no published releases yet; build it from source.
 
-## Develop
-
-Prerequisites: Rust 1.91+, Node 22, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+Prerequisites: Rust 1.91+, Node 22 and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 for your OS (WebView2 is preinstalled on Windows 11; Xcode Command Line Tools on macOS).
 
 ```bash
 cd apps/desktop && npm install
 ```
 
-```bash
-cd apps/desktop && npm run app
-```
-
-Install your own build (Windows: Start Menu "Dev All"; macOS: `~/Applications`). Run it again after
-changes to rebuild and replace the installed copy; an open copy is closed and reopened:
+Build and install it for your user — a "Dev All" Start Menu entry on Windows, `~/Applications` on
+macOS. Run it again after pulling or changing code to update the installed copy:
 
 ```bash
 cd apps/desktop && npm run app:install
+```
+
+Signed release bundles: see [docs/RELEASING.md](docs/RELEASING.md).
+
+## Getting started
+
+1. Open the app and create a project in a folder (or open the bundled
+   [examples/jsonplaceholder](examples/jsonplaceholder) demo). A folder with several git repos
+   becomes a multi-repo project.
+2. Add an environment and send a request; turn a response into a mock with one click.
+3. Commit the project files with your code — teammates get the same requests, environments,
+   mocks and notes.
+
+## Command line and agents
+
+The `devall` CLI runs the same project files in a terminal or CI:
+
+```bash
+cargo run -p devall-cli -- run examples/jsonplaceholder --env public --filter users
+```
+
+It also serves mocks (`devall mock serve`), runs load tests (`devall load run`), checks OpenAPI
+specs, scans for secrets (`devall scan --install-hook`), opens tunnels, manages repos and to-dos,
+and serves the project to coding agents over MCP:
+
+```bash
+claude mcp add devall -- devall mcp --project <path>
+```
+
+See [docs/MOCKS_IN_CI.md](docs/MOCKS_IN_CI.md) and [docs/LOAD_AGENTS.md](docs/LOAD_AGENTS.md).
+
+## Develop
+
+```bash
+cd apps/desktop && npm run app
 ```
 
 ```bash
@@ -95,7 +90,7 @@ cargo test --workspace
 ```
 
 ```bash
-cargo run -p devall-cli -- run examples/jsonplaceholder --env public --filter users
+cd apps/desktop && npx vitest run
 ```
 
 Regenerate the JSON Schemas after changing the model:
@@ -103,3 +98,39 @@ Regenerate the JSON Schemas after changing the model:
 ```bash
 UPDATE_SCHEMAS=1 cargo test -p devall-core schemas_are_up_to_date
 ```
+
+[docs/DEVELOPING.md](docs/DEVELOPING.md) covers the architecture, conventions (workbench, views,
+links, local data and history) and how to add features. Plugins: [docs/PLUGINS.md](docs/PLUGINS.md).
+
+## Repository layout
+
+```
+apps/desktop      Tauri 2 + React 19 desktop app (src-tauri = thin command layer)
+crates/           Rust libraries shared by the app, the CLI and the MCP server
+  devall-core       project format, variables, secrets, repos and git, notes, to-dos, links
+  devall-http       HTTP engine          devall-proto    gRPC, WebSocket, MQTT, Socket.IO
+  devall-mock       mock server          devall-webhooks webhooks and tunnels
+  devall-load       load testing         devall-db       SQL, Redis, MongoDB
+  devall-logs       log viewer engine    devall-infra    Docker, Kubernetes, GCP
+  devall-utils      utility operations   devall-data     fake data
+  devall-ai         local AI             devall-mcp      MCP server
+  devall-history    local history        devall-import   importers and code generation
+  devall-cli        the `devall` binary  (+ openapi, plugins, proxy, notebook, script, relay)
+relay/            the hosted / self-hostable relay (Cloudflare Worker + Firebase)
+sdk/rust/         SDK for WebAssembly plugins
+schemas/          JSON Schemas for every project file (generated from the Rust model)
+examples/         demo project and example plugins
+scripts/          install, release and brand-asset scripts
+docs/             developer docs, feature list, implementation plan
+```
+
+## Background
+
+- [docs/FEATURES.md](docs/FEATURES.md) — features by priority, free vs hosted
+- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) — decisions, architecture, project file format, milestones
+- [reports/Developer toolkit competitive research.md](reports/Developer%20toolkit%20competitive%20research.md) — competitor research behind the feature set (notes in `research_notes/`)
+
+## License
+
+The relay ([relay/](relay/)) is licensed under the AGPL-3.0. The rest of the repository does not
+have a license file yet.
