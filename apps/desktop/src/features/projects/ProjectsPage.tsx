@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, FolderPlus, NotebookPen, X, GitBranch } from 'lucide-react';
+import { FolderOpen, FolderPlus, NotebookPen, X, GitBranch, Settings2 } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { RelTime } from '@/components/ui/misc';
-import { promptDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
+import { openReposDialog } from '@/features/git/dialogs';
+import { openOrCreateProject } from './NewProjectDialog';
 import { api, errorMessage } from '@/lib/ipc';
 import type { RecentProject } from '@/lib/types';
 import { useWorkspace } from '@/store/workspace';
@@ -15,19 +16,16 @@ export default function ProjectsPage() {
     api.recentProjects().then(setRecent).catch(() => {});
   }, [ws.project?.root]);
 
+  // A folder without devall.yaml offers to become a project — a multi-repo one when it holds
+  // several git repositories.
   const openFolder = async () => {
     const dir = await openDialog({ directory: true, title: 'Open a /dev/all project (folder with devall.yaml)' });
-    if (typeof dir !== 'string') return;
-    if (await ws.openProject(dir)) return;
+    if (typeof dir === 'string') await openOrCreateProject(dir, true);
   };
 
   const create = async () => {
-    const dir = await openDialog({ directory: true, title: 'Choose a folder for the new project (e.g. your service’s git repo)' });
-    if (typeof dir !== 'string') return;
-    const suggested = dir.split(/[\\/]/).filter(Boolean).pop() ?? 'My project';
-    const name = await promptDialog({ title: 'New project', label: 'Project name', initial: suggested, validate: (v) => (v.trim() ? undefined : 'Required') });
-    if (!name) return;
-    await ws.createProject(dir, name);
+    const dir = await openDialog({ directory: true, title: 'Choose a folder for the new project (your service’s git repo, or a folder holding several repos)' });
+    if (typeof dir === 'string') await openOrCreateProject(dir, false);
   };
 
   return (
@@ -37,8 +35,8 @@ export default function ProjectsPage() {
       </div>
       <div className="page-body narrow col-lg">
         <p className="muted">
-          A project is a folder with a <code className="code-inline">devall.yaml</code> — usually your service’s git repo. Requests, environments and (soon) mocks are plain YAML files inside it, so you review and share them with git.
-          Secrets never go in those files.
+          A project is a folder with a <code className="code-inline">devall.yaml</code> — usually your service’s git repo, or a folder above several repos (frontends and backends that share requests, environments and
+          mocks). Everything in it is plain files, so you review and share them with git. Secrets never go in those files.
         </p>
         <div className="grid-3">
           <button className="card hoverable project-card" onClick={create}>
@@ -57,6 +55,19 @@ export default function ProjectsPage() {
             <span className="subtle xs">Personal requests, no folder needed</span>
           </button>
         </div>
+        {ws.project && !ws.project.isScratch && (
+          <section className="section">
+            <div className="section-head">
+              <h3>{ws.project.manifest.name}</h3>
+            </div>
+            <div className="row-sm wrap">
+              <button className="btn btn-sm" onClick={openReposDialog}>
+                <Settings2 /> Repositories…
+              </button>
+              <span className="xs subtle">Add the repositories this project spans, locate or clone missing ones, group them.</span>
+            </div>
+          </section>
+        )}
         {recent.length > 0 && (
           <section className="section">
             <div className="section-head">

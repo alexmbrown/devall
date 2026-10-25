@@ -137,6 +137,8 @@ fn scannable(rel: &str) -> bool {
 }
 
 /// Scans the project's tracked file types (http/, environments/, notes/, mocks/, devall.yaml…).
+/// Nested git repositories (the code of a multi-repo project's repos) are skipped: each repo
+/// checks its own commits with the pre-commit hook (`devall scan --staged`).
 pub fn scan_project(root: &Path) -> Vec<FileFindings> {
     let mut out = Vec::new();
     fn walk(dir: &Path, rel: &str, out: &mut Vec<FileFindings>) {
@@ -149,7 +151,9 @@ pub fn scan_project(root: &Path) -> Vec<FileFindings> {
             let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let p = e.path();
             if p.is_dir() {
-                walk(&p, &child, out);
+                if !crate::repos::is_git_repo(&p) {
+                    walk(&p, &child, out);
+                }
             } else if scannable(&child)
                 && e.metadata().map(|m| m.len() < 5 * 1024 * 1024).unwrap_or(false)
                 && let Ok(text) = std::fs::read_to_string(&p)
@@ -207,6 +211,9 @@ mod tests {
         p.create_request("", req).unwrap();
         std::fs::create_dir_all(dir.path().join(".devall")).unwrap();
         std::fs::write(dir.path().join(".devall/history.json"), "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789").unwrap();
+        // A nested repo's own files are its business (and its own hook's).
+        std::fs::create_dir_all(dir.path().join("api/.git")).unwrap();
+        std::fs::write(dir.path().join("api/config.json"), r#"{"token":"ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"}"#).unwrap();
         let found = scan_project(dir.path());
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, "http/leaky.req.yaml");

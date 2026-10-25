@@ -40,6 +40,67 @@ import { LogPanel } from './LogPanel';
 import { ExecTerminal } from './Terminal';
 import { Sparkline } from './Sparkline';
 import { age, fmtBytes, forwardTemplate, openHttpRequest, useInfraUi } from './store';
+import { reposApi, type ComposeFile } from '@/lib/api/git';
+import { useProjectRepos } from '@/store/repos';
+import { useWorkspace } from '@/store/workspace';
+
+/**
+ * Compose files found in the open project's repositories that aren't running — a multi-repo
+ * project's backends can be started from here (`docker compose -f <file> up -d`, confirmed).
+ */
+function RepoComposeFiles({ running, onStarted }: { running: ComposeProject[] | undefined; onStarted(): void }) {
+  const root = useWorkspace((s) => s.project?.root);
+  const repos = useProjectRepos();
+  const [files, setFiles] = useState<ComposeFile[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
+  const repoKey = repos.map((r) => `${r.name}:${r.state}`).join('|');
+  useEffect(() => {
+    if (!root || !repoKey) return setFiles([]);
+    reposApi.composeFiles(root).then(setFiles).catch(() => setFiles([]));
+  }, [root, repoKey]);
+  const norm = (p: string) => p.replace(/[\\/]+/g, '/').toLowerCase();
+  const idle = files.filter((f) => !running?.some((p) => p.configFiles.some((c) => norm(c) === norm(f.path))));
+  if (!idle.length) return null;
+  const up = async (f: ComposeFile) => {
+    const dir = f.path.replace(/[\\/][^\\/]+$/, '');
+    const ok = await confirmDialog({ title: `Start ${f.repo}/${f.relPath}?`, message: `docker compose -p ${f.project} -f ${f.relPath} up -d — runs the services this file defines (from ${dir}).`, confirmText: 'Compose up' });
+    if (!ok) return;
+    setBusy(f.path);
+    try {
+      const out = await infraApi.docker.compose({ name: f.project, workingDir: dir, configFiles: [f.path], services: [], containers: 0, running: 0 }, 'up');
+      toast.success(`compose up ${f.project}`, out.trim().split('\n').slice(-3).join('\n'));
+      onStarted();
+    } catch (e) {
+      toast.error('compose up failed', errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="infra-compose-files">
+      <div className="list-group-header" onClick={() => setOpen(!open)}>
+        {open ? <ChevronDown /> : <ChevronRight />} Compose files in this project's repositories ({idle.length})
+      </div>
+      {open &&
+        idle.map((f) => (
+          <div key={f.path} className="list-item" title={f.path}>
+            <Box size={14} className="subtle" />
+            <span className="small strong">{f.repo}</span>
+            <span className="mono xs subtle truncate grow">{f.relPath}</span>
+            {f.group && <span className="badge outline">{f.group}</span>}
+            {busy === f.path ? (
+              <Spinner />
+            ) : (
+              <button className="btn btn-sm btn-ghost" onClick={() => up(f)} title="docker compose up -d">
+                <Play /> Up
+              </button>
+            )}
+          </div>
+        ))}
+    </div>
+  );
+}
 
 type Sub = 'containers' | 'images' | 'volumes' | 'networks';
 type Detail = 'logs' | 'stats' | 'terminal' | 'inspect';
@@ -428,6 +489,7 @@ function ContainersTab() {
             </table>
           </div>
         )}
+        <RepoComposeFiles running={projects} onStarted={reload} />
       </div>
       {sel && (
         <div className="infra-detail">

@@ -1,0 +1,26 @@
+/* Source control: repository list, overview table and repository dialogs. */
+.git-repos { border-bottom: 1px solid var(--border); }
+.git-repos .list-group-header .icon-btn { opacity: 0.7; }
+.git-repos .list-group-header .icon-btn:hover { opacity: 1; }
+.git-group { padding: var(--space-3) var(--space-4) var(--space-1); font-size: var(--fs-xs); font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.04em; }
+.git-repo-row { flex-direction: column; align-items: stretch; gap: 2px; }
+.git-repo-row .git-repo-line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.git-repo-row .git-row-refresh { opacity: 0; }
+.git-repo-row:hover .git-row-refresh, .git-repo-row.on .git-row-refresh { opacity: 1; }
+.git-repo-row .badge { height: 16px; padding: 0 var(--space-2); }
+.git-repo-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); background: var(--bg-subtle); min-width: 0; }
+
+.git-overview { overflow: auto; }
+.git-overview .table td { white-space: nowrap; }
+.git-overview .table td.git-commit-cell { white-space: normal; min-width: 180px; max-width: 360px; }
+.git-overview .git-group-row td { background: var(--bg-subtle); font-size: var(--fs-xs); font-weight: 600; color: var(--text-subtle); padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.git-overview .git-actions { display: flex; gap: var(--space-1); justify-content: flex-end; }
+
+.git-table-wrap { overflow: auto; max-height: 52vh; border: 1px solid var(--border); border-radius: var(--radius); }
+.git-table-wrap .table tr:last-child td { border-bottom: 0; }
+.git-loc { max-width: 320px; }
+.git-dim td { opacity: 0.55; }
+.git-ok { color: var(--success); }
+.git-fail { color: var(--danger); }
+.git-output { margin: 0; font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; word-break: break-word; color: var(--text-muted); }
+.git-progress { max-height: 300px; overflow: auto; padding: var(--space-3) var(--space-4); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); }

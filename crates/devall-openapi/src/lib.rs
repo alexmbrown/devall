@@ -42,9 +42,10 @@ pub fn mock_body_reader(project_root: &Path) -> impl Fn(&str) -> Option<String> 
     }
 }
 
-/// Spec files in a project: `*.yaml` / `*.yml` / `*.json` that look like OpenAPI 3 documents,
-/// outside the module folders (`http/`, `mocks/`, `load/`, …), `node_modules/`, build output and
-/// dot-folders. Project-relative, `/`-separated, sorted.
+/// Spec files in a project (or one repository): `*.yaml` / `*.yml` / `*.json` that look like
+/// OpenAPI 3 documents, outside the module folders (`http/`, `mocks/`, `load/`, …),
+/// `node_modules/`, build output, dot-folders and nested git repos (search those separately).
+/// Only each file's first few KB are read. Relative to `project_root`, `/`-separated, sorted.
 pub fn find_specs(project_root: &Path) -> Vec<String> {
     const SKIP: &[&str] = &["http", "mocks", "load", "environments", "node_modules", "target", "dist", "build", "notes", "data", "connections", "webhooks", "queries", "utilities"];
     fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<String>) {
@@ -59,7 +60,7 @@ pub fn find_specs(project_root: &Path) -> Vec<String> {
             }
             let p = e.path();
             if p.is_dir() {
-                if SKIP.contains(&name.as_str()) && (depth == 0 || name == "node_modules") {
+                if (SKIP.contains(&name.as_str()) && (depth == 0 || name == "node_modules")) || devall_core::repos::is_git_repo(&p) {
                     continue;
                 }
                 walk(root, &p, depth + 1, out);
@@ -72,8 +73,13 @@ pub fn find_specs(project_root: &Path) -> Vec<String> {
             if e.metadata().map(|m| m.len() > 20 * 1024 * 1024).unwrap_or(true) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&p) else { continue };
-            if looks_like_openapi(&text) {
+            // `looks_like_openapi` only reads the head; lock files and fixtures can be large.
+            let mut head = Vec::with_capacity(8192);
+            let Ok(file) = std::fs::File::open(&p) else { continue };
+            if std::io::Read::read_to_end(&mut std::io::Read::take(file, 8192), &mut head).is_err() {
+                continue;
+            }
+            if looks_like_openapi(&String::from_utf8_lossy(&head)) {
                 out.push(p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/"));
             }
         }
@@ -101,7 +107,11 @@ mod tests {
         w("docs/other.yaml", "name: x\n");
         w("http/x.req.yaml", "openapi: 3.0.0\n");
         w("mocks/mappings/a.json", r#"{"openapi":"3.1.0"}"#);
+        // A nested repo is searched on its own (its specs are `repo:<name>/…`).
+        w("api/.git/HEAD", "ref: refs/heads/main\n");
+        w("api/openapi.yaml", "openapi: 3.0.0\ninfo: {}\n");
         assert_eq!(find_specs(d.path()), vec!["docs/spec.json".to_string(), "openapi/api.yaml".into()]);
+        assert_eq!(find_specs(&d.path().join("api")), vec!["openapi.yaml".to_string()]);
         w("mocks/__files/user.json", r#"{"id":1}"#);
         assert_eq!(mock_body_reader(d.path())("user.json").as_deref(), Some(r#"{"id":1}"#));
         assert!(mock_body_reader(d.path())("../../openapi/api.yaml").is_none());

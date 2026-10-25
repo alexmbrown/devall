@@ -6,7 +6,7 @@
 //! 2025-11-25 / 2025-06-18 / 2025-03-26 revisions most clients still use.
 //!
 //! **Tools** (deterministic order): `get_context`, `list_environments`, `list_mocks`,
-//! `list_requests`, `list_todos`, `read_note`, `read_request`, `run_utility`, `search_notes`,
+//! `list_repos`, `list_requests`, `list_todos`, `read_note`, `read_request`, `run_utility`, `search_notes`,
 //! `search_project` (semantic search with the project's local embedding index), `send_request`.
 //! **Resources**: every note as `devall://notes/<path>`.
 //!
@@ -190,6 +190,7 @@ impl DevallMcp {
             }))).annotate(ro("Get project context")),
             Tool::new("list_environments", "Environments with their non-secret variables, the names of their secrets (values are never returned) and whether they are protected.", empty()).annotate(ro("List environments")),
             Tool::new("list_mocks", "WireMock-compatible mock stubs in mocks/mappings: method, URL matcher, response status, priority and scenario.", empty()).annotate(ro("List mocks")),
+            Tool::new("list_repos", "The project's git repositories (a multi-repo project shares its requests, environments and notes across several frontend/backend repos): name, group, checked-out branch, local path, remote, state (found / missing / notARepo) and whether it is listed in devall.yaml. Files in a repo are referenced as repo:<name>/<path>.", empty()).annotate(ro("List repositories")),
             Tool::new("list_requests", "Saved requests in the project (path, name, method, protocol, folder). Paths are what read_request and send_request take.", empty()).annotate(ro("List saved requests")),
             Tool::new("list_todos", "The user's personal to-do list for this project (stored outside the repo): tasks with priority (p1 most urgent), due date/time and recurrence, deadline, labels, section, sub-tasks, links, attachment names (files kept on the user's machine) and comments.", schema(json!({
                 "type": "object",
@@ -330,6 +331,7 @@ impl DevallMcp {
             "get_context" => tools::get_context(&self.ctx()?, str_arg("query").as_deref(), num("limit", 8)),
             "list_environments" => tools::list_environments(&self.ctx()?),
             "list_mocks" => tools::list_mocks(&self.ctx()?),
+            "list_repos" => tools::list_repos(&self.ctx()?),
             "list_requests" => tools::list_requests(&self.ctx()?),
             "list_todos" => tools::list_todos(&self.ctx()?, args.get("includeDone").and_then(Value::as_bool).unwrap_or(false), str_arg("filter").as_deref()),
             "read_note" => tools::read_note(&self.ctx()?, &req_str("path")?).map(Value::String),

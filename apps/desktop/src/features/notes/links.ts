@@ -1,4 +1,5 @@
 import type { Section } from '@/store/nav';
+import { parseRepoLink } from '@/lib/api/git';
 
 /** Where a link inside a note points. */
 export type LinkTarget =
@@ -8,6 +9,8 @@ export type LinkTarget =
   | { kind: 'stub'; file: string }
   /** Another page of the app, with its deep-link param. */
   | { kind: 'section'; section: Section; param?: string }
+  /** `repo:<name>/<path>`: a file or folder in one of the project's repositories (revealed in the file manager). */
+  | { kind: 'repo'; repo: string; path: string }
   | { kind: 'unknown'; path: string };
 
 /** Top-level project folders: links starting with one of these are project-root relative. */
@@ -31,9 +34,12 @@ function normalize(parts: string[]): string | null {
  * Resolves a link from a note to a project location. `href` is what the Markdown contains
  * (`http/users/list.req.yaml`, `../http/x.req.yaml`, `other-note.md`, `mocks/mappings/a.json#x`);
  * `fromNote` is the note's path relative to `notes/` so relative links work. Paths that start with
- * a top-level project folder (or `/`) are project-root relative.
+ * a top-level project folder (or `/`) are project-root relative. `repo:<name>/<path>` points into
+ * one of the project's repositories, wherever it is on this machine.
  */
 export function resolveProjectLink(href: string, fromNote?: string): LinkTarget {
+  const repo = parseRepoLink(href.trim().replace(/[?#].*$/, ''));
+  if (repo) return { kind: 'repo', ...repo };
   let raw = href.trim().replace(/\\/g, '/').replace(/[?#].*$/, '');
   try {
     raw = decodeURIComponent(raw);

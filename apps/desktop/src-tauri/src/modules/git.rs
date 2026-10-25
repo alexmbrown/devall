@@ -1,52 +1,118 @@
-//! Minimal source control for the project folder, using the user's own `git` (their hooks,
-//! credentials and config apply — including `devall scan --staged` as a pre-commit hook).
+//! Source control for the project's repositories — one (the project's own repo) or many (a
+//! multi-repo project: `repos:` in `devall.yaml`, see `devall_core::repos`). Uses the user's own
+//! `git` (their hooks, credentials and config apply — including `devall scan --staged` as a
+//! pre-commit hook, installed per repo).
 //!
-//! Registration: `pub mod git;` + the `git_*` commands. No managed state.
+//! Every command names the repository it acts on (`repo`, a name from `git_repos`; `None` = the
+//! project's default repo). The folder git runs in is always resolved here from the project's
+//! repo list — the renderer never passes a path to run git in. Clone, pull and branch switches
+//! only run on explicit user actions (the UI confirms).
+//!
+//! Registration: `pub mod git;`, `.manage(git::GitWatchState::default())`, the `git_*` and
+//! `repos_*` commands. Emits `git-changed` (`{ root, repos }`) when a watched repo's `HEAD`,
+//! `index` or fetch/merge state changes.
 
-use std::path::Path;
-use std::process::Command;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
 
+use devall_core::Project;
+use devall_core::repos::git::{self, Branches, Commit, GitFile, Summary};
+use devall_core::repos::{self, Repo, RepoState, RepoSuggestion};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
+use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, State};
 
 type R<T> = Result<T, String>;
 
-fn git(root: &str, args: &[&str]) -> R<String> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(root).args(args).env("GIT_TERMINAL_PROMPT", "0");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flash
+fn err(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
+}
+
+fn open(root: &str) -> R<Project> {
+    Project::open(root).map_err(err)
+}
+
+/// The work tree a command acts on, from the project's own repo list. `None` = the default repo
+/// (the one containing the project folder, else the first present one).
+fn repo_of(root: &str, repo: Option<&str>) -> R<Repo> {
+    let p = open(root)?;
+    let r = match repo.filter(|r| !r.is_empty()) {
+        Some(name) => p.repo(name).ok_or_else(|| format!("{name} isn't a repository of this project"))?,
+        None => repos::default_repo(&p.repos()).cloned().ok_or("this project isn't in a git repository")?,
+    };
+    match r.state {
+        RepoState::Found => Ok(r),
+        RepoState::Missing => Err(format!("{} is missing on this machine ({})", r.name, r.path.display())),
+        RepoState::NotARepo => Err(format!("{} isn't a git repository ({})", r.name, r.path.display())),
     }
-    let out = cmd.output().map_err(|e| format!("git is not installed or not on PATH ({e})"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let msg = if err.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { err };
-        return Err(msg);
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// `repo_of` + run `f` with the work tree on a worker thread.
+async fn in_repo<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path) -> R<T> + Send + 'static) -> R<T> {
+    blocking(move || {
+        let r = repo_of(&root, repo.as_deref())?;
+        f(&r.path)
+    })
+    .await
+}
+
+fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
+    let mut args = head.to_vec();
+    args.push("--");
+    args.extend(paths.iter().map(String::as_str));
+    args
+}
+
+// ---------- repositories ----------
+
+/// The project's repositories on this machine (listed, containing, discovered), without git.
+#[tauri::command]
+pub async fn git_repos(root: String) -> R<Vec<Repo>> {
+    blocking(move || Ok(open(&root)?.repos())).await
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GitFile {
-    /// Relative to the repository root, `/`-separated.
-    path: String,
-    /// Index (staged) status letter: M, A, D, R, C, U or `.` for none.
-    staged: String,
-    /// Working-tree status letter, or `?` for untracked.
-    unstaged: String,
-    /// Original path for renames.
-    from: Option<String>,
+pub struct RepoOverview {
+    repo: Repo,
+    /// `None` for repos that aren't on this machine.
+    summary: Option<Summary>,
+}
+
+/// Every repository (or only `repos`) with its branch, upstream state, change count and last
+/// commit — statuses run concurrently (bounded), so ten repos stay quick.
+#[tauri::command]
+pub async fn git_overview(root: String, repos: Option<Vec<String>>) -> R<Vec<RepoOverview>> {
+    blocking(move || {
+        let mut list = open(&root)?.repos();
+        if let Some(only) = repos {
+            list.retain(|r| only.contains(&r.name));
+        }
+        Ok(git::parallel(list, git::PARALLEL, |repo| {
+            let summary = repo.is_found().then(|| git::summary(&repo.path));
+            RepoOverview { repo, summary }
+        }))
+    })
+    .await
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatus {
     is_repo: bool,
+    /// Name of the repository (see `git_repos`).
+    repo: Option<String>,
     repo_root: Option<String>,
-    /// Project folder relative to the repo root ('' when they're the same).
-    project_prefix: String,
+    /// Project folder relative to the repo root ('' when they're the same; `None` when the
+    /// project isn't inside this repo).
+    project_prefix: Option<String>,
     branch: Option<String>,
     upstream: Option<String>,
     ahead: u32,
@@ -56,14 +122,15 @@ pub struct GitStatus {
 }
 
 #[tauri::command]
-pub fn git_status(root: String) -> R<GitStatus> {
-    let top = match git(&root, &["rev-parse", "--show-toplevel"]) {
-        Ok(t) => t.trim().to_string(),
-        Err(_) => {
+pub async fn git_status(root: String, repo: Option<String>) -> R<GitStatus> {
+    blocking(move || {
+        let p = open(&root)?;
+        if repo.as_deref().is_none_or(str::is_empty) && repos::default_repo(&p.repos()).is_none() {
             return Ok(GitStatus {
                 is_repo: false,
+                repo: None,
                 repo_root: None,
-                project_prefix: String::new(),
+                project_prefix: None,
                 branch: None,
                 upstream: None,
                 ahead: 0,
@@ -72,66 +139,22 @@ pub fn git_status(root: String) -> R<GitStatus> {
                 has_scan_hook: false,
             });
         }
-    };
-    let prefix = git(&root, &["rev-parse", "--show-prefix"]).unwrap_or_default().trim().trim_end_matches('/').to_string();
-    let out = git(&root, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
-    let (mut branch, mut upstream, mut ahead, mut behind) = (None, None, 0, 0);
-    let mut files = Vec::new();
-    let mut entries = out.split('\0').peekable();
-    while let Some(e) = entries.next() {
-        if e.is_empty() {
-            continue;
-        }
-        if let Some(h) = e.strip_prefix("# ") {
-            if let Some(b) = h.strip_prefix("branch.head ") {
-                branch = (b != "(detached)").then(|| b.to_string());
-            } else if let Some(u) = h.strip_prefix("branch.upstream ") {
-                upstream = Some(u.to_string());
-            } else if let Some(ab) = h.strip_prefix("branch.ab ") {
-                for part in ab.split_whitespace() {
-                    if let Some(a) = part.strip_prefix('+') {
-                        ahead = a.parse().unwrap_or(0);
-                    } else if let Some(b) = part.strip_prefix('-') {
-                        behind = b.parse().unwrap_or(0);
-                    }
-                }
-            }
-            continue;
-        }
-        let kind = &e[..1];
-        match kind {
-            "1" => {
-                // 1 XY sub mH mI mW hH hI path
-                let parts: Vec<&str> = e.splitn(9, ' ').collect();
-                if parts.len() == 9 {
-                    let xy = parts[1];
-                    files.push(GitFile { path: parts[8].to_string(), staged: xy[..1].to_string(), unstaged: xy[1..2].to_string(), from: None });
-                }
-            }
-            "2" => {
-                // 2 XY sub mH mI mW hH hI Xscore path\0origPath
-                let parts: Vec<&str> = e.splitn(10, ' ').collect();
-                if parts.len() == 10 {
-                    let xy = parts[1];
-                    let from = entries.next().map(str::to_string);
-                    files.push(GitFile { path: parts[9].to_string(), staged: xy[..1].to_string(), unstaged: xy[1..2].to_string(), from });
-                }
-            }
-            "u" => {
-                let parts: Vec<&str> = e.splitn(11, ' ').collect();
-                if let Some(p) = parts.last() {
-                    files.push(GitFile { path: p.to_string(), staged: "U".into(), unstaged: "U".into(), from: None });
-                }
-            }
-            "?" => files.push(GitFile { path: e[2..].to_string(), staged: ".".into(), unstaged: "?".into(), from: None }),
-            _ => {}
-        }
-    }
-    let hooks = git(&root, &["rev-parse", "--git-path", "hooks"]).unwrap_or_default();
-    let hook_path = Path::new(&root).join(hooks.trim()).join("pre-commit");
-    let hook_path = if Path::new(hooks.trim()).is_absolute() { Path::new(hooks.trim()).join("pre-commit") } else { hook_path };
-    let has_scan_hook = std::fs::read_to_string(&hook_path).is_ok_and(|h| h.contains("devall scan"));
-    Ok(GitStatus { is_repo: true, repo_root: Some(top), project_prefix: prefix, branch, upstream, ahead, behind, files, has_scan_hook })
+        let r = repo_of(&root, repo.as_deref())?;
+        let s = git::status(&r.path, true)?;
+        Ok(GitStatus {
+            is_repo: true,
+            has_scan_hook: git::has_scan_hook(&r.path),
+            repo: Some(r.name),
+            repo_root: Some(r.path.display().to_string()),
+            project_prefix: r.project_prefix,
+            branch: s.branch,
+            upstream: s.upstream,
+            ahead: s.ahead,
+            behind: s.behind,
+            files: s.files,
+        })
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -144,136 +167,379 @@ pub struct GitDiff {
 
 /// Contents for a side-by-side diff of one file: staged = HEAD ↔ index, else index ↔ working tree.
 #[tauri::command]
-pub fn git_diff(root: String, path: String, staged: bool) -> R<GitDiff> {
-    let top = git(&root, &["rev-parse", "--show-toplevel"])?.trim().to_string();
-    let show = |spec: &str| git(&top, &["show", spec]).unwrap_or_default();
-    let (original, modified) = if staged {
-        (show(&format!("HEAD:{path}")), show(&format!(":{path}")))
-    } else {
-        let index = git(&top, &["show", &format!(":{path}")]).or_else(|_| git(&top, &["show", &format!("HEAD:{path}")])).unwrap_or_default();
-        let bytes = std::fs::read(Path::new(&top).join(&path)).unwrap_or_default();
-        (index, String::from_utf8_lossy(&bytes).into_owned())
-    };
-    let binary = original.contains('\0') || modified.contains('\0');
-    Ok(GitDiff { original, modified, binary })
+pub async fn git_diff(root: String, repo: Option<String>, path: String, staged: bool) -> R<GitDiff> {
+    in_repo(root, repo, move |top| {
+        let show = |spec: &str| git::run(top, &["show", spec]).unwrap_or_default();
+        let (original, modified) = if staged {
+            (show(&format!("HEAD:{path}")), show(&format!(":{path}")))
+        } else {
+            let index = git::run(top, &["show", &format!(":{path}")]).or_else(|_| git::run(top, &["show", &format!("HEAD:{path}")])).unwrap_or_default();
+            let file = devall_core::fsutil::safe_join(top, &path).map_err(err)?;
+            let bytes = std::fs::read(file).unwrap_or_default();
+            (index, String::from_utf8_lossy(&bytes).into_owned())
+        };
+        let binary = original.contains('\0') || modified.contains('\0');
+        Ok(GitDiff { original, modified, binary })
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stage(root: String, paths: Vec<String>) -> R<()> {
-    let top = git(&root, &["rev-parse", "--show-toplevel"])?.trim().to_string();
-    let mut args = vec!["add", "--"];
-    args.extend(paths.iter().map(String::as_str));
-    git(&top, &args).map(|_| ())
+pub async fn git_stage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
+    in_repo(root, repo, move |top| git::run(top, &with_paths(&["add"], &paths)).map(|_| ())).await
 }
 
 #[tauri::command]
-pub fn git_unstage(root: String, paths: Vec<String>) -> R<()> {
-    let top = git(&root, &["rev-parse", "--show-toplevel"])?.trim().to_string();
-    let mut args = vec!["restore", "--staged", "--"];
-    args.extend(paths.iter().map(String::as_str));
-    git(&top, &args).map(|_| ())
+pub async fn git_unstage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
+    in_repo(root, repo, move |top| git::run(top, &with_paths(&["restore", "--staged"], &paths)).map(|_| ())).await
 }
 
 /// Throws away working-tree changes (tracked files) — the UI confirms first.
 #[tauri::command]
-pub fn git_discard(root: String, paths: Vec<String>) -> R<()> {
-    let top = git(&root, &["rev-parse", "--show-toplevel"])?.trim().to_string();
-    let mut args = vec!["restore", "--"];
-    args.extend(paths.iter().map(String::as_str));
-    git(&top, &args).map(|_| ())
+pub async fn git_discard(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
+    in_repo(root, repo, move |top| git::run(top, &with_paths(&["restore"], &paths)).map(|_| ())).await
 }
 
 #[tauri::command]
-pub fn git_commit(root: String, message: String, amend: bool) -> R<String> {
+pub async fn git_commit(root: String, repo: Option<String>, message: String, amend: bool) -> R<String> {
     if message.trim().is_empty() && !amend {
         return Err("commit message is empty".into());
     }
-    let mut args = vec!["commit", "-m", message.as_str()];
-    if amend {
-        args.push("--amend");
+    in_repo(root, repo, move |top| {
+        let mut args = vec!["commit", "-m", message.as_str()];
+        if amend {
+            args.push("--amend");
+        }
+        git::run(top, &args)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn git_log(root: String, repo: Option<String>, path: Option<String>, limit: Option<usize>) -> R<Vec<Commit>> {
+    in_repo(root, repo, move |top| Ok(git::log(top, path.as_deref(), limit.unwrap_or(50)))).await
+}
+
+fn sync_args(action: &str) -> R<&'static [&'static str]> {
+    Ok(match action {
+        "fetch" => &["fetch", "--prune"],
+        "pull" => &["pull", "--ff-only"],
+        "push" => &["push"],
+        _ => return Err(format!("unknown action {action}")),
+    })
+}
+
+#[tauri::command]
+pub async fn git_sync(root: String, repo: Option<String>, action: String) -> R<String> {
+    let args = sync_args(&action)?;
+    in_repo(root, repo, move |top| git::run(top, args)).await
+}
+
+#[tauri::command]
+pub async fn git_branches(root: String, repo: Option<String>) -> R<Vec<String>> {
+    in_repo(root, repo, |top| git::branches(top).map(|b| b.local)).await
+}
+
+#[tauri::command]
+pub async fn git_checkout(root: String, repo: Option<String>, branch: String, create: bool) -> R<()> {
+    if !git::valid_branch(&branch) {
+        return Err(format!("“{branch}” isn't a valid branch name"));
     }
-    git(&root, &args)
+    in_repo(root, repo, move |top| git::run(top, &if create { vec!["switch", "-c", &branch] } else { vec!["switch", &branch] }).map(|_| ())).await
+}
+
+/// `git init` in the project folder (no repo yet) or in a listed folder that isn't a repo.
+#[tauri::command]
+pub async fn git_init(root: String, repo: Option<String>) -> R<()> {
+    blocking(move || {
+        let p = open(&root)?;
+        let dir = match repo.filter(|r| !r.is_empty()) {
+            Some(name) => {
+                let r = p.repo(&name).ok_or_else(|| format!("{name} isn't a repository of this project"))?;
+                if r.state != RepoState::NotARepo {
+                    return Err(format!("{name} is already a repository or is missing"));
+                }
+                r.path
+            }
+            None => p.root().to_path_buf(),
+        };
+        git::run(&dir, &["init"]).map(|_| ())
+    })
+    .await
+}
+
+/// Installs the `devall scan --staged` pre-commit hook in one repo (refuses to overwrite a
+/// foreign hook).
+#[tauri::command]
+pub async fn git_install_scan_hook(root: String, repo: Option<String>) -> R<String> {
+    in_repo(root, repo, |top| git::install_scan_hook(top).map(|h| h.display().to_string())).await
+}
+
+// ---------- across repositories ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkResult {
+    repo: String,
+    ok: bool,
+    /// git's output (last lines) or error.
+    message: String,
+}
+
+/// Runs `f` in each named repo (concurrently, bounded); per-repo failures are results, not errors.
+async fn each_repo(root: String, names: Vec<String>, f: impl Fn(&Path) -> R<String> + Send + Sync + 'static) -> R<Vec<BulkResult>> {
+    blocking(move || {
+        let p = open(&root)?;
+        let all = p.repos();
+        let jobs: Vec<(String, Option<Repo>)> = names.into_iter().map(|n| (n.clone(), repos::find(&all, &n).cloned())).collect();
+        Ok(git::parallel(jobs, git::PARALLEL, |(name, repo)| {
+            let res = match repo {
+                None => Err(format!("{name} isn't a repository of this project")),
+                Some(r) if r.state != RepoState::Found => Err(format!("missing on this machine ({})", r.path.display())),
+                Some(r) => f(&r.path),
+            };
+            match res {
+                Ok(message) => BulkResult { repo: name, ok: true, message },
+                Err(message) => BulkResult { repo: name, ok: false, message },
+            }
+        }))
+    })
+    .await
+}
+
+fn tail(s: &str) -> String {
+    let lines: Vec<&str> = s.trim().lines().collect();
+    lines[lines.len().saturating_sub(3)..].join("\n")
+}
+
+/// Fetch all / Pull all (`fetch --prune`, `pull --ff-only`) over the named repos.
+#[tauri::command]
+pub async fn git_bulk(root: String, repos: Vec<String>, action: String) -> R<Vec<BulkResult>> {
+    let args = match action.as_str() {
+        "fetch" | "pull" => sync_args(&action)?,
+        other => return Err(format!("{other} isn't a bulk action")),
+    };
+    each_repo(root, repos, move |dir| git::run(dir, args).map(|o| tail(&o))).await
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GitCommit {
-    hash: String,
-    short: String,
-    author: String,
-    date: String,
-    subject: String,
+pub struct RepoBranches {
+    repo: String,
+    branches: Option<Branches>,
+    error: Option<String>,
 }
 
+/// Local and remote branches of each named repo (for "Switch branch…" across repos).
 #[tauri::command]
-pub fn git_log(root: String, path: Option<String>, limit: Option<usize>) -> R<Vec<GitCommit>> {
-    let n = format!("-{}", limit.unwrap_or(50).min(500));
-    let mut args = vec!["log", n.as_str(), "--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e"];
-    if let Some(p) = path.as_deref() {
-        args.push("--");
-        args.push(p);
-    }
-    let out = git(&root, &args).unwrap_or_default();
-    Ok(out
-        .split('\x1e')
-        .filter_map(|rec| {
-            let f: Vec<&str> = rec.trim().split('\x1f').collect();
-            (f.len() == 5).then(|| GitCommit { hash: f[0].into(), short: f[1].into(), author: f[2].into(), date: f[3].into(), subject: f[4].into() })
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub async fn git_sync(root: String, action: String) -> R<String> {
-    let args: Vec<&str> = match action.as_str() {
-        "fetch" => vec!["fetch", "--prune"],
-        "pull" => vec!["pull", "--ff-only"],
-        "push" => vec!["push"],
-        _ => return Err(format!("unknown action {action}")),
-    };
-    let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    tokio::task::spawn_blocking(move || {
-        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
-        git(&root, &refs)
+pub async fn git_branches_all(root: String, repos: Vec<String>) -> R<Vec<RepoBranches>> {
+    blocking(move || {
+        let p = open(&root)?;
+        let all = p.repos();
+        let found: Vec<(String, Option<Repo>)> = repos.into_iter().map(|n| (n.clone(), repos::find(&all, &n).cloned().filter(Repo::is_found))).collect();
+        Ok(git::parallel(found, git::PARALLEL, |(repo, r)| match r.map(|r| git::branches(&r.path)) {
+            Some(Ok(b)) => RepoBranches { repo, branches: Some(b), error: None },
+            Some(Err(e)) => RepoBranches { repo, branches: None, error: Some(e) },
+            None => RepoBranches { repo, branches: None, error: Some("not on this machine".into()) },
+        }))
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
+/// Switches each named repo to `branch` — an existing local branch, else the remote one
+/// (tracked), else (`create`) a new branch from its current HEAD. Git refuses where uncommitted
+/// changes would be overwritten; nothing is stashed or discarded.
 #[tauri::command]
-pub fn git_branches(root: String) -> R<Vec<String>> {
-    Ok(git(&root, &["branch", "--format=%(refname:short)"])?.lines().map(str::to_string).filter(|l| !l.is_empty()).collect())
-}
-
-#[tauri::command]
-pub fn git_checkout(root: String, branch: String, create: bool) -> R<()> {
-    if create {
-        git(&root, &["switch", "-c", &branch]).map(|_| ())
-    } else {
-        git(&root, &["switch", &branch]).map(|_| ())
+pub async fn git_switch_all(root: String, repos: Vec<String>, branch: String, create: bool) -> R<Vec<BulkResult>> {
+    if !git::valid_branch(&branch) {
+        return Err(format!("“{branch}” isn't a valid branch name"));
     }
+    each_repo(root, repos, move |dir| {
+        git::switch(dir, &branch, create).map(|s| {
+            match s {
+                git::Switched::Already => "already on it",
+                git::Switched::Local => "switched",
+                git::Switched::Tracking => "switched (tracking the remote branch)",
+                git::Switched::Created => "created",
+            }
+            .to_string()
+        })
+    })
+    .await
+}
+
+// ---------- watching HEAD / index ----------
+
+/// Files in a git dir whose change means the status shown may be stale.
+const WATCHED: &[&str] = &["HEAD", "index", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "packed-refs"];
+
+/// The running watch: which project, which git dirs (→ repo names), and the watcher itself.
+struct Watching {
+    root: String,
+    targets: Vec<(PathBuf, String)>,
+    _watcher: RecommendedWatcher,
+}
+
+#[derive(Default)]
+pub struct GitWatchState {
+    current: Mutex<Option<Watching>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitChanged {
+    root: String,
+    repos: Vec<String>,
+}
+
+/// Watches each present repo's git dir (not the working tree, not recursively) so commits,
+/// checkouts, fetches and staging done elsewhere refresh the status. Replaces the previous watch.
+#[tauri::command]
+pub async fn git_watch(app: AppHandle, state: State<'_, GitWatchState>, root: String) -> R<()> {
+    let targets: Vec<(PathBuf, String)> = {
+        let root = root.clone();
+        blocking(move || Ok(open(&root)?.repos().into_iter().filter(Repo::is_found).filter_map(|r| git::git_dir(&r.path).map(|d| (d, r.name))).collect())).await?
+    };
+    let mut cur = state.current.lock().unwrap();
+    if cur.as_ref().is_some_and(|w| w.root == root && w.targets == targets) {
+        return Ok(());
+    }
+    *cur = None;
+    let (tx, rx) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
+    let mut watcher = notify::recommended_watcher(tx).map_err(err)?;
+    for (dir, _) in &targets {
+        let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+    }
+    let map = targets.clone();
+    let event_root = root.clone();
+    std::thread::spawn(move || {
+        while let Ok(first) = rx.recv() {
+            let mut batch = vec![first];
+            let deadline = std::time::Instant::now() + Duration::from_millis(400);
+            while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+                match rx.recv_timeout(left) {
+                    Ok(ev) => batch.push(ev),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+            let mut names: Vec<String> = batch
+                .into_iter()
+                .flatten()
+                .filter(|e| !matches!(e.kind, notify::EventKind::Access(_)))
+                .flat_map(|e| e.paths)
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| WATCHED.contains(&n)))
+                .filter_map(|p| map.iter().find(|(d, _)| p.parent() == Some(d.as_path())).map(|(_, n)| n.clone()))
+                .collect();
+            names.sort();
+            names.dedup();
+            if !names.is_empty() {
+                let _ = app.emit("git-changed", GitChanged { root: event_root.clone(), repos: names });
+            }
+        }
+    });
+    *cur = Some(Watching { root, targets, _watcher: watcher });
+    Ok(())
 }
 
 #[tauri::command]
-pub fn git_init(root: String) -> R<()> {
-    git(&root, &["init"]).map(|_| ())
+pub fn git_unwatch(state: State<'_, GitWatchState>) {
+    *state.current.lock().unwrap() = None;
 }
 
-/// Installs the `devall scan --staged` pre-commit hook (refuses to overwrite a foreign hook).
+// ---------- managing the list (devall.yaml + this machine's locations) ----------
+
+/// What adding `folder` (from a folder picker) would store: name, relative path, far away?
 #[tauri::command]
-pub fn git_install_scan_hook(root: String) -> R<String> {
-    let hooks = git(&root, &["rev-parse", "--git-path", "hooks"])?.trim().to_string();
-    let dir = if Path::new(&hooks).is_absolute() { Path::new(&hooks).to_path_buf() } else { Path::new(&root).join(&hooks) };
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let hook = dir.join("pre-commit");
-    if hook.exists() && !std::fs::read_to_string(&hook).unwrap_or_default().contains("devall scan") {
-        return Err(format!("{} already exists — add `devall scan --staged` to it yourself", hook.display()));
-    }
-    std::fs::write(&hook, devall_core::scan::PRE_COMMIT_HOOK).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755));
-    }
-    Ok(hook.display().to_string())
+pub async fn repos_suggest(root: String, folder: String) -> R<RepoSuggestion> {
+    blocking(move || Ok(repos::suggest(&open(&root)?, Path::new(&folder)))).await
+}
+
+/// Adds a folder to `devall.yaml` (relative path), or — `localOnly` / another drive — keeps its
+/// location on this machine and shares only a sibling-path guess.
+#[tauri::command]
+pub async fn repos_add(root: String, folder: String, name: Option<String>, group: Option<String>, local_only: bool) -> R<devall_core::RepoRef> {
+    blocking(move || repos::add(&mut open(&root)?, Path::new(&folder), name.as_deref(), group.as_deref(), local_only).map_err(err)).await
+}
+
+/// Renames a listed repo and/or sets its group (`""` clears it).
+#[tauri::command]
+pub async fn repos_update(root: String, name: String, new_name: Option<String>, group: Option<String>) -> R<()> {
+    blocking(move || repos::update(&mut open(&root)?, &name, new_name.as_deref(), group.as_deref()).map_err(err)).await
+}
+
+/// Removes a repo from the project (its files stay where they are).
+#[tauri::command]
+pub async fn repos_remove(root: String, name: String) -> R<()> {
+    blocking(move || repos::remove(&mut open(&root)?, &name).map_err(err)).await
+}
+
+/// "Locate…": where a listed repo is on this machine (written to the local `repos.json`).
+#[tauri::command]
+pub async fn repos_locate(root: String, name: String, folder: String) -> R<()> {
+    blocking(move || repos::locate(&open(&root)?, &name, Path::new(&folder)).map_err(err)).await
+}
+
+/// "Save to devall.yaml" for discovered repos; `groups` maps names to groups.
+#[tauri::command]
+pub async fn repos_save_discovered(root: String, names: Vec<String>, groups: Option<BTreeMap<String, String>>) -> R<Vec<devall_core::RepoRef>> {
+    blocking(move || repos::save_discovered(&mut open(&root)?, &names, &groups.unwrap_or_default()).map_err(err)).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detected {
+    /// The folder already has a `devall.yaml`.
+    is_project: bool,
+    repos: Vec<Repo>,
+}
+
+/// What's in a folder picked to open or create a project: is it one already, and which git
+/// repositories are in it (the containing one first, then nested ones) — so a parent folder of
+/// several repos can become a multi-repo project.
+#[tauri::command]
+pub async fn repos_detect(folder: String) -> R<Detected> {
+    blocking(move || {
+        let dir = Path::new(&folder);
+        Ok(Detected { is_project: dir.join(devall_core::project::MANIFEST).is_file(), repos: repos::detect(dir) })
+    })
+    .await
+}
+
+/// Clones a missing listed repo from its `remote` into its path on this machine. Explicit user
+/// action (the UI confirms); progress lines stream to `on_progress`.
+#[tauri::command]
+pub async fn repos_clone(root: String, name: String, on_progress: Channel<String>) -> R<Repo> {
+    blocking(move || {
+        let p = open(&root)?;
+        let r = p.repo(&name).ok_or_else(|| format!("{name} isn't a repository of this project"))?;
+        if r.state != RepoState::Missing {
+            return Err(format!("{name} is already on this machine ({})", r.path.display()));
+        }
+        let remote = r.remote.clone().ok_or_else(|| format!("{name} has no remote in devall.yaml"))?;
+        git::clone(&remote, &r.path, |line| {
+            let _ = on_progress.send(line.to_string());
+        })?;
+        p.repo(&name).ok_or_else(|| "cloned, but the repository can't be found".into())
+    })
+    .await
+}
+
+/// Absolute path of a `repo:<name>/<path>` link (to reveal it in Explorer/Finder).
+#[tauri::command]
+pub async fn repos_resolve(root: String, link: String) -> R<String> {
+    blocking(move || repos::resolve_link_at(Path::new(&root), &link).map(|p| p.display().to_string()).map_err(err)).await
+}
+
+/// Docker Compose files in the project's repositories (the Docker page offers `compose up`).
+#[tauri::command]
+pub async fn repos_compose_files(root: String) -> R<Vec<repos::ComposeFile>> {
+    blocking(move || Ok(repos::compose_files(&open(&root)?.repos()))).await
+}
+
+/// How a picked file should be referenced in project files: `repo:<name>/…`, project-relative or
+/// absolute.
+#[tauri::command]
+pub async fn repos_portable(root: String, path: String) -> R<String> {
+    blocking(move || Ok(repos::portable_path(&open(&root)?, Path::new(&path)))).await
 }

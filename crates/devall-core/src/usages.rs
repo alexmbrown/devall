@@ -132,7 +132,8 @@ fn collect(dir: &Path, rel: &str, out: &mut Vec<String>) {
         }
         let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
         let Ok(ft) = e.file_type() else { continue };
-        if ft.is_dir() {
+        // Nested git repos are code, not project files (multi-repo projects).
+        if ft.is_dir() && !crate::repos::is_git_repo(&e.path()) {
             collect(&e.path(), &child, out);
         } else if ft.is_file() && scannable(&child) {
             out.push(child);
@@ -162,6 +163,8 @@ mod tests {
         w(".devall/history.json", "{{baseUrl}}");
         w("http/__snapshots__/x.snap.json", "{{baseUrl}}");
         w("devall.yaml", "variables:\n  api: '{{baseUrl}}/v1'\n");
+        w("web/.git/HEAD", "ref: refs/heads/main\n");
+        w("web/src/config.json", "{{baseUrl}}");
         let names = vec!["baseUrl".to_string(), "secret.API_TOKEN".to_string(), "tenant".to_string(), "userId".to_string()];
         let u = find_usages(root, &names);
         let base: Vec<(&str, &str)> = u.iter().filter(|x| x.name == "baseUrl").map(|x| (x.path.as_str(), x.kind)).collect();

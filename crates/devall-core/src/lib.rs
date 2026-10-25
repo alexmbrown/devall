@@ -16,6 +16,7 @@ pub mod notes;
 pub mod project;
 pub mod providers;
 pub mod regexes;
+pub mod repos;
 pub mod scan;
 pub mod schema;
 pub mod secrets;

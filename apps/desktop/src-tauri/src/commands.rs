@@ -108,9 +108,11 @@ pub fn open_scratch(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdRes
 #[tauri::command]
 pub fn save_manifest(root: String, manifest: ProjectManifest) -> CmdResult<()> {
     let mut p = open(&root)?;
-    // The id is the secret-scope key; never let the UI change it.
+    // The id is the secret-scope key; never let the UI change it. Repositories are edited only
+    // through the `repos_*` commands, so a stale manifest in the UI can't drop them.
     let id = p.manifest.id.clone();
-    p.manifest = ProjectManifest { id, ..manifest };
+    let repos = std::mem::take(&mut p.manifest.repos);
+    p.manifest = ProjectManifest { id, repos, ..manifest };
     p.save_manifest().map_err(err)
 }
 

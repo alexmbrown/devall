@@ -42,6 +42,7 @@ pub fn run() {
             app.manage(modules::notes::NotesState::new(data_dir.clone()));
             modules::notes::start_reminders(app.handle());
             app.manage(modules::watch::WatchState::default());
+            app.manage(modules::git::GitWatchState::default());
             // Per-project history and caches live under this folder (shared with the CLI).
             devall_core::local::set_app_data_dir(data_dir.clone());
             app.manage(modules::history::HistoryState::default());
@@ -201,6 +202,24 @@ pub fn run() {
             modules::git::git_checkout,
             modules::git::git_init,
             modules::git::git_install_scan_hook,
+            modules::git::git_repos,
+            modules::git::git_overview,
+            modules::git::git_bulk,
+            modules::git::git_branches_all,
+            modules::git::git_switch_all,
+            modules::git::git_watch,
+            modules::git::git_unwatch,
+            modules::git::repos_suggest,
+            modules::git::repos_add,
+            modules::git::repos_update,
+            modules::git::repos_remove,
+            modules::git::repos_locate,
+            modules::git::repos_save_discovered,
+            modules::git::repos_detect,
+            modules::git::repos_clone,
+            modules::git::repos_resolve,
+            modules::git::repos_portable,
+            modules::git::repos_compose_files,
             modules::load::load_list,
             modules::load::load_read,
             modules::load::load_save,

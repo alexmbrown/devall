@@ -8,6 +8,7 @@ import { VarInput } from '@/components/VarInput';
 import { uid } from '@/lib/id';
 import { errorMessage } from '@/lib/ipc';
 import { protoApi, type GrpcDescription, type GrpcFile, type GrpcStatus, type MethodInfo } from '@/lib/api/proto';
+import { reposApi } from '@/lib/api/git';
 import { usePrefs } from '@/store/prefs';
 import { useVariables } from '@/store/variables';
 import { KeyValueEditor } from '@/features/http/KeyValueEditor';
@@ -121,14 +122,19 @@ export function GrpcEditor({ root, path }: { root: string; path: string }) {
   const serviceOptions = [...new Set([...services.map((s) => s.name), ...(draft.service ? [draft.service] : [])])];
   const methodOptions = [...new Set([...(services.find((s) => s.name === draft.service)?.methods.map((m) => m.name) ?? []), ...(draft.method ? [draft.method] : [])])];
 
+  // Protos usually live with a backend's code: files in one of the project's repositories are
+  // stored as `repo:<name>/…` so the request works wherever teammates keep that repo.
+  const portable = (p: string) => reposApi.portable(root, p).catch(() => relToRoot(root, p));
   const addProtoFiles = async () => {
     const picked = await openDialog({ multiple: true, directory: false, defaultPath: root, filters: [{ name: 'Protocol Buffers', extensions: ['proto'] }] });
-    const list = (Array.isArray(picked) ? picked : picked ? [picked] : []).map((p) => relToRoot(root, p));
+    const list = await Promise.all((Array.isArray(picked) ? picked : picked ? [picked] : []).map(portable));
     if (list.length) set((d) => ({ ...d, protoFiles: [...new Set([...(d.protoFiles ?? []), ...list])], useReflection: false }));
   };
   const addImportPath = async () => {
     const picked = await openDialog({ directory: true, multiple: false, defaultPath: root });
-    if (typeof picked === 'string') set((d) => ({ ...d, importPaths: [...new Set([...(d.importPaths ?? []), relToRoot(root, picked)])] }));
+    if (typeof picked !== 'string') return;
+    const p = await portable(picked);
+    set((d) => ({ ...d, importPaths: [...new Set([...(d.importPaths ?? []), p])] }));
   };
 
   return (

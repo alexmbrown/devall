@@ -97,10 +97,17 @@ pub struct GrpcOptions {
 }
 
 impl GrpcOptions {
-    /// Resolves `file`; relative `.proto` paths and import paths are relative to `project_root`.
+    /// Resolves `file`; relative `.proto` paths and import paths are relative to `project_root`,
+    /// `repo:<name>/<path>` ones to one of the project's repositories (protos usually live with the
+    /// backend's code).
     pub fn resolve(file: &GrpcFile, r: &mut Resolver, project_root: &Path) -> Result<Self> {
         let path = |p: &str, r: &mut Resolver| {
             let p = r.resolve(p.trim());
+            if devall_core::repos::parse_link(&p).is_some()
+                && let Ok(abs) = devall_core::repos::resolve_link_at(project_root, &p)
+            {
+                return abs;
+            }
             let pb = PathBuf::from(&p);
             if pb.is_absolute() { pb } else { project_root.join(pb) }
         };

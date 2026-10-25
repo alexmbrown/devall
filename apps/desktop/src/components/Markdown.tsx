@@ -15,7 +15,11 @@ export interface CodeBlockInfo {
 
 type Part = { kind: 'html'; html: string } | { kind: 'code'; block: CodeBlockInfo; html: string };
 
-const render = (tokens: Token[], links: TokensList['links']) => DOMPurify.sanitize(marked.parser(Object.assign(tokens, { links })) as string);
+/** DOMPurify's default URI rule plus `repo:` (`repo:<name>/<path>` links into the project's repositories). */
+const PURIFY = { ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|repo):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i };
+const sanitize = (html: string) => DOMPurify.sanitize(html, PURIFY);
+
+const render = (tokens: Token[], links: TokensList['links']) => sanitize(marked.parser(Object.assign(tokens, { links })) as string);
 
 /** Splits the document at fenced code blocks so they can be rendered by React. */
 function splitAtCodeBlocks(source: string): Part[] {
@@ -39,8 +43,8 @@ function splitAtCodeBlocks(source: string): Part[] {
 }
 
 /**
- * Renders Markdown (GFM) safely. Links to project files (`http/…req.yaml`, `notes/…md`) are
- * handed to `onProjectLink`; external links open in the system browser.
+ * Renders Markdown (GFM) safely. Links to project files (`http/…req.yaml`, `notes/…md`,
+ * `repo:<name>/<path>`) are handed to `onProjectLink`; external links open in the system browser.
  *
  * `renderCodeBlock` (optional) replaces fenced code blocks with React content (e.g. runnable
  * blocks); return `null`/`undefined` to keep the default rendering for a block.
@@ -56,7 +60,7 @@ export function Markdown({
   className?: string;
   renderCodeBlock?(block: CodeBlockInfo): ReactNode | null | undefined;
 }) {
-  const html = useMemo(() => (renderCodeBlock ? '' : DOMPurify.sanitize(marked.parse(source, { async: false }) as string)), [source, renderCodeBlock]);
+  const html = useMemo(() => (renderCodeBlock ? '' : sanitize(marked.parse(source, { async: false }) as string)), [source, renderCodeBlock]);
   const parts = useMemo(() => (renderCodeBlock ? splitAtCodeBlocks(source) : null), [source, renderCodeBlock]);
   const onClick = (e: React.MouseEvent) => {
     const a = (e.target as HTMLElement).closest('a');

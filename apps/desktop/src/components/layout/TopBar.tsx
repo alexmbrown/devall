@@ -1,8 +1,9 @@
 import clsx from 'clsx';
-import { ArrowRightLeft, Check, ChevronDown, Command, Cookie, FolderKanban, FolderOpen, Layers, Monitor, Moon, NotebookPen, PanelLeft, Play, RefreshCw, Settings2, Sun, X } from 'lucide-react';
+import { ArrowRightLeft, Check, ChevronDown, Command, Cookie, FolderKanban, FolderOpen, GitBranch, Layers, Monitor, Moon, NotebookPen, PanelLeft, Play, RefreshCw, Settings2, Sun, X } from 'lucide-react';
 import { WINDOW_CHROME, useWindowState } from '@/lib/windowChrome';
 import { WindowControls } from './WindowControls';
 import { useMoveToProject } from '@/features/projects/MoveToProject';
+import { openReposDialog } from '@/features/git/dialogs';
 import { useRunner } from '@/features/http/RunnerModal';
 import { useSessionModal } from '@/features/http/SessionModal';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
@@ -35,6 +36,7 @@ export function TopBar() {
     { label: 'Run all requests…', icon: <Play />, onSelect: () => useRunner.getState().open('') },
     { label: 'Cookies & captured variables…', icon: <Cookie />, onSelect: () => useSessionModal.getState().setOpen(true) },
     { label: project?.isScratch ? 'Move to project…' : 'Copy to another project…', icon: <ArrowRightLeft />, onSelect: () => useMoveToProject.getState().show() },
+    ...(!project?.isScratch ? [{ label: 'Repositories…', icon: <GitBranch />, onSelect: openReposDialog }] : []),
     { separator: true },
     { label: 'Open or create project…', icon: <FolderOpen />, onSelect: () => go('projects') },
     ...(!project?.isScratch ? [{ label: 'Switch to scratch pad', icon: <NotebookPen />, onSelect: () => openScratch() }] : []),

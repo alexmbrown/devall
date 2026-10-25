@@ -28,8 +28,12 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + '
     tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
 }
 
-/// A project-relative or absolute path.
+/// A project-relative or absolute path, or `repo:<name>/<path>` (a file in one of the project's
+/// repositories, wherever it is on this machine).
 fn resolve(root: &str, path: &str) -> CmdResult<PathBuf> {
+    if devall_core::repos::parse_link(path).is_some() {
+        return devall_core::repos::resolve_link_at(Path::new(root), path).map_err(err);
+    }
     let p = Path::new(path);
     if p.is_absolute() {
         return Ok(p.to_path_buf());
@@ -41,10 +45,27 @@ fn open(root: &str) -> CmdResult<devall_core::Project> {
     devall_core::Project::open(root).map_err(err)
 }
 
-/// OpenAPI files in the project (YAML/JSON that look like OpenAPI 3), project-relative.
+/// OpenAPI files in the project (YAML/JSON that look like OpenAPI 3), project-relative, then
+/// those in its repositories: `repo:<name>/<path>` for listed repos (portable), project-relative
+/// for discovered nested ones.
 #[tauri::command]
 pub async fn openapi_specs(root: String) -> CmdResult<Vec<String>> {
-    blocking(move || Ok(devall_openapi::find_specs(Path::new(&root)))).await
+    blocking(move || {
+        let mut out = devall_openapi::find_specs(Path::new(&root));
+        if let Ok(p) = open(&root) {
+            use devall_core::repos::RepoOrigin;
+            for r in p.repos().into_iter().filter(|r| r.is_found() && r.origin != RepoOrigin::Containing) {
+                for rel in devall_openapi::find_specs(&r.path) {
+                    out.push(match (r.origin, r.rel_path.as_deref()) {
+                        (RepoOrigin::Discovered, Some(dir)) => format!("{dir}/{rel}"),
+                        _ => format!("{}{}/{rel}", devall_core::repos::LINK_PREFIX, r.name),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    })
+    .await
 }
 
 /// Lints a spec file (`path`, project-relative or absolute) or pasted `text`.

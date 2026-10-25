@@ -53,6 +53,32 @@ Project folder layout (each module owns one top-level folder):
 | `utilities/` | utilities | saved regexes with test cases (`regex/*.regex.yaml`) |
 | `.devall/` | legacy | where older versions kept local state; moved to the project data folder on open (still git-ignored for old clones) |
 
+These are the **content folders** (`devall_core::project::CONTENT_DIRS`). Project-wide walks (secret scan,
+"where used", local file history, OpenAPI spec search, AI index) and the file watcher stay inside them (plus
+`devall.yaml`) and never descend into nested git repositories — a multi-repo project's folder may hold several
+repos' code, `node_modules` and build output.
+
+### Multi-repo projects
+
+A project can span several git repositories (frontends and backends sharing requests, environments, mocks and
+notes). `devall.yaml` lists them — `repos: [{ name, path, remote?, group? }]`, `path` always relative to the project
+folder (`web`, `frontend/admin`, `../api`), never absolute. `devall_core::repos` resolves them on this machine
+(`Project::repos()` / `Project::repo(name)`): listed repos (found / missing / not a repo; a machine-specific location
+from `<project data>/repos.json` wins), the repo containing the project folder (the single-repo case: nothing to list,
+behaves as before) and unlisted nested repos (depth ≤ 3, "discovered"). `repos::git` runs the user's git per repo
+(status/summary/branches/switch/clone, bounded parallelism) for the app, `devall repos` and MCP `list_repos`.
+
+- **Link syntax:** `repo:<name>/<path>` — a file or folder in a repo, wherever it is on this machine. Used by note and
+  to-do links (revealed in Explorer/Finder), OpenAPI spec sources and pickers, gRPC `.proto` files/import paths and
+  notebook working directories. Store picked files with `repos_portable` (`repo:…` inside a listed repo, else
+  project-relative, else absolute). Resolve with `repos::resolve_link` (can't climb out of the repo).
+- **Security:** commands that act on a repository take its *name* (`repo`) and resolve the folder in Rust against the
+  project's repo list — the renderer never passes a path to run git in. Clone, bulk pull and branch switches run
+  only on explicit, confirmed user actions.
+- **UI:** Source control (side pane of repos by group, "All repositories" overview, bulk fetch/pull/switch branch,
+  per-repo changes/history), Repositories dialog (project menu, Projects page, Source control, palette), the new/open
+  project flow (offers nested repos), Docker (Compose files in repos), Logs (open files from a repo).
+
 ## Local data & history
 
 Nothing history-like is written to the repository. Everything below lives in the **app data
@@ -75,6 +101,7 @@ Per project: `<app data>/projects/<folder slug>-<12 hex of SHA-256(canonical roo
 | `embeddings/` | `devall-ai::semantic` | semantic search index (a cache) |
 | `captures/*.har` | `devall-proxy::session` | saved inspector captures |
 | `relay-inbox/<date>.jsonl` | desktop `modules::relay` | hosted-inbox fallback sink |
+| `repos.json` | `devall_core::repos` | this machine's repository locations `{ "<name>": "<absolute path>" }` (multi-repo projects; never committed) |
 
 Device-wide: `<app data>/history/utilities.sqlite` (utility runs: input ≤ 64 KB, secret-looking and
 `secret`-kind arguments masked, output preview ≤ 2 KB, no input/output for TOTP/password/bcrypt ops;
@@ -165,7 +192,9 @@ pub async fn mock_start(state: tauri::State<'_, MockState>, root: String) -> Res
 ```
 
 - Prefix command names with the module (`mock_`, `load_`, `data_`, …) to avoid collisions.
-- Every command that touches a project takes `root: String` explicitly.
+- Every command that touches a project takes `root: String` explicitly. Commands that act on one of its git
+  repositories take the repo's name (`repo: Option<String>`) and resolve the folder with `Project::repo` — never a path
+  from the renderer.
 - JS calls use camelCase argument names (`invoke('mock_start', { root, serverId })`); Tauri maps them
   to snake_case Rust parameters.
 - Registration (in `lib.rs`: `mod`, `.manage(State)`, `generate_handler!`) is done by whoever

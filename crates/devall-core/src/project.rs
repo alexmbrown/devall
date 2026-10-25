@@ -36,6 +36,12 @@ pub fn item_kind(file_name: &str) -> Option<(&'static str, &'static str)> {
 }
 pub const ENV_EXT: &str = ".env.yaml";
 
+/// Top-level folders holding /dev/all content (requests, environments, notes, mocks…). Project-wide
+/// walks and the file watcher look only here (plus `devall.yaml`), never into the code of the
+/// repositories a multi-repo project's folder may also contain.
+pub const CONTENT_DIRS: &[&str] =
+    &["http", "environments", "notes", "mocks", "load", "data", "webhooks", "queries", "connections", "utilities", "plugins", "openapi"];
+
 /// Lines every project's `.gitignore` must contain.
 pub const GITIGNORE_ENTRIES: &[&str] = &[".devall/", ".env", ".env.*"];
 
@@ -86,6 +92,7 @@ impl Project {
             name: name.trim().to_string(),
             description: None,
             variables: IndexMap::new(),
+            repos: Vec::new(),
             extra: Extra::new(),
         };
         write_yaml(&root.join(MANIFEST), &manifest)?;
@@ -100,7 +107,7 @@ impl Project {
     /// that writes nothing: for running loose `.http` / `.hurl` files. `id` is derived from the
     /// name so keychain lookups never hit a real project's secrets.
     pub fn detached(root: impl AsRef<Path>, name: &str, variables: IndexMap<String, String>) -> Self {
-        let manifest = ProjectManifest { version: FORMAT_VERSION, id: format!("detached:{name}"), name: name.to_string(), description: None, variables, extra: Extra::new() };
+        let manifest = ProjectManifest { version: FORMAT_VERSION, id: format!("detached:{name}"), name: name.to_string(), description: None, variables, repos: Vec::new(), extra: Extra::new() };
         Self { root: root.as_ref().to_path_buf(), manifest }
     }
 

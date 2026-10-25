@@ -4,6 +4,7 @@
  * `lib.test.ts`. Natural-language parsing and filters live in Rust (`devall_core::todos`).
  */
 import type { Due, Priority, QuickToken, Section, Snapshot, Task, TaskList, TaskView } from '@/lib/api/todos';
+import { parseRepoLink } from '@/lib/api/git';
 
 export type ViewRef =
   | { kind: 'inbox' }
@@ -573,18 +574,23 @@ export function appDocument(rel: string): { section: 'http' | 'notes'; param: st
 export type LinkTarget =
   /** Opens in the default browser / mail app. */
   | { kind: 'url'; url: string }
+  /** `repo:<name>/<path>`: a file in one of the project's repositories (resolved by the app, wherever the repo is on this machine). */
+  | { kind: 'repo'; repo: string; path: string }
   /** A file to reveal; `rel` when it is inside the task's project. */
   | { kind: 'file'; path: string; rel?: string }
   /** Project-relative, but no project folder is known for the task. */
   | { kind: 'unresolved'; rel: string };
 
 /**
- * What a task link points at: a URL, an absolute path, or a path relative to the task's project
- * (`http/users/list.req.yaml`, `notes/x.md`, `/notes/x.md`) resolved against `projectRoot`.
+ * What a task link points at: a URL, an absolute path, a file in one of the project's repositories
+ * (`repo:api/src/routes.ts`), or a path relative to the task's project (`http/users/list.req.yaml`,
+ * `notes/x.md`, `/notes/x.md`) resolved against `projectRoot`.
  */
 export function classifyLink(link: string, projectRoot?: string | null): LinkTarget {
   let p = link.trim();
   if (/^(https?:\/\/|mailto:)/i.test(p)) return { kind: 'url', url: p };
+  const repo = parseRepoLink(p);
+  if (repo) return { kind: 'repo', ...repo };
   if (/^file:\/\//i.test(p)) {
     try {
       p = decodeURI(p.replace(/^file:\/\/(localhost)?/i, ''));

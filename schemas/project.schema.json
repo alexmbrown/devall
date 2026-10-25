@@ -25,6 +25,13 @@
         "type": "string"
       },
       "description": "Project-wide, non-secret variables (lowest precedence)."
+    },
+    "repos": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RepoRef"
+      },
+      "description": "Git repositories that belong to the project (multi-repo projects). Empty for a project that\nis its own repo (or lives inside one) — that repo is found without being listed."
     }
   },
   "required": [
@@ -35,5 +42,39 @@
   "description": "devall.yaml — the project manifest",
   "title": "ProjectManifest",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "RepoRef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique in the project; links refer to files in it as `repo:<name>/<path>`."
+        },
+        "path": {
+          "type": "string",
+          "description": "Folder relative to the project folder, `/`-separated (`web`, `apps/admin`, `../api`)."
+        },
+        "remote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Clone URL, offered when the repository is missing on a machine."
+        },
+        "group": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Free label the app groups repositories by (e.g. `Frontend`, `Backend`)."
+        }
+      },
+      "required": [
+        "name",
+        "path"
+      ],
+      "description": "One repository of a multi-repo project (`repos:` in `devall.yaml`). Shared with the team, so\n`path` is relative to the project folder and may climb out of it (`../api`); a machine whose\nlayout differs points at its own copy in the project data folder's `repos.json` instead."
+    }
+  },
   "$id": "https://devall.dev/schemas/v1/project.schema.json"
 }

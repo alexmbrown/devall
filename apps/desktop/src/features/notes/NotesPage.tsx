@@ -13,6 +13,7 @@ import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { notesApi, type NoteHit, type NoteNode } from '@/lib/api/notes';
 import { notebooksApi } from '@/lib/api/notebooks';
+import { reposApi } from '@/lib/api/git';
 import { NotebookEditor, createNotebook, useRunnableCodeBlocks } from '@/features/notebooks';
 import { AiAssistButton } from '@/features/ai';
 import { openStubFile } from '@/features/mocks';
@@ -34,7 +35,8 @@ function flattenRequests(n: TreeNode | null, out: { path: string; name: string; 
 /**
  * Opens project links from rendered Markdown: requests (`http/…`), notes (also relative to the
  * current note: `other.md`, `../ops/runbook.md`), mock stubs (`mocks/mappings/…`), webhook inboxes,
- * load tests, connections, saved queries, fake-data schemas and environments.
+ * load tests, connections, saved queries, fake-data schemas and environments. `repo:<name>/<path>`
+ * links (files in one of the project's repositories) are revealed in Explorer/Finder.
  */
 export function useProjectLinkOpener() {
   const go = useNav((s) => s.go);
@@ -51,6 +53,15 @@ export function useProjectLinkOpener() {
         case 'section':
           go(t.section, t.param);
           break;
+        case 'repo': {
+          const root = useWorkspace.getState().project?.root;
+          if (root)
+            void reposApi
+              .resolve(root, href)
+              .then((abs) => revealItemInDir(abs))
+              .catch((e) => toast.error(`Could not show ${href}`, errorMessage(e)));
+          break;
+        }
         default:
           toast.info('Not a link to something in this project', href);
       }

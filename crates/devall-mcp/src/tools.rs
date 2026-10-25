@@ -389,6 +389,33 @@ pub fn run_utility(op: &str, input: &str, args: &Value) -> Result<String, String
     devall_utils::run(op, input, args).map_err(err)
 }
 
+/// The project's repositories on this machine (listed in devall.yaml, the one containing the
+/// project, discovered nested ones). The branch comes from `HEAD` (no git process); remotes are
+/// shown without credentials.
+pub fn list_repos(ctx: &Ctx) -> Result<Value, String> {
+    use devall_core::repos::{self, RepoOrigin};
+    let list: Vec<Value> = ctx
+        .project
+        .repos()
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name,
+                "group": r.group,
+                "branch": r.is_found().then(|| repos::head_branch(&r.path)).flatten(),
+                "path": r.path.display().to_string(),
+                "relPath": r.rel_path,
+                "remote": r.remote.as_deref().map(repos::strip_credentials),
+                "state": r.state,
+                "origin": r.origin,
+                "listed": r.origin == RepoOrigin::Manifest,
+                "projectPrefix": r.project_prefix,
+            })
+        })
+        .collect();
+    Ok(ctx.clean_value(json!({ "repos": list, "linkSyntax": "repo:<name>/<path>" })))
+}
+
 /// `mocks/mappings/**/*.json` (WireMock layout) summarised.
 pub fn list_mocks(ctx: &Ctx) -> Result<Value, String> {
     let dir = ctx.project.root().join("mocks").join("mappings");

@@ -20,6 +20,7 @@ import {
   FolderKanban,
   FolderOpen,
   Globe,
+  GitBranch,
   Hash,
   History,
   Inbox,
@@ -40,6 +41,7 @@ import { Modal } from '@/components/ui/Modal';
 import { copyText, formatBytes, isMac, RelTime, Resizer } from '@/components/ui/misc';
 import { toast } from '@/components/ui/toast';
 import { notesApi, type NoteNode } from '@/lib/api/notes';
+import { reposApi } from '@/lib/api/git';
 import { todosApi, type Attachment, type Snapshot, type TaskList, type TaskView } from '@/lib/api/todos';
 import { errorMessage } from '@/lib/ipc';
 import type { TreeNode } from '@/lib/types';
@@ -91,11 +93,11 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
   const target = (l: string) => classifyLink(l, root);
   const inApp = (l: string) => {
     const t = target(l);
-    return t.kind !== 'url' && !!t.rel && inOpenProject && resolveProjectLink(t.rel).kind !== 'unknown';
+    return t.kind !== 'url' && t.kind !== 'repo' && !!t.rel && inOpenProject && resolveProjectLink(t.rel).kind !== 'unknown';
   };
   const openInApp = (l: string) => {
     const t = target(l);
-    if (t.kind === 'url' || !t.rel) return;
+    if (t.kind === 'url' || t.kind === 'repo' || !t.rel) return;
     const doc = appDocument(t.rel);
     if (doc) go(doc.section, doc.param);
     else openProjectLink(t.rel);
@@ -103,7 +105,15 @@ function useLinkActions(task: TaskView, list: TaskList | undefined, snap: Snapsh
   const reveal = (l: string) => {
     const t = target(l);
     if (t.kind === 'file') void revealItemInDir(t.path).catch((e) => toast.error(`Could not show ${t.path}`, errorMessage(e)));
-    else if (t.kind === 'unresolved') toast.info('Open the project to follow this link', `${l} is relative to a project folder, and this task's project isn't known.`);
+    // `repo:<name>/<path>`: the app knows where that repo is on this machine.
+    else if (t.kind === 'repo') {
+      if (!root) toast.info('Open the project to follow this link', `${l} is in one of a project's repositories, and this task's project isn't known.`);
+      else
+        void reposApi
+          .resolve(root, l)
+          .then((abs) => revealItemInDir(abs))
+          .catch((e) => toast.error(`Could not show ${l}`, errorMessage(e)));
+    } else if (t.kind === 'unresolved') toast.info('Open the project to follow this link', `${l} is relative to a project folder, and this task's project isn't known.`);
   };
   const browse = (url: string) => void openUrl(url).catch((e) => toast.error('Could not open the link', errorMessage(e)));
   return {
@@ -240,10 +250,17 @@ function Links({ task, links }: { task: TaskView; links: LinkActions }) {
     <div className="td-links">
       {(task.links ?? []).map((l) => {
         const t = links.target(l);
-        const hint = t.kind === 'url' ? 'Open in browser' : t.kind === 'file' ? `${REVEAL_LABEL}${links.inApp(l) ? ` · ${isMac ? '⌘' : 'Ctrl'}+click: open in /dev/all` : ''}` : 'Relative to a project folder';
+        const hint =
+          t.kind === 'url'
+            ? 'Open in browser'
+            : t.kind === 'file'
+              ? `${REVEAL_LABEL}${links.inApp(l) ? ` · ${isMac ? '⌘' : 'Ctrl'}+click: open in /dev/all` : ''}`
+              : t.kind === 'repo'
+                ? `${REVEAL_LABEL} (in the project's ${t.repo} repository)`
+                : 'Relative to a project folder';
         return (
           <div key={l} className="td-link">
-            {t.kind === 'url' ? <ExternalLink /> : t.kind === 'file' ? <FileText /> : <Hash />}
+            {t.kind === 'url' ? <ExternalLink /> : t.kind === 'file' ? <FileText /> : t.kind === 'repo' ? <GitBranch /> : <Hash />}
             <button className="td-link-label" onClick={(e) => links.activate(l, e)} title={`${t.kind === 'file' ? t.path : l}\n${hint}`}>
               {linkLabel(l)}
             </button>

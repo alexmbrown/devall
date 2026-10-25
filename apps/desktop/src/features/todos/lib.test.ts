@@ -368,6 +368,9 @@ describe('links', () => {
     expect(classifyLink('notes\\x.md', '/work/shop')).toMatchObject({ rel: 'notes/x.md' });
     expect(classifyLink('notes/x.md')).toEqual({ kind: 'unresolved', rel: 'notes/x.md' });
     expect(classifyLink('/notes/x.md')).toEqual({ kind: 'unresolved', rel: 'notes/x.md' });
+    // Files in one of the project's repositories, wherever that repo is on this machine.
+    expect(classifyLink('repo:api/src/routes.ts', '/work/shop')).toEqual({ kind: 'repo', repo: 'api', path: 'src/routes.ts' });
+    expect(classifyLink('repo:web')).toEqual({ kind: 'repo', repo: 'web', path: '' });
   });
 
   it('finds documents /dev/all opens', () => {

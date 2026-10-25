@@ -7,7 +7,7 @@
 //! # http/petstore/_folder.yaml
 //! version: 1
 //! openapi:
-//!   source: specs/petstore.yaml   # project-relative path, absolute path or http(s) URL
+//!   source: specs/petstore.yaml   # project-relative path, repo:<name>/<path>, absolute path or http(s) URL
 //!   autoSync: true                # re-sync when the file changes (the app watches the project)
 //! ```
 
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use devall_core::fsutil::{normalize_rel, rel_join, rel_parent};
-use devall_core::{Project, TreeNode};
+use devall_core::{Project, TreeNode, repos};
 
 use crate::apply::{ApplyOptions, ApplyReport, apply};
 use crate::detect::Format;
@@ -28,7 +28,8 @@ pub const LINK_KEY: &str = "openapi";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenApiLink {
-    /// Project-relative path (`/`-separated), absolute path, or `http(s)://` URL.
+    /// Project-relative path (`/`-separated), `repo:<name>/<path>` (a file in one of the
+    /// project's repositories, wherever it is on this machine), absolute path, or `http(s)://` URL.
     pub source: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_sync: bool,
@@ -40,10 +41,13 @@ impl OpenApiLink {
         s.starts_with("http://") || s.starts_with("https://")
     }
 
-    /// The spec file on disk (`None` for URLs).
+    /// The spec file on disk (`None` for URLs, or a repo that isn't on this machine).
     pub fn path(&self, project_root: &Path) -> Option<PathBuf> {
         if self.is_url() {
             return None;
+        }
+        if repos::parse_link(&self.source).is_some() {
+            return repos::resolve_link_at(project_root, &self.source).ok();
         }
         let p = Path::new(&self.source);
         Some(if p.is_absolute() { p.to_path_buf() } else { project_root.join(normalize_rel(&self.source)) })
@@ -80,8 +84,9 @@ pub struct SyncReport {
     pub stale: Vec<String>,
 }
 
-/// Stores `source` as the folder's spec: absolute paths inside the project become
-/// project-relative so the link works for everyone who clones the repo.
+/// Stores `source` as the folder's spec so the link works for everyone who clones the project:
+/// files in one of the project's listed repositories become `repo:<name>/<path>`, other absolute
+/// paths inside the project become project-relative.
 pub fn link(project: &Project, folder: &str, source: &str, auto_sync: bool) -> Result<OpenApiLink> {
     let folder = normalize_rel(folder);
     let source = source.trim();
@@ -89,14 +94,17 @@ pub fn link(project: &Project, folder: &str, source: &str, auto_sync: bool) -> R
         return Err(Error::Parse("the spec source is empty".into()));
     }
     let mut link = OpenApiLink { source: source.to_string(), auto_sync };
-    if !link.is_url() {
+    if !link.is_url() && repos::parse_link(source).is_none() {
         let p = Path::new(source);
         let abs = if p.is_absolute() { p.to_path_buf() } else { project.root().join(normalize_rel(source)) };
         let root = project.root().canonicalize().unwrap_or_else(|_| project.root().to_path_buf());
         let canon = abs.canonicalize().unwrap_or(abs.clone());
-        link.source = match canon.strip_prefix(&root) {
-            Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
-            Err(_) => canon.to_string_lossy().to_string(),
+        link.source = match repos::link_for(&project.repos(), &abs) {
+            Some(repo_link) => repo_link,
+            None => match canon.strip_prefix(&root) {
+                Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+                Err(_) => canon.to_string_lossy().to_string(),
+            },
         };
     }
     let mut f = project.read_folder(&folder)?;
@@ -139,11 +147,14 @@ pub fn links(project: &Project) -> Result<Vec<LinkedFolder>> {
     Ok(out)
 }
 
-/// Linked folders whose spec is one of `changed` (project-relative paths, e.g. from a file
-/// watcher) and that opted into `autoSync`.
+/// Linked folders whose spec is one of `changed` (project-relative paths or link sources such as
+/// `repo:api/openapi.yaml`, e.g. from the file watcher) and that opted into `autoSync`.
 pub fn affected_by(project: &Project, changed: &[String]) -> Result<Vec<LinkedFolder>> {
     let changed: Vec<String> = changed.iter().map(|c| normalize_rel(c)).collect();
-    Ok(links(project)?.into_iter().filter(|l| l.link.auto_sync && l.project_path.as_ref().is_some_and(|p| changed.contains(p))).collect())
+    Ok(links(project)?
+        .into_iter()
+        .filter(|l| l.link.auto_sync && (l.project_path.as_ref().is_some_and(|p| changed.contains(p)) || changed.contains(&normalize_rel(&l.link.source))))
+        .collect())
 }
 
 /// Re-imports the folder's linked spec from disk (URL sources: fetch the text and call
@@ -282,5 +293,25 @@ paths:
         unlink(&p, &folder).unwrap();
         assert!(links(&p).unwrap().is_empty());
         assert!(resync(&mut p, &folder).is_err());
+    }
+
+    #[test]
+    fn specs_in_repos_are_linked_portably() {
+        let ws = tempfile::tempdir().unwrap();
+        let api = ws.path().join("api");
+        std::fs::create_dir_all(api.join(".git")).unwrap();
+        std::fs::write(api.join("openapi.yaml"), V1).unwrap();
+        let mut p = Project::init(ws.path().join("shop"), "t").unwrap();
+        p.manifest.repos.push(devall_core::RepoRef { name: "api".into(), path: "../api".into(), remote: None, group: None });
+        p.save_manifest().unwrap();
+        let plan = crate::parse_path(&api.join("openapi.yaml"), &Default::default()).unwrap();
+        let folder = apply(plan, &mut p, "", &ApplyOptions::default()).unwrap().folder;
+        let l = link(&p, &folder, &api.join("openapi.yaml").display().to_string(), true).unwrap();
+        assert_eq!(l.source, "repo:api/openapi.yaml");
+        let listed = links(&p).unwrap();
+        assert!(listed[0].exists && listed[0].project_path.is_none());
+        // The watcher reports linked specs outside the project by their source.
+        assert_eq!(affected_by(&p, &["repo:api/openapi.yaml".into()]).unwrap().len(), 1);
+        assert_eq!(resync(&mut p, &folder).unwrap().source, "repo:api/openapi.yaml");
     }
 }

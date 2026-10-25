@@ -175,6 +175,7 @@ async fn legacy_initialize_handshake_and_tools() {
             "get_context",
             "list_environments",
             "list_mocks",
+            "list_repos",
             "list_requests",
             "list_todos",
             "read_note",
@@ -246,6 +247,13 @@ async fn legacy_initialize_handshake_and_tools() {
     assert_eq!(m["mappings"].as_array().unwrap().len(), 2);
     assert_eq!(m["mappings"][0]["url"], "/orders (urlPath)");
     assert_eq!(m["errors"][0]["file"], "mocks/mappings/broken.json");
+
+    // A nested repo shows up as discovered (not yet listed in devall.yaml), with its branch.
+    std::fs::create_dir_all(f.root.join("web/.git")).unwrap();
+    std::fs::write(f.root.join("web/.git/HEAD"), "ref: refs/heads/feature/x").unwrap();
+    let repos = c.call("list_repos", json!({}), None).await;
+    let r = &repos["structuredContent"]["repos"][0];
+    assert_eq!((r["name"].as_str(), r["branch"].as_str(), r["listed"].as_bool(), r["origin"].as_str()), (Some("web"), Some("feature/x"), Some(false), Some("discovered")), "{repos}");
 
     let util = c.call("run_utility", json!({ "op": "base64.decode", "input": "aGVsbG8=" }), None).await;
     assert_eq!(text_of(&util), "hello");

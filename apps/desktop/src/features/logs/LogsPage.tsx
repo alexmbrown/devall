@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Activity, ClipboardPaste, Combine, FileText, FolderOpen, History, Radio, ScrollText, Trash2, X, ZoomOut } from 'lucide-react';
+import { Activity, ClipboardPaste, Combine, FileText, FolderOpen, GitBranch, History, Radio, ScrollText, Trash2, X, ZoomOut } from 'lucide-react';
 import { Callout, Empty, Kbd, Spinner, Switch, formatBytes } from '@/components/ui/misc';
 import { Modal } from '@/components/ui/Modal';
 import { confirmDialog } from '@/components/ui/dialogs';
@@ -10,6 +10,8 @@ import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { LEVELS, eventsApi, logsApi, type Filter, type Histogram, type Level, type LogEntry, type SourceInfo } from '@/lib/api/logs';
 import { useWorkspace } from '@/store/workspace';
+import { useProjectRepos } from '@/store/repos';
+import { isMultiRepo } from '@/features/git/model';
 import { DetailDrawer } from './DetailDrawer';
 import { LogTable, type LogTableHandle } from './LogTable';
 import { PatternsView } from './PatternsView';
@@ -100,8 +102,9 @@ export default function LogsPage() {
     };
   }, []);
 
-  const openFile = async () => {
-    const picked = await openDialog({ multiple: true, title: 'Open log files (several are merged by time)' });
+  // `dir`: start the file dialog in one of the project's repositories (multi-repo projects).
+  const openFile = async (dir?: string) => {
+    const picked = await openDialog({ multiple: true, title: 'Open log files (several are merged by time)', defaultPath: dir });
     const paths = Array.isArray(picked) ? picked : typeof picked === 'string' ? [picked] : [];
     if (paths.length) await useLogs.getState().openFiles(paths);
   };
@@ -120,7 +123,7 @@ export default function LogsPage() {
             icon={<ScrollText />}
             title="Open a log file"
             action={
-              <button className="btn btn-primary btn-sm" onClick={openFile}>
+              <button className="btn btn-primary btn-sm" onClick={() => openFile()}>
                 <FolderOpen /> Open file…
               </button>
             }
@@ -142,7 +145,9 @@ function phaseText(p: { phase: string; bytesDone: number; bytesTotal: number }) 
   return p.phase === 'decompressing' ? `Decompressing ${pct}%` : p.phase === 'transcoding' ? `Converting ${pct}%` : `Indexing ${pct}%`;
 }
 
-function SourcesPane({ root, onOpen, onPaste }: { root?: string; onOpen(): void; onPaste(): void }) {
+function SourcesPane({ root, onOpen, onPaste }: { root?: string; onOpen(dir?: string): void; onPaste(): void }) {
+  const allRepos = useProjectRepos();
+  const repos = isMultiRepo(allRepos) ? allRepos.filter((r) => r.state === 'found') : [];
   const sources = useLogs((s) => s.sources);
   const active = useLogs((s) => s.active);
   const recent = useLogs((s) => s.recent);
@@ -182,7 +187,7 @@ function SourcesPane({ root, onOpen, onPaste }: { root?: string; onOpen(): void;
           <button className="icon-btn" onClick={onPaste} title="Paste text as a log" aria-label="Paste text as a log">
             <ClipboardPaste />
           </button>
-          <button className="icon-btn" onClick={onOpen} title="Open file(s)… (several are merged by time)" aria-label="Open log files">
+          <button className="icon-btn" onClick={() => onOpen()} title="Open file(s)… (several are merged by time)" aria-label="Open log files">
             <FolderOpen />
           </button>
         </>
@@ -258,6 +263,18 @@ function SourcesPane({ root, onOpen, onPaste }: { root?: string; onOpen(): void;
             >
               <X />
             </button>
+          </div>
+        ))}
+        {repos.length > 0 && (
+          <div className="list-group-header" title="Open log files from one of the project's repositories">
+            <GitBranch size={12} /> Repositories
+          </div>
+        )}
+        {repos.map((r) => (
+          <div key={r.name} className="list-item logs-recent" tabIndex={0} title={`Open log files in ${r.path}`} onClick={() => onOpen(r.path)} onKeyDown={(e) => e.key === 'Enter' && onOpen(r.path)}>
+            <FolderOpen size={14} className="subtle" />
+            <span className="grow truncate">{r.name}</span>
+            {r.group && <span className="meta">{r.group}</span>}
           </div>
         ))}
       </div>

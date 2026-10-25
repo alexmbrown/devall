@@ -11,6 +11,7 @@ import {
   Eraser,
   FastForward,
   FolderCog,
+  GitBranch,
   KeyRound,
   Play,
   Plus,
@@ -33,6 +34,9 @@ import { notesApi } from '@/lib/api/notes';
 import { LANGUAGE_LABELS, RUN_LANGUAGES, notebooksApi, type InterpreterStatus, type RunLanguage, type TrustStatus } from '@/lib/api/notebooks';
 import { useNav } from '@/store/nav';
 import { useWorkspace } from '@/store/workspace';
+import { useProjectRepos } from '@/store/repos';
+import { reposApi } from '@/lib/api/git';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { OutputList, RunBadge, useFollowOutput } from './CellOutputs';
 import {
   cellLanguage,
@@ -56,12 +60,18 @@ import './notebooks.css';
 const SAVE_MS = 800;
 type Json = Record<string, unknown>;
 
-/** Opens `http/…` and `notes/…` links from rendered Markdown cells. */
+/** Opens `http/…` and `notes/…` links from rendered Markdown cells; reveals `repo:<name>/…` ones. */
 function useLinkOpener() {
   const go = useNav((s) => s.go);
   return useCallback(
     (p: string) => {
-      if (p.startsWith('http/')) {
+      const root = useWorkspace.getState().project?.root;
+      if (p.startsWith('repo:') && root) {
+        void reposApi
+          .resolve(root, p)
+          .then((abs) => revealItemInDir(abs))
+          .catch((e) => toast.error(`Could not show ${p}`, errorMessage(e)));
+      } else if (p.startsWith('http/')) {
         void useWorkspace.getState().openRequest(p.slice(5));
       } else if (p.startsWith('notes/')) go('notes', p.slice(6));
       else if (p.endsWith('.md') || p.endsWith('.ipynb')) go('notes', p);
@@ -107,6 +117,8 @@ export function NotebookEditor({ root, path, onSaved }: { root: string; path: st
   const [runningAll, setRunningAll] = useState(false);
   const [interps, setInterps] = useState<InterpreterStatus[] | null>(null);
   const openLink = useLinkOpener();
+  const allRepos = useProjectRepos();
+  const cwdRepos = useMemo(() => allRepos.filter((r) => r.state === 'found' && r.origin !== 'containing'), [allRepos]);
 
   const docRef = useRef<NotebookDoc | null>(null);
   const cellsRef = useRef<EditCell[]>([]);
@@ -486,18 +498,27 @@ export function NotebookEditor({ root, path, onSaved }: { root: string; path: st
     if (type === 'markdown') setEditing(c.id, true);
   };
 
-  const setWorkingDir = async () => {
-    const cur = ((docRef.current?.top.metadata as Json | undefined)?.devall as Json | undefined)?.cwd;
-    const v = await promptDialog({
-      title: 'Working directory',
-      label: 'Folder the cells run in, relative to the project root (empty = project root)',
-      initial: typeof cur === 'string' ? cur : '',
-      placeholder: 'e.g. apps/web',
-      validate: (x) => (/(^|[\\/])\.\.([\\/]|$)/.test(x) || /^([a-zA-Z]:|[\\/])/.test(x.trim()) ? 'Use a folder inside the project' : undefined),
-    });
-    if (v === null) return;
+  /** `metadata.devall.cwd`: project-relative, or `repo:<name>[/sub]` (one of the project's repositories). */
+  const applyWorkingDir = (v: string) => {
     setTopMeta({ cwd: v.trim() ? v.trim().replace(/\\/g, '/') : undefined });
     void notebooksApi.restart(root, path).catch(() => {});
+  };
+  const setWorkingDir = async () => {
+    const cur = ((docRef.current?.top.metadata as Json | undefined)?.devall as Json | undefined)?.cwd;
+    const names = cwdRepos.map((r) => r.name);
+    const v = await promptDialog({
+      title: 'Working directory',
+      label: `Folder the cells run in, relative to the project root${names.length ? `, or repo:<name>/<folder> (${names.join(', ')})` : ''} — empty = project root`,
+      initial: typeof cur === 'string' ? cur : '',
+      placeholder: names.length ? `e.g. repo:${names[0]} or apps/web` : 'e.g. apps/web',
+      validate: (x) =>
+        /(^|[\\/])\.\.([\\/]|$)/.test(x) || /^([a-zA-Z]:|[\\/])/.test(x.trim())
+          ? 'Use a folder inside the project or one of its repositories'
+          : x.trim().startsWith('repo:') && !names.includes(x.trim().slice(5).split(/[\\/]/)[0])
+            ? `Unknown repository${names.length ? ` (${names.join(', ')})` : ''}`
+            : undefined,
+    });
+    if (v !== null) applyWorkingDir(v);
   };
 
   const setInterpreterPath = async (s: InterpreterStatus) => {
@@ -530,6 +551,14 @@ export function NotebookEditor({ root, path, onSaved }: { root: string; path: st
       onSelect: () => setTopMeta({ saveOutputs: !saveOutputs }),
     },
     { label: 'Working directory…', icon: <FolderCog />, hint: (((doc?.top.metadata as Json | undefined)?.devall as Json | undefined)?.cwd as string) || 'project root', onSelect: setWorkingDir },
+    // Multi-repo projects: run the cells in one of the repositories (wherever it is on this machine).
+    ...(cwdRepos.length > 0 && cwdRepos.length <= 8
+      ? cwdRepos.map((r) => {
+          const cwd = `repo:${r.name}`;
+          const on = (((doc?.top.metadata as Json | undefined)?.devall as Json | undefined)?.cwd as string | undefined) === cwd;
+          return { label: `Run in ${r.name}`, icon: <GitBranch />, hint: on ? <Check size={13} /> : r.group ?? undefined, onSelect: () => applyWorkingDir(on ? '' : cwd) };
+        })
+      : []),
     { label: 'Shut down kernels', icon: <Square />, onSelect: () => void notebooksApi.shutdown(root, path).then((n) => toast.info(n ? 'Kernels shut down' : 'No kernels were running')) },
     { separator: true },
     { heading: 'Interpreters' },

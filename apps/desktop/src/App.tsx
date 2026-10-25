@@ -11,6 +11,8 @@ import { SessionModal } from '@/features/http/SessionModal';
 import { ImportExportHost } from '@/features/import';
 import { OpenApiHost } from '@/features/openapi';
 import { MoveToProjectDialog } from '@/features/projects/MoveToProject';
+import { GitDialogsHost } from '@/features/git/dialogs';
+import { NewProjectHost } from '@/features/projects/NewProjectDialog';
 import { McpApprovalHost } from '@/features/ai/McpApprovalHost';
 import { LocalHistoryHost } from '@/features/history/LocalHistoryDialog';
 import { initLocalHistoryEvents } from '@/lib/api/history';
@@ -102,6 +104,8 @@ export function App() {
       <ImportExportHost />
       <OpenApiHost />
       <MoveToProjectDialog />
+      <GitDialogsHost />
+      <NewProjectHost />
       <McpApprovalHost />
       <LocalHistoryHost />
       <DialogHost />

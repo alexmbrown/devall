@@ -50,6 +50,7 @@ Rules that keep the mission honest:
 | Secret scanner before save/commit + redaction in exports and AI prompts | P1 | Enterprise add-ons elsewhere |
 | Free secret-provider integrations: 1Password CLI, Bitwarden, Vault, AWS/GCP Secret Manager | P1 | Enterprise/Ultimate tiers everywhere |
 | Minimal git panel (status, diff, commit) | P2 | Bruno free tier lacks push/branches |
+| **Multi-repo projects** (2026-10-24): one project spanning several repos (e.g. two frontends + three backends) that share requests, environments, mocks and notes. `repos:` in `devall.yaml` (relative paths, groups, remotes; machine-specific locations in the local `repos.json`), nested repos discovered and offered on create/open. Source control per repo plus an "All repositories" overview, Fetch/Pull all and "Switch branch…" across repos (checkout or create the same feature branch), clone/locate missing repos, per-repo secret-scan hook, `HEAD`/`index` watch. `repo:<name>/<path>` links in notes/to-dos, OpenAPI specs, gRPC protos, notebook working folders; Compose files from repos on the Docker page. CLI `devall repos list\|status\|add\|remove\|locate`, `devall init --repos`; MCP `list_repos`. | P1 | GitKraken workspaces / meta-repo tools (paid or separate) |
 | WASM plugin SDK | P3 | — |
 
 ### Notes and to-dos (requested 2026-10-21)

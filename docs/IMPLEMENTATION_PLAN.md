@@ -46,7 +46,9 @@ dev-all/
 
 ## 3. Project format v1
 
-A **project** is any folder containing `devall.yaml`. It is usually a git repo (or a sub-folder of one).
+A **project** is any folder containing `devall.yaml`. It is usually a git repo (or a sub-folder of one) — or, for a
+**multi-repo project**, a folder whose `devall.yaml` lists several repositories (nested under it or anywhere else)
+that share its requests, environments, mocks and notes.
 
 ```
 my-api/
@@ -80,7 +82,23 @@ id: 01JBQ8Z6W4N7Q2F3K9M1T5R8XY
 name: My API
 variables:            # project-wide, non-secret
   apiVersion: v2
+repos:                # optional: multi-repo projects (omitted when empty)
+  - name: web                       # unique; files are referenced as repo:web/<path>
+    path: frontend/web              # relative to this folder, `/`-separated; may climb out: ../api
+    remote: git@github.com:acme/web.git   # offered as "Clone…" when missing on a machine
+    group: Frontend                 # free label the app groups repos by
+  - name: api
+    path: ../api
+    group: Backend
 ```
+
+Repositories (`devall_core::repos`): paths in `devall.yaml` are always relative — never absolute. A machine whose
+layout differs keeps its own locations in the project data folder's `repos.json` (`{ "<name>": "<absolute path>" }`,
+never committed; "Locate…" in the app, `devall repos locate`). The app also finds the repo containing the project
+folder (the single-repo case — no `repos:` needed, exactly as before) and nested repos under it that aren't listed
+yet (depth ≤ 3, skipping `node_modules`, `target`, `dist`, hidden and content folders; offered as "Save to
+devall.yaml"). Repo-qualified paths `repo:<name>/<path>` work in note/to-do links, OpenAPI spec sources
+(`_folder.yaml` `openapi.source`), gRPC `.proto` files/import paths and notebook working directories.
 
 `http/list-users.req.yaml`
 ```yaml

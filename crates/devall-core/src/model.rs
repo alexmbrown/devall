@@ -43,8 +43,30 @@ pub struct ProjectManifest {
     /// Project-wide, non-secret variables (lowest precedence).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub variables: IndexMap<String, String>,
+    /// Git repositories that belong to the project (multi-repo projects). Empty for a project that
+    /// is its own repo (or lives inside one) — that repo is found without being listed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<RepoRef>,
     #[serde(flatten)]
     pub extra: Extra,
+}
+
+/// One repository of a multi-repo project (`repos:` in `devall.yaml`). Shared with the team, so
+/// `path` is relative to the project folder and may climb out of it (`../api`); a machine whose
+/// layout differs points at its own copy in the project data folder's `repos.json` instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoRef {
+    /// Unique in the project; links refer to files in it as `repo:<name>/<path>`.
+    pub name: String,
+    /// Folder relative to the project folder, `/`-separated (`web`, `apps/admin`, `../api`).
+    pub path: String,
+    /// Clone URL, offered when the repository is missing on a machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+    /// Free label the app groups repositories by (e.g. `Frontend`, `Backend`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// A name/value row (query param, header, form field). Disabled rows stay in the file.

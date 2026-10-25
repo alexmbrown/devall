@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import clsx from 'clsx';
-import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, Layers, PanelLeft, Plus, Rows2, Search, Server, Sun, Binary, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, GitBranch, Layers, PanelLeft, Plus, Rows2, Search, Server, Split, Sun, Binary, Sparkles, X } from 'lucide-react';
 import { useImportExport } from '@/features/import';
 import { useOpenApi } from '@/features/openapi';
+import { openReposDialog, openSwitchBranch } from '@/features/git/dialogs';
 import { MOCK_PALETTE_ACTIONS } from '@/features/mocks';
 import { HitIcon } from '@/features/ai/SearchTab';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
@@ -89,6 +90,10 @@ function PaletteInner({ close }: { close(): void }) {
       out.push({ id: 'export', group: 'Actions', label: 'Export project…', text: 'export openapi postman http hurl', icon: <FileDown />, run: () => useImportExport.getState().openExport('') });
       out.push({ id: 'openapi-lint', group: 'Actions', label: 'OpenAPI: lint a spec…', text: 'openapi swagger lint validate spec rules', icon: <FileCheck2 />, run: () => useOpenApi.getState().open({ tab: 'lint' }) });
       out.push({ id: 'openapi-drift', group: 'Actions', label: 'OpenAPI: check drift (mocks / traffic vs spec)…', text: 'openapi drift contract mocks traffic schema validate', icon: <FileCheck2 />, run: () => useOpenApi.getState().open({ tab: 'drift' }) });
+      if (!project.isScratch) {
+        out.push({ id: 'repos', group: 'Actions', label: 'Repositories…', text: 'repositories repos multi-repo git add locate clone group frontend backend', icon: <GitBranch />, run: openReposDialog });
+        out.push({ id: 'repos-switch', group: 'Actions', label: 'Git: switch branch across repositories…', text: 'git branch switch checkout create feature repositories repos all', icon: <Split />, run: () => openSwitchBranch() });
+      }
       out.push({
         id: 'curl',
         group: 'Actions',

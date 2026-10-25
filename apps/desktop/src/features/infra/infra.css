@@ -35,6 +35,7 @@
 .infra-vsplit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .infra-table-wrap { flex: 1 1 50%; min-height: 140px; display: flex; flex-direction: column; }
 .infra-table-wrap > .scroll { flex: 1; min-height: 0; overflow: auto; }
+.infra-compose-files { flex-shrink: 0; max-height: 30%; overflow: auto; border-top: 1px solid var(--border); }
 .infra-detail { flex: 1 1 50%; min-height: 200px; display: flex; flex-direction: column; border-top: 1px solid var(--border); background: var(--bg); }
 .infra-detail .subtabs { align-items: center; }
 .infra-detail .detail-title { max-width: 40%; }

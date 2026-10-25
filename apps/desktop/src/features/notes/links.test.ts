@@ -30,4 +30,10 @@ describe('resolveProjectLink', () => {
     expect(resolveProjectLink('Cargo.toml')).toEqual({ kind: 'unknown', path: 'Cargo.toml' });
     expect(resolveProjectLink('http/%5F%5Fsnapshots__/x.snap.json')).toEqual({ kind: 'section', section: 'http' });
   });
+
+  it('points into repositories with repo:<name>/<path>', () => {
+    expect(resolveProjectLink('repo:api/src/routes/orders.ts')).toEqual({ kind: 'repo', repo: 'api', path: 'src/routes/orders.ts' });
+    expect(resolveProjectLink('repo:web/README.md#setup', 'design/auth.md')).toEqual({ kind: 'repo', repo: 'web', path: 'README.md' });
+    expect(resolveProjectLink('repo:web')).toEqual({ kind: 'repo', repo: 'web', path: '' });
+  });
 });

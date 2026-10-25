@@ -11,6 +11,7 @@ import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { openapiApi, syncSummary, type DriftFinding, type DriftOptions, type DriftReport, type LinkedFolder, type LintReport, type SyncReport } from '@/lib/api/openapi';
 import { useWorkspace } from '@/store/workspace';
+import { reposApi } from '@/lib/api/git';
 import { DriftReportView, LintReportView } from './reports';
 import { toProjectPath } from './logic';
 import './openapi.css';
@@ -33,7 +34,11 @@ export function lastSpec(root: string): string {
   }
 }
 
-/** Picks a spec: the OpenAPI files found in the project, or any file via the OS dialog. */
+/**
+ * Picks a spec: the OpenAPI files found in the project and its repositories (`repo:<name>/…`), or
+ * any file via the OS dialog — stored repo-qualified when it's in one of the project's repos, so
+ * the reference works wherever teammates keep that repo.
+ */
 export function SpecPicker({ root, value, onChange, label = 'OpenAPI spec' }: { root: string; value: string; onChange(v: string): void; label?: string }) {
   const [specs, setSpecs] = useState<string[] | null>(null);
   useEffect(() => {
@@ -53,11 +58,12 @@ export function SpecPicker({ root, value, onChange, label = 'OpenAPI spec' }: { 
   }, [root]);
   const browse = async () => {
     const picked = await openDialog({ multiple: false, directory: false, filters: [{ name: 'OpenAPI', extensions: ['yaml', 'yml', 'json'] }] });
-    if (typeof picked === 'string') onChange(toProjectPath(root, picked));
+    if (typeof picked !== 'string') return;
+    onChange(await reposApi.portable(root, picked).catch(() => toProjectPath(root, picked)));
   };
   const listId = `oa-specs-${root.length}`;
   return (
-    <Field label={label} hint={specs && !specs.length ? 'No OpenAPI files found in the project — browse for one.' : undefined}>
+    <Field label={label} hint={specs && !specs.length ? 'No OpenAPI files found in the project or its repositories — browse for one.' : undefined}>
       <div className="row-sm">
         <input className="input mono grow" list={listId} value={value} placeholder="openapi/api.yaml" onChange={(e) => onChange(e.target.value)} />
         <datalist id={listId}>

@@ -129,7 +129,8 @@ pub struct CellRunOptions {
     #[serde(default)]
     pub secrets: bool,
     pub timeout_ms: Option<u64>,
-    /// Working directory relative to the project root (`metadata.devall.cwd`).
+    /// Working directory relative to the project root, or `repo:<name>[/sub]`
+    /// (`metadata.devall.cwd`).
     pub cwd: Option<String>,
     pub execution_count: Option<u32>,
 }
@@ -159,7 +160,10 @@ pub async fn nb_run_cell(
     if opts.secrets && !state.trust.secrets_allowed(p.id(), &notebook_path, &cell_id, &code_hash(lang.as_str(), &code)) {
         return Err("Secrets aren't enabled for this cell (or its code changed since you enabled them).".into());
     }
+    // Project-relative, or `repo:<name>[/sub]` — one of the project's repositories wherever it is
+    // on this machine (the cwd is part of what the trust decision pinned).
     let cwd = match opts.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty() && *c != ".") {
+        Some(link) if devall_core::repos::parse_link(link).is_some() => devall_core::repos::resolve_link(&p, link).map_err(err)?,
         Some(rel) => safe_join(p.root(), rel).map_err(err)?,
         None => p.root().to_path_buf(),
     };

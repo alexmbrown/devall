@@ -7,6 +7,7 @@ mod mock;
 mod openapi;
 mod plugin;
 mod relay;
+mod repos;
 mod scan;
 mod run;
 
@@ -33,6 +34,9 @@ enum Command {
         dir: Option<PathBuf>,
         #[arg(long)]
         name: Option<String>,
+        /// List the git repositories found under the folder in devall.yaml (a multi-repo project).
+        #[arg(long)]
+        repos: bool,
     },
     /// Send requests in tree order with assertions and captures; exit 1 when anything fails.
     /// Also runs a `.http` / `.hurl` file directly: `devall run api.hurl --var host=localhost`.
@@ -109,6 +113,10 @@ enum Command {
     Notes(knowledge::NotesCmd),
     /// Find credentials in project files; `--staged` for git pre-commit, `--install-hook` to set it up.
     Scan(scan::ScanArgs),
+    /// The project's git repositories (multi-repo projects): `devall repos list`, `devall repos
+    /// status`, `devall repos add ../api --group Backend`, `devall repos locate api ~/src/api`.
+    #[command(subcommand)]
+    Repos(repos::ReposCmd),
     /// Your personal to-do list (stored in the app data folder, never in the repo).
     #[command(subcommand)]
     Todo(knowledge::TodoCmd),
@@ -176,7 +184,7 @@ async fn dispatch(cli: Cli) -> Result<ExitCode> {
         plugin::install_request_bridge();
     }
     match cli.command {
-        Command::Init { dir, name } => {
+        Command::Init { dir, name, repos } => {
             let dir = match dir {
                 Some(d) => d,
                 None => std::env::current_dir()?,
@@ -185,8 +193,17 @@ async fn dispatch(cli: Cli) -> Result<ExitCode> {
             let name = name.unwrap_or_else(|| {
                 dir.canonicalize().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_else(|| "My project".into())
             });
-            let p = Project::init(&dir, &name)?;
+            let mut p = Project::init(&dir, &name)?;
             println!("Created project \"{}\" in {}", p.manifest.name, p.root().display());
+            let nested: Vec<String> = p.repos().into_iter().filter(|r| r.origin == devall_core::repos::RepoOrigin::Discovered).map(|r| r.name).collect();
+            if repos && !nested.is_empty() {
+                let added = devall_core::repos::save_discovered(&mut p, &nested, &Default::default())?;
+                for r in added {
+                    println!("  repo {} ({})", r.name, r.path);
+                }
+            } else if !nested.is_empty() {
+                println!("Found {} git repositories under it ({}); list them with `devall init --repos` next time or `devall repos add <folder>`.", nested.len(), nested.join(", "));
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Run(args) => run::run(args).await,
@@ -221,6 +238,7 @@ async fn dispatch(cli: Cli) -> Result<ExitCode> {
         Command::Notes(cmd) => knowledge::notes(cmd),
         Command::Todo(cmd) => knowledge::todo(cmd),
         Command::Scan(args) => scan::run(args),
+        Command::Repos(cmd) => repos::run(cmd),
         Command::Load(cmd) => load::run(cmd).await,
         Command::Mock(cmd) => mock::run(cmd).await,
         Command::Plugin(cmd) => plugin::run(cmd).await,
@@ -273,6 +291,8 @@ mod tests {
         assert!(matches!(c.command, Command::Inbox(relay::InboxCmd::Listen { no_store: true, ref key, .. }) if key.as_deref() == Some("k")));
         let c = Cli::try_parse_from(["devall", "load", "cloud", "run", "smoke.load.yaml", "--regions", "weur,enam", "--allow-secrets-to-cloud"]).unwrap();
         assert!(matches!(c.command, Command::Load(load::LoadCmd::Cloud(load::CloudCmd::Run { ref regions, allow_secrets_to_cloud: true, .. })) if regions == "weur,enam"));
+        let c = Cli::try_parse_from(["devall", "repos", "add", "../api", "--group", "Backend", "--local"]).unwrap();
+        assert!(matches!(c.command, Command::Repos(repos::ReposCmd::Add { local: true, ref group, .. }) if group.as_deref() == Some("Backend")));
         let c = Cli::try_parse_from(["devall", "load", "cloud", "verify", "https://api.example.com", "--wait", "60"]).unwrap();
         assert!(matches!(c.command, Command::Load(load::LoadCmd::Cloud(load::CloudCmd::Verify { wait: 60, .. }))));
     }

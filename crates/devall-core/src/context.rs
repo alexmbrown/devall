@@ -15,7 +15,7 @@ use crate::tree::TreeNode;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextDoc {
-    /// `note`, `todos`, `requests`, `environments`.
+    /// `note`, `todos`, `requests`, `environments`, `repos`.
     pub kind: String,
     /// Stable reference the AI can cite, e.g. `notes/design/auth.md`.
     pub source: String,
@@ -158,6 +158,16 @@ pub fn collect(project: &Project, todo_base: Option<&Path>, opts: &ContextOption
                 .collect::<Vec<_>>()
                 .join("\n");
             docs.push(ContextDoc { kind: "environments".into(), source: "environments/".into(), title: "Environments".into(), text });
+        }
+        // Multi-repo projects: which repos the shared requests/environments are for.
+        let repos = project.repos();
+        if !repos.is_empty() {
+            docs.push(ContextDoc {
+                kind: "repos".into(),
+                source: "devall.yaml#repos".into(),
+                title: "Repositories".into(),
+                text: format!("Files in a repo are referenced as repo:<name>/<path>.\n{}", crate::repos::outline(&repos)),
+            });
         }
     }
     Ok(docs)
