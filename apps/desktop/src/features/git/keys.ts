@@ -49,6 +49,39 @@ export function reviewKey(e: KeyLike): ReviewKey | null {
   }
 }
 
+/** Source control actions with a GitKraken-like key (see {@link gitShortcut}). */
+export type GitShortcut = 'undo' | 'redo' | 'stage' | 'unstage' | 'stageAll' | 'unstageAll' | 'fetch' | 'newBranch' | 'fileHistory' | 'stash' | 'pull' | 'push';
+
+/**
+ * Source control keys (the page ignores them while its view is inactive):
+ *  Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z / Ctrl+Y redo · S / U stage / unstage the selected file ·
+ *  Ctrl/Cmd+Shift+S / U stage / unstage all · Ctrl/Cmd+L fetch · Ctrl/Cmd+B new branch ·
+ *  Ctrl/Cmd+Shift+H file history · Ctrl/Cmd+Alt+S stash · Ctrl/Cmd+Shift+L pull · Ctrl/Cmd+Shift+P push.
+ * Typing in a field keeps its own undo and letters. Ctrl/Cmd+Enter commits from the message box.
+ */
+export function gitShortcut(e: KeyLike & { shiftKey?: boolean }, mac = false): GitShortcut | null {
+  if (isTyping(e.target)) return null;
+  const mod = mac ? !!e.metaKey : !!e.ctrlKey;
+  const key = e.key.toLowerCase();
+  if (mod && !e.altKey) {
+    if (key === 'z') return e.shiftKey ? 'redo' : 'undo';
+    if (key === 'y' && !mac && !e.shiftKey) return 'redo';
+    if (e.shiftKey && key === 's') return 'stageAll';
+    if (e.shiftKey && key === 'u') return 'unstageAll';
+    if (e.shiftKey && key === 'h') return 'fileHistory';
+    if (e.shiftKey && key === 'l') return 'pull';
+    if (e.shiftKey && key === 'p') return 'push';
+    if (!e.shiftKey && key === 'l') return 'fetch';
+    if (!e.shiftKey && key === 'b') return 'newBranch';
+    return null;
+  }
+  if (mod && e.altKey && !e.shiftKey && (key === 's' || e.key === 'ß')) return 'stash';
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  if (key === 's' && !e.shiftKey) return 'stage';
+  if (key === 'u' && !e.shiftKey) return 'unstage';
+  return null;
+}
+
 /** The item `delta` steps from `current` in a list of `len` (clamped; -1 = none selected yet). */
 export function step(len: number, current: number, delta: number): number {
   if (len <= 0) return -1;

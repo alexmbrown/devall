@@ -172,9 +172,16 @@ export interface RefEntry {
   kind: RefKind;
   upstream: string | null;
   track: string | null;
+  ahead: number;
+  behind: number;
+  /** The upstream branch was deleted on the remote. */
+  gone: boolean;
   time: number;
   subject: string;
   current: boolean;
+  /** Checked out in another worktree (its path). */
+  worktree: string | null;
+  annotated: boolean;
 }
 
 export interface RefList {
@@ -182,6 +189,7 @@ export interface RefList {
   head: string | null;
   detached: boolean;
   refs: RefEntry[];
+  remotes: string[];
 }
 
 // ---------- commit graph (devall_core::repos::graph) ----------
@@ -256,8 +264,293 @@ export interface LineSelection {
 }
 
 export interface OpResult {
+  /** Stopped with conflicts: resolve them, then continue or abort. */
   conflicts: boolean;
+  /** Stopped without conflicts (an interactive rebase's `edit`). */
+  paused: boolean;
   message: string;
+}
+
+export type MergeMode = 'ff' | 'noFf' | 'ffOnly' | 'squash';
+export type ResetMode = 'soft' | 'mixed' | 'keep' | 'hard';
+export type PushMode = 'normal' | 'setUpstream' | 'forceWithLease';
+
+export interface PushInfo {
+  branch: string | null;
+  upstream: string | null;
+  remote: string | null;
+  remoteBranch: string | null;
+  ahead: number;
+  behind: number;
+  remotes: string[];
+  forceIfIncludes: boolean;
+}
+
+export interface RemoteInfo {
+  name: string;
+  /** Credentials stripped. */
+  fetchUrl: string | null;
+  pushUrl: string | null;
+  branches: number;
+}
+
+export interface StashEntry {
+  index: number;
+  name: string;
+  oid: string;
+  message: string;
+  title: string;
+  branch: string | null;
+  time: number;
+  base: string;
+  untracked: boolean;
+}
+
+export interface StashSaveOptions {
+  message?: string | null;
+  includeUntracked?: boolean;
+  stagedOnly?: boolean;
+  keepIndex?: boolean;
+}
+
+export interface StashFiles {
+  base: string;
+  commit: string;
+  files: ChangedFile[];
+  untrackedCommit: string | null;
+}
+
+// ---------- undo / redo (devall_core::repos::undo) ----------
+
+export type UndoKind =
+  | 'commit'
+  | 'amend'
+  | 'stage'
+  | 'unstage'
+  | 'discard'
+  | 'checkout'
+  | 'branchCreate'
+  | 'branchDelete'
+  | 'branchRename'
+  | 'setUpstream'
+  | 'fastForward'
+  | 'reset'
+  | 'merge'
+  | 'rebase'
+  | 'cherryPick'
+  | 'revert'
+  | 'pull'
+  | 'stashSave'
+  | 'stashApply'
+  | 'stashPop'
+  | 'stashDrop'
+  | 'tagCreate'
+  | 'tagDelete';
+
+export interface UndoEntry {
+  id: string;
+  kind: UndoKind;
+  label: string;
+  /** Unix seconds. */
+  at: number;
+  /** The operation is paused (conflicts); completed when it finishes. */
+  pending: boolean;
+}
+
+export interface UndoHistory {
+  /** Newest first: the next undo is `undo[0]`. */
+  undo: UndoEntry[];
+  /** The next redo first. */
+  redo: UndoEntry[];
+}
+
+export type UndoOutcome = { type: 'done'; label: string; kind: UndoKind } | { type: 'confirm'; label: string; reasons: string[] } | { type: 'refused'; label: string; reason: string } | { type: 'nothing' };
+
+// ---------- merge conflicts (devall_core::repos::conflicts) ----------
+
+export interface ConflictFile {
+  path: string;
+  base: boolean;
+  ours: boolean;
+  theirs: boolean;
+  description: string;
+}
+
+export interface ConflictVersion {
+  text: string | null;
+  exists: boolean;
+  binary: boolean;
+  tooLarge: boolean;
+  size: number;
+}
+
+export interface Conflict {
+  path: string;
+  description: string;
+  base: ConflictVersion;
+  ours: ConflictVersion;
+  theirs: ConflictVersion;
+  /** The working-tree file with git's markers. */
+  result: ConflictVersion;
+  binary: boolean;
+  labels: { ours: string; theirs: string; base: string };
+  operation: GitOperation | null;
+  resolved: boolean;
+}
+
+export type ConflictPick = 'ours' | 'theirs';
+
+// ---------- interactive rebase (devall_core::repos::rebase) ----------
+
+export interface TodoCommit {
+  hash: string;
+  short: string;
+  subject: string;
+  body: string;
+  author: string;
+  date: string;
+  /** Other local branches pointing at it (moved along with update-refs). */
+  branches: string[];
+  merge: boolean;
+}
+
+export interface RebaseTodo {
+  base: string;
+  baseShort: string;
+  branch: string | null;
+  /** Oldest first. */
+  commits: TodoCommit[];
+  hasMerges: boolean;
+  canUpdateRefs: boolean;
+}
+
+export type RebaseAction = 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop';
+
+export interface RebaseStep {
+  action: RebaseAction;
+  hash: string;
+  message?: string | null;
+}
+
+// ---------- blame & file history (devall_core::repos::blame) ----------
+
+export interface BlameCommit {
+  hash: string;
+  short: string;
+  author: string;
+  email: string;
+  /** Unix seconds. */
+  time: number;
+  summary: string;
+  previous: [string, string] | null;
+  filename: string;
+  uncommitted: boolean;
+  boundary: boolean;
+}
+
+export interface BlameLine {
+  commit: number;
+  origLine: number;
+  text: string;
+}
+
+export interface Blame {
+  path: string;
+  rev: string | null;
+  commits: BlameCommit[];
+  lines: BlameLine[];
+  ignoredRevs: boolean;
+}
+
+export interface FileVersion {
+  hash: string;
+  short: string;
+  parent: string | null;
+  author: string;
+  email: string;
+  date: string;
+  subject: string;
+  path: string;
+  oldPath: string;
+  status: string;
+}
+
+// ---------- worktrees (devall_core::repos::worktree) ----------
+
+export interface Worktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+  detached: boolean;
+  bare: boolean;
+  locked: string | null;
+  prunable: string | null;
+  main: boolean;
+  current: boolean;
+}
+
+export type WorktreeCheckout = { type: 'newBranch'; name: string; from: string } | { type: 'branch'; name: string } | { type: 'detached'; rev: string };
+
+export interface StagedForAi {
+  diff: string;
+  branch: string | null;
+  recent: string[];
+  truncated: boolean;
+}
+
+// ---------- pull / merge requests (devall-forge) ----------
+
+export type ForgeKind = 'github' | 'gitlab';
+
+export interface ForgeRemote {
+  kind: ForgeKind;
+  host: string;
+  path: string;
+  webUrl: string;
+  apiUrl: string;
+}
+
+export interface ForgeAccount {
+  host: string;
+  kind: ForgeKind;
+  user: string | null;
+  apiUrl?: string | null;
+}
+
+export interface PrTemplate {
+  name: string;
+  path: string;
+  content: string;
+}
+
+export interface ForgeInfo {
+  remoteName: string | null;
+  remoteUrl: string | null;
+  forge: ForgeRemote | null;
+  connected: boolean;
+  account: ForgeAccount | null;
+  tokenHelp: { url: string; scopes: string } | null;
+  cli: { program: string; installed: boolean } | null;
+  templates: PrTemplate[];
+  remotes: string[];
+  keychain: boolean;
+}
+
+export interface NewPullRequest {
+  title: string;
+  body: string;
+  base: string;
+  head: string;
+  draft: boolean;
+  reviewers: string[];
+  labels: string[];
+}
+
+export interface CreatedPullRequest {
+  number: number;
+  url: string;
+  warnings: string[];
+  viaCli: boolean;
 }
 
 export interface GitCommit {
@@ -269,8 +562,8 @@ export interface GitCommit {
 }
 
 export type RepoState = 'found' | 'missing' | 'notARepo';
-/** `manifest` = listed in devall.yaml; `containing` = the repo the project folder is in; `discovered` = nested, not listed. */
-export type RepoOrigin = 'manifest' | 'containing' | 'discovered';
+/** `manifest` = listed in devall.yaml; `containing` = the repo the project folder is in; `discovered` = nested, not listed; `local` = opened on this machine only (a worktree), never written to devall.yaml. */
+export type RepoOrigin = 'manifest' | 'containing' | 'discovered' | 'local';
 
 export interface Repo {
   name: string;
@@ -408,7 +701,91 @@ export const gitApi = {
   cherryPick: (root: string, repo: string | null | undefined, rev: string) => invoke<OpResult>('git_cherry_pick', { root, repo, rev }),
   revert: (root: string, repo: string | null | undefined, rev: string) => invoke<OpResult>('git_revert', { root, repo, rev }),
   operationAbort: (root: string, repo: string | null | undefined) => invoke<void>('git_operation_abort', { root, repo }),
-  operationContinue: (root: string, repo: string | null | undefined) => invoke<string>('git_operation_continue', { root, repo }),
+  operationContinue: (root: string, repo: string | null | undefined) => invoke<OpResult>('git_operation_continue', { root, repo }),
+  operationSkip: (root: string, repo: string | null | undefined) => invoke<OpResult>('git_operation_skip', { root, repo }),
+
+  // branches, tags, history operations
+  branchRename: (root: string, repo: string | null | undefined, name: string, newName: string) => invoke<void>('git_branch_rename', { root, repo, name, newName }),
+  branchDelete: (root: string, repo: string | null | undefined, name: string, force: boolean) => invoke<void>('git_branch_delete', { root, repo, name, force }),
+  branchUnmerged: (root: string, repo: string | null | undefined, name: string) => invoke<number>('git_branch_unmerged', { root, repo, name }),
+  branchDeleteRemote: (root: string, repo: string | null | undefined, remoteBranch: string) => invoke<string>('git_branch_delete_remote', { root, repo, remoteBranch }),
+  branchUpstream: (root: string, repo: string | null | undefined, branch: string, upstream: string | null) => invoke<void>('git_branch_upstream', { root, repo, branch, upstream }),
+  branchFastForward: (root: string, repo: string | null | undefined, branch: string, from?: string | null) => invoke<string>('git_branch_ff', { root, repo, branch, from }),
+  branchMove: (root: string, repo: string | null | undefined, branch: string, rev: string) => invoke<void>('git_branch_move', { root, repo, branch, rev }),
+  merge: (root: string, repo: string | null | undefined, rev: string, mode: MergeMode) => invoke<OpResult>('git_merge', { root, repo, rev, mode }),
+  rebase: (root: string, repo: string | null | undefined, onto: string) => invoke<OpResult>('git_rebase', { root, repo, onto }),
+  reset: (root: string, repo: string | null | undefined, rev: string, mode: ResetMode) => invoke<void>('git_reset', { root, repo, rev, mode }),
+  tagDelete: (root: string, repo: string | null | undefined, name: string) => invoke<void>('git_tag_delete', { root, repo, name }),
+  tagPush: (root: string, repo: string | null | undefined, remote: string, name: string) => invoke<string>('git_tag_push', { root, repo, remote, name }),
+  tagDeleteRemote: (root: string, repo: string | null | undefined, remote: string, name: string) => invoke<string>('git_tag_delete_remote', { root, repo, remote, name }),
+
+  // remotes
+  remotes: (root: string, repo: string | null | undefined) => invoke<RemoteInfo[]>('git_remotes', { root, repo }),
+  remoteAdd: (root: string, repo: string | null | undefined, name: string, url: string) => invoke<void>('git_remote_add', { root, repo, name, url }),
+  remoteRename: (root: string, repo: string | null | undefined, name: string, newName: string) => invoke<void>('git_remote_rename', { root, repo, name, newName }),
+  remoteSetUrl: (root: string, repo: string | null | undefined, name: string, url: string) => invoke<void>('git_remote_set_url', { root, repo, name, url }),
+  remoteRemove: (root: string, repo: string | null | undefined, name: string) => invoke<void>('git_remote_remove', { root, repo, name }),
+  remotePrune: (root: string, repo: string | null | undefined, name: string) => invoke<string>('git_remote_prune', { root, repo, name }),
+  fetch: (root: string, repo: string | null | undefined, remote: string | null, prune: boolean) => invoke<string>('git_fetch', { root, repo, remote, prune }),
+
+  // stash
+  stashList: (root: string, repo: string | null | undefined) => invoke<StashEntry[]>('git_stash_list', { root, repo }),
+  stashSave: (root: string, repo: string | null | undefined, options: StashSaveOptions) => invoke<string>('git_stash_save', { root, repo, options }),
+  stashApply: (root: string, repo: string | null | undefined, index: number, oid: string, pop: boolean) => invoke<OpResult>('git_stash_apply', { root, repo, index, oid, pop }),
+  stashDrop: (root: string, repo: string | null | undefined, index: number, oid: string) => invoke<void>('git_stash_drop', { root, repo, index, oid }),
+  stashFiles: (root: string, repo: string | null | undefined, index: number, oid: string) => invoke<StashFiles>('git_stash_files', { root, repo, index, oid }),
+
+  // push
+  pushInfo: (root: string, repo: string | null | undefined) => invoke<PushInfo>('git_push_info', { root, repo }),
+  push: (root: string, repo: string | null | undefined, mode: PushMode, remote?: string | null, branch?: string | null) => invoke<string>('git_push', { root, repo, mode, remote, branch }),
+
+  // undo / redo
+  undoHistory: (root: string, repo: string | null | undefined) => invoke<UndoHistory>('git_undo_history', { root, repo }),
+  undo: (root: string, repo: string | null | undefined, force = false) => invoke<UndoOutcome>('git_undo', { root, repo, force }),
+  redo: (root: string, repo: string | null | undefined, force = false) => invoke<UndoOutcome>('git_redo', { root, repo, force }),
+  undoClear: (root: string, repo: string | null | undefined) => invoke<void>('git_undo_clear', { root, repo }),
+
+  // merge conflicts
+  conflicts: (root: string, repo: string | null | undefined) => invoke<ConflictFile[]>('git_conflicts', { root, repo }),
+  conflictRead: (root: string, repo: string | null | undefined, path: string) => invoke<Conflict>('git_conflict_read', { root, repo, path }),
+  conflictSave: (root: string, repo: string | null | undefined, path: string, content: string, markResolved: boolean) => invoke<void>('git_conflict_save', { root, repo, path, content, markResolved }),
+  conflictTake: (root: string, repo: string | null | undefined, path: string, side: ConflictPick) => invoke<void>('git_conflict_take', { root, repo, path, side }),
+  conflictRemove: (root: string, repo: string | null | undefined, path: string) => invoke<void>('git_conflict_remove', { root, repo, path }),
+  conflictRecreate: (root: string, repo: string | null | undefined, path: string) => invoke<void>('git_conflict_recreate', { root, repo, path }),
+  conflictMark: (root: string, repo: string | null | undefined, paths: string[]) => invoke<void>('git_conflict_mark', { root, repo, paths }),
+
+  // interactive rebase
+  rebaseTodo: (root: string, repo: string | null | undefined, base: string) => invoke<RebaseTodo>('git_rebase_todo', { root, repo, base }),
+  rebaseAutosquash: (root: string, repo: string | null | undefined, base: string, steps: RebaseStep[]) => invoke<RebaseStep[]>('git_rebase_autosquash', { root, repo, base, steps }),
+  rebaseInteractive: (root: string, repo: string | null | undefined, base: string, steps: RebaseStep[], updateRefs: boolean) => invoke<OpResult>('git_rebase_interactive', { root, repo, base, steps, updateRefs }),
+
+  // blame & file history
+  blame: (root: string, repo: string | null | undefined, path: string, rev?: string | null) => invoke<Blame>('git_blame', { root, repo, path, rev }),
+  fileHistory: (root: string, repo: string | null | undefined, path: string, limit?: number) => invoke<FileVersion[]>('git_file_history', { root, repo, path, limit }),
+
+  // worktrees
+  worktrees: (root: string, repo: string | null | undefined) => invoke<Worktree[]>('git_worktrees', { root, repo }),
+  worktreeSuggest: (root: string, repo: string | null | undefined, branch: string) => invoke<string>('git_worktree_suggest', { root, repo, branch }),
+  worktreeAdd: (root: string, repo: string | null | undefined, path: string, checkout: WorktreeCheckout) => invoke<Worktree>('git_worktree_add', { root, repo, path, checkout }),
+  worktreeLock: (root: string, repo: string | null | undefined, path: string, reason?: string | null) => invoke<void>('git_worktree_lock', { root, repo, path, reason }),
+  worktreeUnlock: (root: string, repo: string | null | undefined, path: string) => invoke<void>('git_worktree_unlock', { root, repo, path }),
+  worktreeRemove: (root: string, repo: string | null | undefined, path: string, force: boolean) => invoke<void>('git_worktree_remove', { root, repo, path, force }),
+  worktreePrune: (root: string, repo: string | null | undefined) => invoke<string>('git_worktree_prune', { root, repo }),
+  /** Shows a worktree in the repository list on this machine only; returns its name there. */
+  worktreeOpen: (root: string, repo: string | null | undefined, path: string) => invoke<string>('git_worktree_open', { root, repo, path }),
+  localRepoClose: (root: string, name: string) => invoke<void>('git_local_repo_close', { root, name }),
+
+  // AI commit message
+  stagedForAi: (root: string, repo: string | null | undefined) => invoke<StagedForAi>('git_staged_for_ai', { root, repo }),
+
+  // pull / merge requests
+  forgeInfo: (root: string, repo: string | null | undefined, remote?: string | null) => invoke<ForgeInfo>('git_forge_info', { root, repo, remote }),
+  forgeAccounts: () => invoke<ForgeAccount[]>('git_forge_accounts'),
+  /** Checks the token with the host, then keeps it in the OS keychain. */
+  forgeConnect: (host: string, kind: ForgeKind, token: string, apiUrl?: string | null) => invoke<ForgeAccount>('git_forge_connect', { host, kind, token, apiUrl }),
+  forgeDisconnect: (host: string) => invoke<void>('git_forge_disconnect', { host }),
+  forgeCreate: (root: string, repo: string | null | undefined, remote: string, request: NewPullRequest, push: boolean, useCli: boolean) =>
+    invoke<CreatedPullRequest>('git_forge_create', { root, repo, remote, request, push, useCli }),
   clearLock: (root: string, repo: string | null | undefined) => invoke<boolean>('git_clear_lock', { root, repo }),
 };
 

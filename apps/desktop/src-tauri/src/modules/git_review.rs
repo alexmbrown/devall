@@ -26,7 +26,7 @@ use devall_core::repos::git;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use super::git::{blocking, in_repo, repo_of};
+use super::git::{blocking, in_repo, in_repo_j, repo_of};
 
 type R<T> = Result<T, String>;
 
@@ -275,25 +275,25 @@ pub async fn git_patch(root: String, repo: Option<String>, path: String, staged:
 /// confirms with the exact number of lines first.
 #[tauri::command]
 pub async fn git_apply_lines(root: String, repo: Option<String>, path: String, action: LineAction, fingerprint: String, selection: Vec<Selection>, ignore_ws: Option<bool>) -> R<()> {
-    in_repo(root, repo, move |top| patch::apply_selection(top, &path, action, &fingerprint, &selection, ignore_ws.unwrap_or(false))).await
+    in_repo_j(root, repo, move |top, j| patch::apply_selection(top, Some(j), &path, action, &fingerprint, &selection, ignore_ws.unwrap_or(false))).await
 }
 
 // ---------- commit & ref operations ----------
 
 #[tauri::command]
 pub async fn git_branch_create(root: String, repo: Option<String>, name: String, at: String, checkout: bool) -> R<()> {
-    in_repo(root, repo, move |top| ops::create_branch(top, &name, &at, checkout)).await
+    in_repo_j(root, repo, move |top, j| ops::create_branch(top, Some(j), &name, &at, checkout)).await
 }
 
 #[tauri::command]
 pub async fn git_tag_create(root: String, repo: Option<String>, name: String, at: String, message: Option<String>) -> R<()> {
-    in_repo(root, repo, move |top| ops::create_tag(top, &name, &at, message.as_deref())).await
+    in_repo_j(root, repo, move |top, j| ops::create_tag(top, Some(j), &name, &at, message.as_deref())).await
 }
 
 /// Detached checkout of a commit (the UI confirms; git refuses to overwrite local changes).
 #[tauri::command]
 pub async fn git_checkout_commit(root: String, repo: Option<String>, rev: String) -> R<()> {
-    in_repo(root, repo, move |top| ops::checkout_detached(top, &rev)).await
+    in_repo_j(root, repo, move |top, j| ops::checkout_detached(top, Some(j), &rev)).await
 }
 
 /// Checks out a branch (`kind` branch) or a remote branch as a tracking branch (`kind` remote).
@@ -304,28 +304,29 @@ pub async fn git_checkout_ref(root: String, repo: Option<String>, name: String, 
         "remote" => RefKind::Remote,
         other => return Err(format!("can't check out a {other}")),
     };
-    in_repo(root, repo, move |top| ops::checkout_ref(top, &name, kind)).await
+    in_repo_j(root, repo, move |top, j| ops::checkout_ref(top, Some(j), &name, kind)).await
 }
 
 #[tauri::command]
 pub async fn git_cherry_pick(root: String, repo: Option<String>, rev: String) -> R<OpResult> {
-    in_repo(root, repo, move |top| ops::cherry_pick(top, &rev)).await
+    in_repo_j(root, repo, move |top, j| ops::cherry_pick(top, Some(j), &rev)).await
 }
 
 #[tauri::command]
 pub async fn git_revert(root: String, repo: Option<String>, rev: String) -> R<OpResult> {
-    in_repo(root, repo, move |top| ops::revert(top, &rev)).await
+    in_repo_j(root, repo, move |top, j| ops::revert(top, Some(j), &rev)).await
 }
 
 /// `git <merge|rebase|cherry-pick|revert> --abort` (the UI confirms).
 #[tauri::command]
 pub async fn git_operation_abort(root: String, repo: Option<String>) -> R<()> {
-    in_repo(root, repo, ops::abort).await
+    in_repo_j(root, repo, |top, j| ops::abort(top, Some(j))).await
 }
 
+/// `git <op> --continue` (may stop again on the next conflict of a rebase).
 #[tauri::command]
-pub async fn git_operation_continue(root: String, repo: Option<String>) -> R<String> {
-    in_repo(root, repo, ops::continue_op).await
+pub async fn git_operation_continue(root: String, repo: Option<String>) -> R<OpResult> {
+    in_repo_j(root, repo, |top, j| ops::continue_op(top, Some(j))).await
 }
 
 /// Removes an `index.lock` older than two minutes (left behind by a git that crashed).

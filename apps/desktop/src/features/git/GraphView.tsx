@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, Copy, GitBranch, GitCommitHorizontal, GitCompare, Link2, RefreshCw, RotateCcw, Tag, Undo2, Waypoints } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitMerge, Link2, ListOrdered, RefreshCw, RotateCcw, Tag, Undo2, Waypoints } from 'lucide-react';
 import { useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
 import { Empty, RelTime, Resizer, SearchInput, Spinner, copyText } from '@/components/ui/misc';
-import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
+import { confirmDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { formatLink } from '@/lib/links/syntax';
 import { gitApi, type CompareMode, type GraphRow, type RefLabel } from '@/lib/api/git';
 import { useActiveViewRef, useViewState } from '@/store/nav';
 import { CommitDetails } from './CommitDetails';
+import * as op from './branchOps';
 import { pickRef } from './RefPicker';
 
 const ROW_H = 26;
@@ -32,6 +33,8 @@ export interface GraphActions {
   changed(): void;
   /** The WIP row was clicked. */
   openChanges(): void;
+  /** Interactive rebase of the checked-out branch: the commits after `base`. */
+  interactiveRebase(base: string, label: string): void;
 }
 
 /**
@@ -271,6 +274,8 @@ export function GraphView({
     actions.changed();
   };
 
+  const opCtx: op.GitCtx = { root, repo, current, changed: actions.changed };
+
   const rowMenu = (r: GraphRow): MenuItemDef[] => {
     const short = r.hash.slice(0, 7);
     const subject = r.subject.length > 60 ? `${r.subject.slice(0, 57)}…` : r.subject;
@@ -292,32 +297,8 @@ export function GraphView({
             void run('Checkout', () => gitApi.checkoutCommit(root, repo, r.hash), `Detached at ${short}`);
         },
       },
-      {
-        label: 'Create branch here…',
-        icon: <GitBranch />,
-        onSelect: async () => {
-          const name = await promptDialog({ title: `New branch at ${short}`, label: 'Branch name', validate: validName });
-          if (!name) return;
-          try {
-            await gitApi.branchCreate(root, repo, name.trim(), r.hash, false);
-            toast.success(`Created ${name.trim()}`, `at ${short}`, { label: 'Check out', run: () => void run('Checkout', () => gitApi.checkoutRef(root, repo, name.trim(), 'branch'), `Switched to ${name.trim()}`) });
-          } catch (e) {
-            toast.error('Create branch failed', errorMessage(e));
-          }
-          actions.changed();
-        },
-      },
-      {
-        label: 'Create tag here…',
-        icon: <Tag />,
-        onSelect: async () => {
-          const name = await promptDialog({ title: `New tag at ${short}`, label: 'Tag name', validate: validName });
-          if (!name) return;
-          const message = await promptDialog({ title: `Tag ${name.trim()}`, label: 'Message (optional — makes an annotated tag)', confirmText: 'Create tag' });
-          if (message === null) return;
-          void run('Create tag', () => gitApi.tagCreate(root, repo, name.trim(), r.hash, message || null), `Tagged ${short} as ${name.trim()}`);
-        },
-      },
+      { label: 'Create branch here…', icon: <GitBranch />, onSelect: () => void op.newBranch(opCtx, r.hash, short) },
+      { label: 'Create tag here…', icon: <Tag />, onSelect: () => void op.createTag(opCtx, r.hash, short) },
       { separator: true },
       { label: `Compare with ${cur}`, icon: <GitCompare />, onSelect: () => actions.compare(r.hash, cur, 'direct') },
       {
@@ -347,8 +328,9 @@ export function GraphView({
             void run('Revert', () => gitApi.revert(root, repo, r.hash), `Reverted ${short}`);
         },
       },
-      { label: `Reset ${cur} to here…`, icon: <RotateCcw />, disabled: true, hint: 'coming next' },
-      { label: `Rebase ${cur} onto here…`, icon: <Waypoints />, disabled: true, hint: 'coming next' },
+      { label: `Reset ${cur} to here…`, icon: <RotateCcw />, onSelect: () => void op.resetTo(opCtx, r.hash, short) },
+      { label: `Rebase ${cur} onto here…`, icon: <Waypoints />, disabled: !current || r.refs.some((x) => x.current), onSelect: () => void op.rebaseOnto(opCtx, r.hash, short) },
+      { label: `Interactive rebase: commits of ${cur} after here…`, icon: <ListOrdered />, disabled: !current || r.refs.some((x) => x.current), onSelect: () => actions.interactiveRebase(r.hash, short) },
       { separator: true },
       { label: 'Copy SHA', icon: <Copy />, onSelect: () => void copyText(r.hash, 'SHA copied') },
       ...(repoName ? [{ label: 'Copy link', icon: <Link2 />, onSelect: () => void copyText(formatLink('commit', `${repoName}/${r.hash}`), 'Link copied') }] : []),
@@ -361,6 +343,13 @@ export function GraphView({
       { heading: l.name },
       ...(l.kind === 'branch' || l.kind === 'remote'
         ? [{ label: l.kind === 'branch' ? `Check out ${l.name}` : `Check out ${l.name} as a local branch`, icon: <GitBranch />, disabled: l.current, onSelect: () => void run('Checkout', () => gitApi.checkoutRef(root, repo, l.name, l.kind === 'branch' ? 'branch' : 'remote'), `Switched to ${l.name}`) }]
+        : []),
+      ...((l.kind === 'branch' || l.kind === 'remote' || l.kind === 'tag') && current && !l.current
+        ? [
+            { label: `Merge ${l.name} into ${cur}…`, icon: <GitMerge />, onSelect: () => void op.merge(opCtx, l.name) },
+            { label: `Rebase ${cur} onto ${l.name}…`, icon: <Waypoints />, onSelect: () => void op.rebaseOnto(opCtx, l.name) },
+            { label: `Interactive rebase ${cur} onto ${l.name}…`, icon: <ListOrdered />, onSelect: () => actions.interactiveRebase(l.name, l.name) },
+          ]
         : []),
       { label: `Compare ${cur} with ${l.name}`, icon: <GitCompare />, disabled: l.current, onSelect: () => actions.compare(l.name, cur, 'mergeBase') },
       {
@@ -495,7 +484,6 @@ export function GraphView({
   );
 }
 
-const validName = (v: string) => (/^[^\s~^:?*[\\]+$/.test(v.trim()) && !v.trim().startsWith('-') && !v.includes('..') && !v.trim().endsWith('.lock') ? undefined : 'Not a valid name');
 
 /** One row's slice of the graph: lines through the band and the commit's node. */
 function GraphCell({ row }: { row: GraphRow }) {

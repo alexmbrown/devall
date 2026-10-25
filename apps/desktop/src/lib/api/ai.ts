@@ -461,6 +461,15 @@ export interface TodoSuggestions {
   meta: Meta;
 }
 
+/** A commit message for the staged diff (secrets masked before any model sees it). */
+export interface CommitMessageSuggestion {
+  subject: string;
+  body: string;
+  /** subject + blank line + body. */
+  message: string;
+  meta: Meta;
+}
+
 /** An HTTP exchange for "explain this response" / "suggest tests". Headers are `[name, value]`. */
 export interface ResponseContext {
   method?: string;
@@ -602,6 +611,7 @@ export interface FeatureMap {
   suggestTests: { input: ResponseContext; output: TestSuggestions };
   summarizeNotes: { input: { paths?: string[] }; output: NotesSummary };
   todosFromText: { input: { text: string }; output: TodoSuggestions };
+  commitMessage: { input: { diff: string; branch?: string; recent?: string[]; hint?: string }; output: CommitMessageSuggestion };
 }
 export type Feature = keyof FeatureMap;
 

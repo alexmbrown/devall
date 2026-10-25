@@ -23,26 +23,38 @@ import {
   Split,
   Undo2,
 } from 'lucide-react';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { CodeDiff } from '@/components/editor/CodeEditor';
-import { Menu, type MenuItemDef } from '@/components/ui/Menu';
-import { Callout, Empty, RelTime, Segmented, Spinner } from '@/components/ui/misc';
-import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
+import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
+import { Callout, Checkbox, Empty, MOD, RelTime, Segmented, Spinner, copyText, isMac } from '@/components/ui/misc';
+import { confirmDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
-import { gitApi, type CompareHint, type CompareMode, type GitFile, type GitOperation, type GitStatus, type Repo, type RepoSummary } from '@/lib/api/git';
-import { useNav, useViewLabel, useViewState } from '@/store/nav';
+import { gitApi, type CompareHint, type CompareMode, type GitFile, type GitOperation, type GitStatus, type OpResult, type Repo, type RepoSummary, type StashEntry } from '@/lib/api/git';
+import { useActiveViewRef, useNav, useViewLabel, useViewState } from '@/store/nav';
 import { listenGitChanges, useRepos } from '@/store/repos';
 import { useFsVersion, useWorkspace } from '@/store/workspace';
 import { SidePane } from '@/components/layout/SidePane';
+import { AiAssistButton } from '@/features/ai/AiAssistButton';
 import { RepoBadges, cloneRepo, locateRepo, openReposDialog, openSwitchBranch, runBulk, saveDiscovered } from './dialogs';
 import { compareTitle, formatGitParam, gitTabLabel, groupRepos, isMultiRepo, parseGitParam, upstreamLabel } from './model';
-import { CompareFooter, CompareMain, CompareSide, compareTabLabel } from './CompareView';
+import { CompareFooter, CompareMain, CompareSide, compareTabLabel, createMergeRequest } from './CompareView';
 import { rememberedBase, useCompare, type CompareSpec } from './compareStore';
 import { diffLanguage } from './DiffPane';
 import { GraphView, useGraphNav } from './GraphView';
 import { HunkView } from './HunkView';
-import { RefPickerHost } from './RefPicker';
+import { RefPickerHost, pickRef } from './RefPicker';
 import { RefsSide } from './RefsSide';
+import * as op from './branchOps';
+import { ConflictView } from './ConflictView';
+import { FileView, useFileViewRequest, type FileMode } from './BlameView';
+import { GitFormHost } from './formDialog';
+import { useGitActions } from './gitActions';
+import { gitShortcut } from './keys';
+import { PullRequestHost } from './PullRequestDialog';
+import { RebaseDialogHost, openInteractiveRebase } from './RebaseDialog';
+import { StashView } from './StashView';
+import { UndoButtons, useUndo } from './undo';
 import './git.css';
 
 const LETTER: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Conflict', '?': 'Untracked' };
@@ -88,6 +100,13 @@ export default function GitPage() {
   const [ignoreWs, setIgnoreWs] = useViewState('ignoreWs', false);
   const [menuItems, setMenuItems] = useState<MenuItemDef[]>([]);
   const [hint, setHint] = useState<CompareHint | null>(null);
+  /** Blame / history of a file, over the main pane. */
+  const [fileView, setFileView] = useState<{ path: string; mode: FileMode; rev?: string | null } | null>(null);
+  /** A stash previewed in the graph tab's main pane. */
+  const [stashSel, setStashSel] = useState<StashEntry | null>(null);
+  const [amend, setAmend] = useState(false);
+  const active = useActiveViewRef();
+  const rowCtx = useContextMenu();
   const message = messages[repoArg ?? ''] ?? '';
   const setMessage = (m: string) => setMessages((x) => ({ ...x, [repoArg ?? ''] : m }));
   const tab: Tab = route.compare ? 'compare' : route.commit ? 'history' : viewTab;
@@ -122,7 +141,14 @@ export default function GitPage() {
     setStatus(null);
     setSel(null);
     setHint(null);
+    setFileView(null);
+    setStashSel(null);
+    setAmend(false);
   }, [repoArg, root]);
+  // The undo history follows the repository (and anything that changed it).
+  useEffect(() => {
+    if (repoReady) void useUndo.getState().load(root, repoArg);
+  }, [root, repoArg, repoReady, status]);
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
@@ -172,7 +198,8 @@ export default function GitPage() {
 
   const selFile = sel ? status?.files.find((f) => f.path === sel.path) : undefined;
   const untrackedSel = !!sel && !sel.staged && selFile?.unstaged === '?';
-  const showSplit = !!sel && (untrackedSel || diffMode === 'split' || selFile?.staged === 'U');
+  const conflictSel = !!sel && selFile?.staged === 'U';
+  const showSplit = !!sel && !conflictSel && (untrackedSel || diffMode === 'split');
   useEffect(() => {
     if (!sel || !repoReady || !showSplit) return setDiff(null);
     gitApi.diff(root, repoArg, sel.path, sel.staged).then(setDiff).catch(() => setDiff(null));
@@ -258,6 +285,17 @@ export default function GitPage() {
       useGraphNav.getState().go(route.commit);
     }
   }, [route.commit]);
+  const fileReq = useFileViewRequest((s) => s.req);
+  const handledFileReq = useRef(fileReq?.n ?? 0);
+  useEffect(() => {
+    if (!fileReq || fileReq.n === handledFileReq.current) return;
+    handledFileReq.current = fileReq.n;
+    setFileView({ path: fileReq.path, mode: fileReq.mode, rev: fileReq.rev });
+  }, [fileReq]);
+  const graphJump = useGraphNav((s) => s.jump);
+  useEffect(() => {
+    if (graphJump) setStashSel(null);
+  }, [graphJump]);
   const onSelectCommit = useCallback(
     (sha: string | null) => {
       lastCommit.current = sha;
@@ -268,6 +306,41 @@ export default function GitPage() {
 
   const staged = useMemo(() => status?.files.filter((f) => f.staged !== '.' && f.staged !== '?') ?? [], [status]);
   const changes = useMemo(() => status?.files.filter((f) => f.unstaged !== '.') ?? [], [status]);
+
+  // GitKraken-like keys (see keys.ts) and the palette's Git commands, bound to this repo. The
+  // handlers are set further down (they need the page's functions).
+  const handlers = useRef<Record<string, (() => unknown) | undefined>>({});
+  useEffect(() => {
+    if (!repoReady) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!active.current || document.querySelector('.overlay')) return;
+      const k = gitShortcut(e, isMac);
+      const h = k && handlers.current[k];
+      if (!h) return;
+      e.preventDefault();
+      h();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [repoReady, active]);
+  useEffect(() => {
+    if (!repoReady) return;
+    const h = () => handlers.current;
+    const name = multi && selected ? ` (${selected.name})` : '';
+    useGitActions.getState().set([
+      { id: 'undo', label: `Git: Undo${name}`, keywords: 'undo revert back history', hint: `${MOD}+Z`, run: () => h().undo?.() },
+      { id: 'redo', label: `Git: Redo${name}`, keywords: 'redo again history', hint: isMac ? '⇧⌘Z' : 'Ctrl+Shift+Z', run: () => h().redo?.() },
+      { id: 'fetch', label: `Git: Fetch all remotes${name}`, keywords: 'fetch prune remote update', hint: `${MOD}+L`, run: () => h().fetch?.() },
+      { id: 'pull', label: `Git: Pull${name}`, keywords: 'pull fast-forward update', run: () => h().pull?.() },
+      { id: 'push', label: `Git: Push${name}`, keywords: 'push upload upstream force lease', run: () => h().push?.() },
+      { id: 'branch', label: `Git: New branch…${name}`, keywords: 'branch create new checkout', hint: `${MOD}+B`, run: () => h().newBranch?.() },
+      { id: 'stash', label: `Git: Stash changes…${name}`, keywords: 'stash save shelve wip', run: () => h().stash?.() },
+      { id: 'rebase-i', label: `Git: Interactive rebase…${name}`, keywords: 'rebase interactive squash fixup reword reorder drop', run: () => h().interactiveRebase?.() },
+      { id: 'pr', label: `Git: Create pull/merge request…${name}`, keywords: 'pull request merge request pr mr github gitlab create', run: () => h().createPr?.() },
+      { id: 'history', label: `Git: File history of the selected file${name}`, keywords: 'file history blame log', hint: `${MOD}+Shift+H`, run: () => h().fileHistory?.() },
+    ]);
+    return () => useGitActions.getState().set([]);
+  }, [repoReady, multi, selected]);
 
   const run = async (label: string, fn: () => Promise<unknown>, success?: string) => {
     setBusy(label);
@@ -309,19 +382,86 @@ export default function GitPage() {
 
   const commit = () =>
     run(
-      'Commit',
+      amend ? 'Amend' : 'Commit',
       async () => {
-        if (staged.length === 0) {
+        if (staged.length === 0 && !amend) {
           const ok = await confirmDialog({ title: 'Nothing staged', message: 'Stage all changes and commit them?', confirmText: 'Stage all & commit' });
           if (!ok) throw new Error('nothing to commit');
           await gitApi.stage(root, repoArg, changes.map((f) => f.path));
         }
-        const out = await gitApi.commit(root, repoArg, message);
+        const out = await gitApi.commit(root, repoArg, message, amend);
         setMessage('');
+        setAmend(false);
         return out;
       },
-      'Committed',
+      amend ? 'Amended the last commit' : 'Committed',
     );
+  const ctxOps: op.GitCtx = { root, repo: repoArg, current: status?.branch ?? null, changed: () => (void loadStatus(), multi && void refreshOverview(repoArg ? [repoArg] : undefined)) };
+  const undoChanged = () => {
+    void loadStatus();
+    if (multi) void refreshOverview(repoArg ? [repoArg] : undefined);
+  };
+  const discardFiles = async (files: GitFile[]) => {
+    const untracked = files.filter((f) => f.unstaged === '?');
+    const what = files.length === 1 ? files[0].path : `${files.length} files`;
+    const parts: string[] = [];
+    if (untracked.length) parts.push(untracked.length === 1 ? `the untracked file ${untracked[0].path} goes to the OS trash` : `${untracked.length} untracked files go to the OS trash`);
+    if (files.length > untracked.length) parts.push(files.length - untracked.length === 1 && files.length === 1 ? 'the file goes back to its staged (or committed) version' : 'tracked files go back to their staged (or committed) version');
+    const text = parts.join('; ');
+    const ok = await confirmDialog({
+      title: `Discard changes to ${what}?`,
+      message: `${text[0].toUpperCase()}${text.slice(1)}. Undo (${MOD}+Z) brings the changes back.`,
+      confirmText: 'Discard',
+      danger: true,
+    });
+    if (ok) await run('Discard', () => gitApi.discard(root, repoArg, files.map((f) => f.path)));
+  };
+  const fileMenu = (f: GitFile, isStaged: boolean): MenuItemDef[] => [
+    { heading: f.path },
+    isStaged ? { label: 'Unstage', onSelect: () => void run('Unstage', () => gitApi.unstage(root, repoArg, [f.path])) } : { label: 'Stage', onSelect: () => void run('Stage', () => gitApi.stage(root, repoArg, [f.path])) },
+    ...(!isStaged && f.staged !== 'U' ? [{ label: f.unstaged === '?' ? 'Move to trash…' : 'Discard changes…', danger: true, onSelect: () => void discardFiles([f]) }] : []),
+    { separator: true },
+    { label: 'Blame', disabled: f.unstaged === '?' || f.staged === 'A', onSelect: () => setFileView({ path: f.path, mode: 'blame' }) },
+    { label: `File history (${MOD}+Shift+H)`, disabled: f.unstaged === '?', onSelect: () => setFileView({ path: f.path, mode: 'history' }) },
+    { separator: true },
+    { label: 'Copy path', onSelect: () => void copyText(f.path, 'Path copied') },
+    ...(status?.repoRoot && f.unstaged !== 'D'
+      ? [
+          {
+            label: 'Reveal in file manager',
+            onSelect: () => {
+              const sep = status.repoRoot!.includes('\\') ? '\\' : '/';
+              void revealItemInDir(`${status.repoRoot}${sep}${f.path.split('/').join(sep)}`).catch((e) => toast.error('Could not reveal it', errorMessage(e)));
+            },
+          },
+        ]
+      : []),
+  ];
+  const stashNow = () => void op.saveStash(ctxOps);
+  const interactiveRebase = (base: string, label: string) => openInteractiveRebase({ root, repo: repoArg, base, label, onDone: undoChanged });
+  handlers.current = {
+    undo: () => void useUndo.getState().step(root, repoArg, 'undo', 1, undoChanged),
+    redo: () => void useUndo.getState().step(root, repoArg, 'redo', 1, undoChanged),
+    stage: () => tab === 'changes' && sel && !sel.staged && !conflictSel && void run('Stage', () => gitApi.stage(root, repoArg, [sel.path])),
+    unstage: () => tab === 'changes' && sel && sel.staged && void run('Unstage', () => gitApi.unstage(root, repoArg, [sel.path])),
+    stageAll: () => tab === 'changes' && changes.length && void run('Stage', () => gitApi.stage(root, repoArg, changes.map((f) => f.path))),
+    unstageAll: () => tab === 'changes' && staged.length && void run('Unstage', () => gitApi.unstage(root, repoArg, staged.map((f) => f.path))),
+    fetch: () => void op.fetchRemote(ctxOps, null, true),
+    pull: () => void op.pull(ctxOps),
+    push: () => void op.push(ctxOps),
+    newBranch: () => void op.newBranch(ctxOps),
+    stash: stashNow,
+    fileHistory: () => tab === 'changes' && sel && setFileView({ path: sel.path, mode: 'history' }),
+    interactiveRebase: async () => {
+      const base = await pickRef({ root, repo: repoArg, title: `Interactive rebase of ${status?.branch ?? 'HEAD'} onto…` });
+      if (base) interactiveRebase(base, base);
+    },
+    createPr: () => {
+      if (tab === 'compare' && useCompare.getState().data) return void createMergeRequest();
+      void openCompare();
+      toast.info('Review the comparison first', 'Then use “Create merge request…” under the file list.');
+    },
+  };
 
   const branchMenu = async (): Promise<MenuItemDef[]> => {
     const branches = await gitApi.branches(root, repoArg).catch(() => [] as string[]);
@@ -332,10 +472,8 @@ export default function GitPage() {
       {
         label: 'New branch…',
         icon: <Plus />,
-        onSelect: async () => {
-          const name = await promptDialog({ title: 'New branch', label: 'Branch name', validate: (v) => (/^[\w./-]+$/.test(v) && !v.startsWith('-') ? undefined : 'Invalid branch name') });
-          if (name) run('Create branch', () => gitApi.checkout(root, repoArg, name, true));
-        },
+        hint: `${MOD}+B`,
+        onSelect: () => void op.newBranch(ctxOps),
       },
       ...(multi ? [{ separator: true }, { label: 'Switch branch across repositories…', icon: <Split />, onSelect: () => openSwitchBranch(selected ? [selected.name] : undefined) }] : []),
     ];
@@ -344,7 +482,7 @@ export default function GitPage() {
   const row = (f: GitFile, isStaged: boolean) => {
     const letter = isStaged ? f.staged : f.unstaged;
     return (
-      <div key={`${isStaged}|${f.path}`} className={clsx('list-item git-row', sel?.path === f.path && sel.staged === isStaged && 'on')} onClick={() => setSel({ path: f.path, staged: isStaged })} title={LETTER[letter] ?? letter}>
+      <div key={`${isStaged}|${f.path}`} className={clsx('list-item git-row', sel?.path === f.path && sel.staged === isStaged && 'on')} onClick={() => (setSel({ path: f.path, staged: isStaged }), setFileView(null))} onContextMenu={(e) => rowCtx.open(e, fileMenu(f, isStaged))} title={`${LETTER[letter] ?? letter} — right-click for more (S stage, U unstage)`}>
         <span className={clsx('git-letter', `g-${letter === '?' ? 'U' : letter}`)}>{letter === '?' ? 'U' : letter}</span>
         <span className="truncate grow mono xs">{f.path}</span>
         {isStaged ? (
@@ -353,14 +491,13 @@ export default function GitPage() {
           </button>
         ) : (
           <>
-            {letter !== '?' && (
+            {letter !== 'U' && (
               <button
                 className="icon-btn sm danger"
-                title="Discard changes"
-                onClick={async (e) => {
+                title={letter === '?' ? 'Move to trash (undoable)' : 'Discard changes (undoable)'}
+                onClick={(e) => {
                   e.stopPropagation();
-                  if (await confirmDialog({ title: `Discard changes to ${f.path}?`, message: 'The working-tree file goes back to its staged (or committed) version. This cannot be undone.', confirmText: 'Discard', danger: true }))
-                    run('Discard', () => gitApi.discard(root, repoArg, [f.path]));
+                  void discardFiles([f]);
                 }}
               >
                 <Undo2 />
@@ -427,10 +564,11 @@ export default function GitPage() {
       <button className="icon-btn sm" title={`Compare ${status?.branch ?? 'HEAD'} with its base… (review before a merge request)`} disabled={!repoReady} onClick={() => void openCompare()}>
         <GitCompare />
       </button>
-      <button className="icon-btn sm" title="Pull (fast-forward only)" disabled={!!busy || !repoReady} onClick={() => run('Pull', () => gitApi.sync(root, repoArg, 'pull'), 'Pulled')}>
+      {repoReady && <UndoButtons root={root} repo={repoArg} onChanged={undoChanged} />}
+      <button className="icon-btn sm" title={`Pull (fast-forward only, ${MOD}+Shift+L)`} disabled={!!busy || !repoReady} onClick={() => void op.pull(ctxOps)}>
         <ArrowDown />
       </button>
-      <button className="icon-btn sm" title="Push" disabled={!!busy || !repoReady} onClick={() => run('Push', () => gitApi.sync(root, repoArg, 'push'), 'Pushed')}>
+      <button className="icon-btn sm" title={`Push (${MOD}+Shift+P) — sets the upstream on the first push; offers force-with-lease when rejected`} disabled={!!busy || !repoReady} onClick={() => void op.push(ctxOps)}>
         <ArrowUp />
       </button>
       <button className="icon-btn sm" title="Refresh" onClick={() => (loadStatus(), multi && refreshOverview())}>
@@ -440,33 +578,35 @@ export default function GitPage() {
   );
 
   const conflicted = status?.files.filter((f) => f.staged === 'U').length ?? 0;
+  const resume = async (skip: boolean) => {
+    const label = skip ? 'Skip' : 'Continue';
+    setBusy(label);
+    try {
+      const res: OpResult = skip ? await gitApi.operationSkip(root, repoArg) : await gitApi.operationContinue(root, repoArg);
+      if (res.conflicts) toast.error('Stopped again with conflicts', 'Resolve this step’s conflicts, mark them resolved, then Continue.');
+      else if (res.paused) toast.info('Paused', res.message.split('\n').slice(-2).join('\n') || undefined);
+      else toast.success(status?.operation ? `${OPERATION[status.operation]} finished` : 'Done');
+    } catch (e) {
+      toast.error(`${label} failed`, errorMessage(e));
+    } finally {
+      setBusy(null);
+      undoChanged();
+    }
+  };
   const banners = status && (
     <>
-      {status.operation && (
-        <div className="p-3">
-          <Callout kind="warning">
-            <div className="col-sm">
-              <span className="small">
-                {OPERATION[status.operation]} is in progress{conflicted ? ` — ${conflicted} conflicted file${conflicted === 1 ? '' : 's'}: resolve, stage, then continue` : ''}.
-              </span>
-              <div className="row-sm">
-                <button className="btn btn-sm" disabled={!!busy || conflicted > 0} onClick={() => run('Continue', () => gitApi.operationContinue(root, repoArg), 'Continued')}>
-                  Continue
-                </button>
-                <button
-                  className="btn btn-sm btn-danger-ghost"
-                  disabled={!!busy}
-                  onClick={async () => {
-                    if (await confirmDialog({ title: `Abort the ${status.operation === 'cherryPick' ? 'cherry-pick' : status.operation}?`, message: 'The branch and working tree go back to where they were before it started; changes made while resolving are lost.', confirmText: 'Abort', danger: true }))
-                      void run('Abort', () => gitApi.operationAbort(root, repoArg), 'Aborted');
-                  }}
-                >
-                  Abort…
-                </button>
-              </div>
-            </div>
-          </Callout>
-        </div>
+      {(status.operation || conflicted > 0) && (
+        <OperationBanner
+          status={status}
+          busy={!!busy}
+          onPick={(path) => (setSel({ path, staged: true }), setFileView(null), switchTab('changes'))}
+          onResume={(skip) => void resume(skip)}
+          onAbort={async () => {
+            const name = status.operation === 'cherryPick' ? 'cherry-pick' : status.operation;
+            if (await confirmDialog({ title: `Abort the ${name}?`, message: 'The branch and working tree go back to where they were before it started; changes made while resolving are lost.', confirmText: 'Abort', danger: true }))
+              void run('Abort', () => gitApi.operationAbort(root, repoArg), 'Aborted');
+          }}
+        />
       )}
       {status.indexLock && status.indexLock.ageSecs >= 120 && (
         <div className="p-3">
@@ -509,10 +649,39 @@ export default function GitPage() {
       {banners}
       <div className="git-commit">
         {compareBar}
-        <textarea className="textarea" rows={3} placeholder={`Commit message (${staged.length ? `${staged.length} staged` : 'stages everything'})`} value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && commit()} />
-        <button className="btn btn-primary w-full" disabled={!!busy || !message.trim() || staged.length + changes.length === 0} onClick={commit}>
-          {busy === 'Commit' ? <Spinner /> : <GitCommitHorizontal />} Commit{multi && selected ? ` to ${selected.name}` : ''}
-        </button>
+        <div className="git-commit-box">
+          <textarea
+            className="textarea"
+            rows={3}
+            placeholder={amend ? 'New message for the last commit (empty keeps it)' : `Commit message (${staged.length ? `${staged.length} staged` : 'stages everything'}) — ${MOD}+Enter commits`}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && (message.trim() || amend) && commit()}
+          />
+          <AiAssistButton
+            feature="commitMessage"
+            compact
+            align="right"
+            className="git-commit-ai"
+            title="Suggest a message from the staged changes (local AI; secrets are masked)"
+            applyLabel="Use this message"
+            disabled={staged.length === 0}
+            input={async (prompt) => {
+              const s = await gitApi.stagedForAi(root, repoArg);
+              return { diff: s.diff, branch: s.branch ?? '', recent: s.recent, hint: prompt };
+            }}
+            onResult={(r) => setMessage(r.message)}
+          />
+        </div>
+        <div className="row-sm">
+          <button className="btn btn-primary grow" disabled={!!busy || (!message.trim() && !amend) || (!amend && staged.length + changes.length === 0)} onClick={commit}>
+            {busy === 'Commit' || busy === 'Amend' ? <Spinner /> : <GitCommitHorizontal />} {amend ? 'Amend last commit' : 'Commit'}
+            {multi && selected ? ` to ${selected.name}` : ''}
+          </button>
+          <span title="Replace the last commit with the staged changes (and the new message, if any). Undoable.">
+            <Checkbox checked={amend} onChange={setAmend} label={<span className="xs">Amend</span>} />
+          </span>
+        </div>
       </div>
       <div className="list">
         {staged.length > 0 && (
@@ -561,18 +730,33 @@ export default function GitPage() {
     compare: (base: string, head: string, mode: CompareMode) => void openCompare({ base, head, mode }),
     changed: () => void loadStatus(),
     openChanges: () => switchTab('changes'),
+    interactiveRebase,
   };
 
   const sideContent = !repoReady ? null : tab === 'changes' ? (
     changesPane
   ) : tab === 'history' ? (
-    <RefsSide root={root} repo={repoArg} version={status} onCompare={graphActions.compare} onChanged={() => void loadStatus()} />
+    <RefsSide
+      root={root}
+      repo={repoArg}
+      version={status}
+      selectedStash={stashSel?.oid ?? null}
+      actions={{
+        compare: graphActions.compare,
+        changed: undoChanged,
+        previewStash: (e) => (setStashSel(e), setFileView(null)),
+        interactiveRebase,
+        openRepo: (name) => go('git', name),
+      }}
+    />
   ) : (
     <CompareSide />
   );
 
   const changesMain =
-    sel && showSplit ? (
+    sel && conflictSel ? (
+      <ConflictView root={root} repo={repoArg} path={sel.path} version={status} onChanged={undoChanged} />
+    ) : sel && showSplit ? (
       diff ? (
         diff.binary ? (
           <Empty title="Binary file" />
@@ -649,7 +833,23 @@ export default function GitPage() {
                   <div key={g.group ?? ''}>
                     {g.group && <div className="git-group">{g.group}</div>}
                     {g.repos.map((r) => (
-                      <RepoRow key={r.name} repo={r} summary={summaries[r.name]} on={selected?.name === r.name} onOpen={() => go('git', r.name)} onRefresh={() => void refreshOverview([r.name])} />
+                      <RepoRow
+                        key={r.name}
+                        repo={r}
+                        summary={summaries[r.name]}
+                        on={selected?.name === r.name}
+                        onOpen={() => go('git', r.name)}
+                        onRefresh={() => void refreshOverview([r.name])}
+                        onClose={
+                          r.origin === 'local'
+                            ? async () => {
+                                await gitApi.localRepoClose(root, r.name).catch((e) => toast.error('Could not close it', errorMessage(e)));
+                                if (selected?.name === r.name) go('git');
+                                await refreshOverview();
+                              }
+                            : undefined
+                        }
+                      />
                     ))}
                   </div>
                 ))}
@@ -660,7 +860,20 @@ export default function GitPage() {
         {showRepo && selected && selected.state !== 'found' ? <RepoUnavailable repo={selected} onInit={() => run('git init', () => gitApi.init(root, selected.name), 'Repository created').then(() => refreshOverview())} /> : sideContent}
       </SidePane>
       <div className="pane fill">
-        {multi && !selected ? (
+        {repoReady && fileView ? (
+          <FileView
+            root={root}
+            repo={repoArg}
+            path={fileView.path}
+            mode={fileView.mode}
+            rev={fileView.rev}
+            onMode={(mode) => setFileView({ ...fileView, mode })}
+            onClose={() => setFileView(null)}
+            onOpenCommit={(hash) => (setFileView(null), onSelectCommit(hash), setViewTab('history'))}
+          />
+        ) : repoReady && tab === 'history' && stashSel ? (
+          <StashView key={stashSel.oid} ctx={ctxOps} entry={stashSel} onClose={() => setStashSel(null)} />
+        ) : multi && !selected ? (
           <Overview repos={repos} summaries={summaries} onOpen={(n) => go('git', n)} onRefresh={() => void refreshOverview()} />
         ) : !repoReady ? null : tab === 'compare' ? (
           <CompareMain repos={repos} multi={multi} onSpec={onSpec} onPickRepo={(n) => void onPickRepo(n)} />
@@ -682,14 +895,25 @@ export default function GitPage() {
         )}
       </div>
       <RefPickerHost />
+      <GitFormHost />
+      <RebaseDialogHost />
+      <PullRequestHost />
+      {rowCtx.node}
     </div>
   );
 }
 
-function RepoRow({ repo, summary, on, onOpen, onRefresh }: { repo: Repo; summary: RepoSummary | null | undefined; on: boolean; onOpen(): void; onRefresh(): void }) {
+function RepoRow({ repo, summary, on, onOpen, onRefresh, onClose }: { repo: Repo; summary: RepoSummary | null | undefined; on: boolean; onOpen(): void; onRefresh(): void; onClose?(): void }) {
   const up = upstreamLabel(summary);
+  const ctx = useContextMenu();
   return (
-    <div className={clsx('list-item git-repo-row', on && 'on')} onClick={onOpen} title={repo.path}>
+    <div
+      className={clsx('list-item git-repo-row', on && 'on')}
+      onClick={onOpen}
+      onContextMenu={onClose ? (e) => ctx.open(e, [{ heading: repo.name }, { label: 'Close (this machine only)', onSelect: onClose }, { label: 'Reveal in file manager', onSelect: () => void revealItemInDir(repo.path).catch(() => {}) }]) : undefined}
+      title={repo.origin === 'local' ? `${repo.path}\nOpened on this machine only — right-click to close` : repo.path}
+    >
+      {ctx.node}
       <div className="git-repo-line">
         <span className="small strong truncate">{repo.name}</span>
         <RepoBadges repo={repo} />
@@ -880,6 +1104,51 @@ function Overview({ repos, summaries, onOpen, onRefresh }: { repos: Repo[]; summ
           </Empty>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A paused merge/rebase/cherry-pick/revert (or a stash apply that conflicted): the conflicted files, Continue / Skip / Abort. */
+function OperationBanner({ status, busy, onPick, onResume, onAbort }: { status: GitStatus; busy: boolean; onPick(path: string): void; onResume(skip: boolean): void; onAbort(): void }) {
+  const files = status.files.filter((f) => f.staged === 'U');
+  const op = status.operation;
+  return (
+    <div className="p-3">
+      <Callout kind="warning">
+        <div className="col-sm">
+          <span className="small">
+            {op ? `${OPERATION[op]} is in progress` : 'Some files have conflicts (a stash didn’t apply cleanly)'}
+            {files.length ? ` — ${files.length} conflicted file${files.length === 1 ? '' : 's'}: open each, resolve, mark resolved${op ? ', then continue' : ''}.` : op ? ' — no conflicts left: continue.' : '.'}
+          </span>
+          {files.length > 0 && (
+            <div className="git-conflict-list">
+              {files.map((f) => (
+                <button key={f.path} className="git-conflict-file" onClick={() => onPick(f.path)} title="Open in the conflict editor">
+                  <span className="git-letter g-U">!</span>
+                  <span className="mono xs truncate">{f.path}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {op ? (
+            <div className="row-sm">
+              <button className="btn btn-sm btn-primary" disabled={busy || files.length > 0} onClick={() => onResume(false)} title={files.length ? 'Resolve every conflict first' : undefined}>
+                Continue
+              </button>
+              {op !== 'merge' && (
+                <button className="btn btn-sm" disabled={busy} onClick={() => onResume(true)} title="Drop the commit being applied and go on">
+                  Skip this commit
+                </button>
+              )}
+              <button className="btn btn-sm btn-danger-ghost" disabled={busy} onClick={onAbort}>
+                Abort…
+              </button>
+            </div>
+          ) : (
+            <span className="xs subtle">Undo ({MOD}+Z) takes the stash apply back.</span>
+          )}
+        </div>
+      </Callout>
     </div>
   );
 }

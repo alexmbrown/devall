@@ -66,6 +66,8 @@ Reply with JSON only: {\"todos\": [{\"text\": string, \"description\": string, \
 `labels`: zero to three short lowercase words (e.g. bug, review, ops). `description`: \"\" or one short sentence of context. \
 `links` holds URLs or project paths (http/…, notes/…) mentioned for that item. At most 15 items.";
 
+pub const COMMIT_SYSTEM: &str = "You write git commit messages for the staged changes shown as a unified diff. Reply with JSON only: {\"subject\": string, \"body\": string}. `subject`: imperative mood, at most 72 characters, no trailing period; follow the style of the recent subjects when given (e.g. Conventional Commits prefixes like feat:/fix: only if they use them). `body`: \"\" for small changes, else a few short lines (or a Markdown list) explaining what changed and why — wrapped at 72 characters, no restating of the diff line by line. Never invent changes that aren't in the diff. Masked values (••••••) are secrets: never guess them.";
+
 pub const REPAIR_PROMPT: &str = "Your previous answer could not be used: {problem}\nReply again with corrected JSON only, following the required shape exactly.";
 
 fn obj(props: Value) -> Value {
@@ -169,6 +171,10 @@ pub fn todos_schema() -> Value {
         "links": str_array()
     }));
     obj(json!({ "todos": { "type": "array", "items": item } }))
+}
+
+pub fn commit_schema() -> Value {
+    obj(json!({ "subject": { "type": "string" }, "body": { "type": "string" } }))
 }
 
 /// Wraps untrusted text in a tag, neutralising a closing tag inside it.

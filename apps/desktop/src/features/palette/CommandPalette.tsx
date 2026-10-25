@@ -6,6 +6,7 @@ import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, Git
 import { useImportExport } from '@/features/import';
 import { useOpenApi } from '@/features/openapi';
 import { openReposDialog, openSwitchBranch } from '@/features/git/dialogs';
+import { useGitActions } from '@/features/git/gitActions';
 import { MOCK_PALETTE_ACTIONS } from '@/features/mocks';
 import { HitIcon } from '@/features/ai/SearchTab';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
@@ -167,6 +168,7 @@ function PaletteInner({ close }: { close(): void }) {
       },
       { id: 'wb-sidebar', group: 'View', label: 'Customize sidebar…', text: 'view sidebar customize hide reorder modules', icon: <PanelLeft />, run: () => go('settings', 'sidebar') },
     );
+    for (const a of useGitActions.getState().actions) out.push({ id: `git-${a.id}`, group: 'Git', label: a.label, text: `git ${a.label} ${a.keywords}`, icon: <GitBranch />, hint: a.hint, run: a.run });
     for (const a of MOCK_PALETTE_ACTIONS) out.push({ id: `mock-${a.id}`, group: 'Mock server', label: a.label, text: `${a.label} ${a.keywords}`, icon: <Server />, run: a.run });
     for (const m of SECTIONS) out.push({ id: `go-${m.id}`, group: 'Go to', label: m.title ?? m.label, text: `go ${m.title ?? m.label} ${m.label} ${m.id}`, icon: <ArrowRight />, run: () => go(m.id) });
     for (const o of ops) out.push({ id: `op-${o.id}`, group: 'Utilities', label: o.name, text: `util ${o.name} ${o.id} ${o.category}`, icon: <Binary />, hint: o.category, run: () => go('utilities', o.id) });

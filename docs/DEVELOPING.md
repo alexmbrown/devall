@@ -78,6 +78,48 @@ behaves as before) and unlisted nested repos (depth ≤ 3, "discovered"). `repos
 - **UI:** Source control (side pane of repos by group, "All repositories" overview, bulk fetch/pull/switch branch,
   per-repo changes with hunk/line staging, commit graph and Compare & review), Repositories dialog (project menu, Projects page, Source control, palette), the new/open
   project flow (offers nested repos), Docker (Compose files in repos), Logs (open files from a repo).
+- **Local-only repos:** a worktree opened from Source control is listed in `<project data>/local-repos.json`
+  (`[{ name, path }]`, absolute paths, never in `devall.yaml`) and resolves with `origin: local` (`repos::add_local_repo`,
+  `remove_local_repo`; `Project::repos()` appends them).
+
+### Source control operations (`devall_core::repos`)
+
+| Module | What |
+|---|---|
+| `git` | the user's `git` (`GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, `core.quotePath=false`), `mutate` (one writer per repo, waits for `index.lock`), `run_env` / `run_input_env` (temporary index, editors), `git_path` |
+| `ops` | refs (upstream ↑↓, gone, worktree, annotated), branches (create/rename/delete/unmerged count/remote delete/upstream/fast-forward without checkout/move), tags (+ push / remote delete), checkout, merge (ff/no-ff/ff-only/squash), rebase, reset (soft/mixed/keep/hard), cherry-pick, revert, stage/unstage/discard/commit/pull, push (normal / set-upstream / `--force-with-lease --force-if-includes`), paused operation (continue/skip/abort); `scrub` removes credentials from network output |
+| `undo` | the journal (below) |
+| `stash`, `remotes`, `worktree` | stash list/save/apply/pop/drop/files (entries addressed by index **and** oid); remotes list (URLs credential-free)/add/rename/set-url/remove/prune/fetch; worktrees list/add/lock/unlock/remove/prune (paths checked against `git worktree list`) |
+| `conflicts` | conflicted files (`ls-files -u`), stages `:1:`/`:2:`/`:3:` + the working-tree file, labels per operation (ours/theirs swap in a rebase), save (+ `git add`), take a side, resolve as deleted, re-create markers (`--conflict=zdiff3`) |
+| `rebase` | interactive rebase from a plan: `GIT_SEQUENCE_EDITOR="cp '<plan>'"` (git's own shell on every platform) and `exec git commit --amend -F <file>` lines for new messages (no editor ever opens); `--update-refs` lines computed; autosquash ordering; plans in `<app data>/git-rebase/<id>/` (cleaned after a week) |
+| `blame` | `git blame --porcelain -M -C -w` (+ `.git-blame-ignore-revs`), `git log --follow` file history with each version's path and parent |
+
+Every local mutation goes through `undo::journaled(dir, journal, Op { kind, label, scope }, f)` (the desktop passes the
+repo's journal; the CLI and tests pass `None`). Network operations (push, fetch, prune, remote branch/tag delete) are
+never journaled, run only on explicit confirmed actions, and their output is scrubbed of URL credentials.
+
+**Undo journal.** `<project data>/git-undo.json` (`{ version, repos: { <repo name>: { undo: [...], redo: [...] } } }`,
+≤ 50 entries per repo, ≤ 30 days). Each entry records the state before and after the operation, as far as its `Scope`
+reaches: HEAD (symbolic or detached), the branch/tag refs that changed, branch upstreams, the index tree, a working-tree
+snapshot (tracked + untracked, not ignored, untracked files > 50 MB skipped — written as a tree through a temporary copy
+of the index, so the real index and files are untouched) and the stash list. Snapshot trees are anchored by
+`refs/devall/undo/<journal key>/<entry>/s` (a tree ref: invisible to `git log --all`, excluded from the graph and its
+signature) and commits that would otherwise become unreachable (an amended commit, a deleted branch's tip, a dropped stash,
+a deleted annotated tag) by `…/<entry>/k-<oid>`; dropped entries delete their refs, orphans are cleaned when the journal
+prunes. Undo restores only what the entry covers (`update-ref --stdin`, `symbolic-ref`, `update-index --index-info` for
+the index delta, `checkout-index` from a temporary index for files, the OS trash for files the operation created, `stash
+store` to rebuild the stash list); when the repository changed since it returns `Confirm` with the reasons (forcing makes
+what it replaces the redo step); commits pushed after the operation are `Refused`. Operations run while a merge/rebase/
+cherry-pick/revert is paused aren't journaled on their own: the operation is one pending entry, completed (or dropped on
+abort) when it finishes, also when finished outside the app.
+
+**Pull / merge requests** (`crates/devall-forge`): `detect(remote url, accounts)` → GitHub (github.com, `*github*`
+hosts = Enterprise, API `/api/v3`) or GitLab (`*gitlab*` hosts, API `/api/v4`), other hosts once connected as one;
+`create` (GitHub `POST /repos/{o}/{r}/pulls` + reviewers + labels; GitLab `POST /projects/:id/merge_requests` with
+`reviewer_ids` looked up by name, `Draft:` prefix), `whoami` (checks a token), `templates`, `cli` (`gh pr create` /
+`glab mr create`). Tokens live only in the OS keychain (`SecretScope("devall-forge", "*")`, entry = host); the list of
+connected hosts (no tokens) is `<app data>/git-forges.json`; errors are cleaned of the token. Network only on Connect and
+Create. Tests use a local mock HTTP server.
 
 ### Links between items (`devall:`)
 
@@ -154,6 +196,8 @@ Per project: `<app data>/projects/<folder slug>-<12 hex of SHA-256(canonical roo
 | `relay-inbox/<date>.jsonl` | desktop `modules::relay` | hosted-inbox fallback sink |
 | `repos.json` | `devall_core::repos` | this machine's repository locations `{ "<name>": "<absolute path>" }` (multi-repo projects; never committed) |
 | `git-review.json` | `devall_core::repos::review` | reviewed files of branch comparisons: repo → `<base>...<head>` → path → blob id when marked (≤ 100 comparisons per repo) |
+| `git-undo.json` | `devall_core::repos::undo` | Source control's undo/redo journal per repo (≤ 50 entries, 30 days); snapshots anchored under `refs/devall/undo/*` in each repo |
+| `local-repos.json` | `devall_core::repos` | repositories (worktrees) shown in this project on this machine only `[{ name, path }]` |
 
 Device-wide: `<app data>/history/utilities.sqlite` (utility runs: input ≤ 64 KB, secret-looking and
 `secret`-kind arguments masked, output preview ≤ 2 KB, no input/output for TOTP/password/bcrypt ops;
@@ -203,6 +247,9 @@ while the app is running.
 So do installed plugins (`<app data>/plugins/<id>/`) and every plugin approval
 (`<app data>/plugins.json`: trusted hashes, granted secrets, disabled hooks) — a repository can't
 approve its own plugins.
+Git hosting accounts for pull/merge requests are device-wide: `<app data>/git-forges.json` (`[{ host, kind, user }]`,
+no tokens — those are keychain entries in `devall_forge::token_scope()`, one per host). Interactive-rebase plans live
+in `<app data>/git-rebase/<id>/` while a rebase runs (removed after a week).
 Bring-your-own tunnel settings (ngrok domain/region/flags, cloudflared mode, Funnel port) are per
 user in `<app data>/tunnels.json`; their credentials (ngrok authtoken, basic-auth password,
 Cloudflare tunnel token) are keychain entries in `devall_webhooks::tunnels::config::secret_scope()`

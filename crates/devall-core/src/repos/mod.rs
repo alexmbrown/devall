@@ -22,12 +22,19 @@
 //! Files inside a listed repo are referenced portably as `repo:<name>/<path>` (links in notes and
 //! to-dos, OpenAPI spec sources, notebook working directories) — see [`parse_link`].
 
+pub mod blame;
 pub mod compare;
+pub mod conflicts;
 pub mod git;
 pub mod graph;
 pub mod ops;
 pub mod patch;
+pub mod rebase;
+pub mod remotes;
 pub mod review;
+pub mod stash;
+pub mod undo;
+pub mod worktree;
 #[cfg(test)]
 pub(crate) mod testgit;
 
@@ -44,6 +51,8 @@ use crate::project::{CONTENT_DIRS, Project};
 
 /// Machine-specific repo locations, in the project data folder.
 pub const REPOS_FILE: &str = "repos.json";
+/// Repositories opened on this machine only (worktrees), in the project data folder.
+pub const LOCAL_REPOS_FILE: &str = "local-repos.json";
 /// Prefix of repo-qualified paths: `repo:<name>/<path>`.
 pub const LINK_PREFIX: &str = "repo:";
 /// How deep under the project folder nested repos are looked for (`a/b/c`).
@@ -77,6 +86,9 @@ pub enum RepoOrigin {
     Containing,
     /// A nested repo under the project folder that isn't listed yet.
     Discovered,
+    /// Opened on this machine only (a worktree): kept in the project data folder's
+    /// `local-repos.json`, never in `devall.yaml`.
+    Local,
 }
 
 /// A repository as resolved on this machine.
@@ -202,6 +214,25 @@ pub fn containing_repo(dir: &Path) -> Option<PathBuf> {
     absolute(dir).ancestors().find(|d| is_git_repo(d)).map(Path::to_path_buf)
 }
 
+/// The repository a folder is in, as [`resolve`] lists it for a project there — without needing
+/// `devall.yaml`. Git commands fall back to it when the manifest is briefly missing from the work
+/// tree (e.g. mid-rebase onto a branch that doesn't have it yet), so the operation can be finished.
+pub fn containing(root: &Path) -> Option<Repo> {
+    let root = absolute(root);
+    let top = containing_repo(&root)?;
+    Some(Repo {
+        name: dir_name(&top),
+        project_prefix: rel_inside(&top, &root),
+        remote: origin_url(&top),
+        path: top,
+        origin: RepoOrigin::Containing,
+        state: RepoState::Found,
+        rel_path: None,
+        group: None,
+        overridden: false,
+    })
+}
+
 /// `remote "origin"` URL from the repo's `.git/config` (no git process; `None` for worktrees).
 pub fn origin_url(repo: &Path) -> Option<String> {
     let text = fs::read_to_string(repo.join(".git").join("config")).ok()?;
@@ -258,6 +289,20 @@ pub fn outline(repos: &[Repo]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Moves a file or folder to the OS trash — never a permanent delete. (Tests remove it instead, so
+/// they don't fill the real trash.)
+pub(crate) fn to_trash(path: &Path) -> std::result::Result<(), String> {
+    #[cfg(test)]
+    {
+        let r = if path.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) };
+        r.map_err(|e| format!("{}: {e}", path.display()))
+    }
+    #[cfg(not(test))]
+    {
+        trash::delete(path).map_err(|e| format!("couldn't move {} to the trash: {e}", path.display()))
+    }
 }
 
 /// `https://user:token@host/x.git` → `https://host/x.git`.
@@ -336,6 +381,93 @@ pub fn write_overrides(root: &Path, o: &Overrides) -> Result<()> {
     let mut json = serde_json::to_vec_pretty(o).map_err(|e| Error::Invalid(e.to_string()))?;
     json.push(b'\n');
     atomic_write(&path, &json)
+}
+
+// ---------- repositories opened on this machine only ----------
+
+/// A repository (usually a worktree) shown in this project on this machine only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRepo {
+    pub name: String,
+    /// Absolute.
+    pub path: String,
+}
+
+pub fn local_repos_path(root: &Path) -> PathBuf {
+    crate::local::project_dir(root).join(LOCAL_REPOS_FILE)
+}
+
+pub fn read_local_repos(root: &Path) -> Vec<LocalRepo> {
+    fs::read(local_repos_path(root)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn write_local_repos(root: &Path, list: &[LocalRepo]) -> Result<()> {
+    let path = local_repos_path(root);
+    if list.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| Error::Io { path: path.clone(), source: e })?;
+        }
+        return Ok(());
+    }
+    let mut json = serde_json::to_vec_pretty(list).map_err(|e| Error::Invalid(e.to_string()))?;
+    json.push(b'\n');
+    atomic_write(&path, &json)
+}
+
+/// Shows the git work tree at `folder` in this project on this machine (not in devall.yaml);
+/// returns its name (a free one based on `name` or the folder's name).
+pub fn add_local_repo(project: &Project, folder: &Path, name: Option<&str>) -> Result<String> {
+    let folder = absolute(folder);
+    if !is_git_repo(&folder) {
+        return Err(Error::Invalid(format!("{} isn't a git work tree", folder.display())));
+    }
+    let existing = project.repos();
+    if let Some(r) = existing.iter().find(|r| same(&r.path, &folder)) {
+        return Ok(r.name.clone());
+    }
+    let used: HashSet<String> = existing.iter().map(|r| r.name.to_lowercase()).collect();
+    let wanted = name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| dir_name(&folder));
+    validate_name(&wanted)?;
+    let name = free_name(&wanted, None, &used);
+    let mut list = read_local_repos(project.root());
+    list.push(LocalRepo { name: name.clone(), path: folder.display().to_string() });
+    write_local_repos(project.root(), &list)?;
+    Ok(name)
+}
+
+/// Stops showing a repository opened on this machine only (its files stay).
+pub fn remove_local_repo(project: &Project, name: &str) -> Result<()> {
+    let mut list = read_local_repos(project.root());
+    let before = list.len();
+    list.retain(|r| r.name != name);
+    if list.len() == before {
+        return Err(Error::NotFound(format!("repository {name} opened on this machine")));
+    }
+    write_local_repos(project.root(), &list)
+}
+
+/// Appends this machine's local-only repositories to a resolved list (names already taken and
+/// folders already listed are skipped).
+fn with_local(mut repos: Vec<Repo>, local: &[LocalRepo]) -> Vec<Repo> {
+    for l in local {
+        let path = absolute(Path::new(&l.path));
+        if repos.iter().any(|r| r.name.eq_ignore_ascii_case(&l.name) || same(&r.path, &path)) {
+            continue;
+        }
+        repos.push(Repo {
+            name: l.name.clone(),
+            state: state_of(&path),
+            path,
+            origin: RepoOrigin::Local,
+            rel_path: None,
+            remote: None,
+            group: Some("Worktrees".into()),
+            overridden: false,
+            project_prefix: None,
+        });
+    }
+    repos
 }
 
 // ---------- resolution ----------
@@ -455,7 +587,7 @@ pub fn find<'a>(repos: &'a [Repo], name: &str) -> Option<&'a Repo> {
 impl Project {
     /// Every repository of the project on this machine (see [`resolve`]).
     pub fn repos(&self) -> Vec<Repo> {
-        resolve(self.root(), &self.manifest, &read_overrides(self.root()), true)
+        with_local(resolve(self.root(), &self.manifest, &read_overrides(self.root()), true), &read_local_repos(self.root()))
     }
 
     /// One repository by name; only searches the folder for unlisted repos when needed.
@@ -465,7 +597,7 @@ impl Project {
         if let Some(r) = find(&quick, name) {
             return Some(r.clone());
         }
-        find(&resolve(self.root(), &self.manifest, &overrides, true), name).cloned()
+        find(&self.repos(), name).cloned()
     }
 }
 

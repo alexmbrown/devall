@@ -301,7 +301,12 @@ pub fn signature(dir: &Path) -> String {
     let mut h = Sha256::new();
     h.update(git::run(dir, &["rev-parse", "--verify", "--quiet", "HEAD"]).unwrap_or_default());
     h.update(git::run(dir, &["symbolic-ref", "--quiet", "HEAD"]).unwrap_or_default());
-    h.update(git::run(dir, &["for-each-ref", "--format=%(objectname) %(refname)"]).unwrap_or_default());
+    // The undo journal's anchors (refs/devall/…) change with every operation; the graph never shows them.
+    let refs = git::run(dir, &["for-each-ref", "--format=%(objectname) %(refname)"]).unwrap_or_default();
+    for line in refs.lines().filter(|l| !l.contains(" refs/devall/")) {
+        h.update(line);
+        h.update("\n");
+    }
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 

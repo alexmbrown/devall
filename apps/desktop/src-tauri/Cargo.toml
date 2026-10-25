@@ -17,6 +17,7 @@ tauri-build = { version = "2.5", features = [] }
 devall-core.workspace = true
 devall-script.workspace = true
 devall-ai = { path = "../../../crates/devall-ai" }
+devall-forge = { path = "../../../crates/devall-forge" }
 devall-mcp = { path = "../../../crates/devall-mcp" }
 devall-data = { path = "../../../crates/devall-data" }
 devall-history = { path = "../../../crates/devall-history" }

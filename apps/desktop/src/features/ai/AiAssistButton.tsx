@@ -27,6 +27,7 @@ const DEFAULT_LABEL: Record<Feature, string> = {
   suggestTests: 'Suggest tests',
   summarizeNotes: 'Summarize',
   todosFromText: 'Extract to-dos',
+  commitMessage: 'Suggest message',
 };
 
 const PLACEHOLDER: Partial<Record<Feature, string>> = {
@@ -43,10 +44,11 @@ const PLACEHOLDER: Partial<Record<Feature, string>> = {
   nlKubectl: 'e.g. why is the api pod restarting? / scale the worker to 3',
   suggestTests: 'Optional: what matters most in this response',
   todosFromText: 'Optional: focus, e.g. only my action items',
+  commitMessage: 'Optional: what it is for, e.g. fixes the login redirect loop',
 };
 
 /** Features whose input doesn't need a typed prompt (the button supplies everything). */
-const PROMPT_OPTIONAL: Feature[] = ['mockData', 'explainResponse', 'explainError', 'explainFailure', 'suggestTests', 'summarizeNotes', 'todosFromText'];
+const PROMPT_OPTIONAL: Feature[] = ['mockData', 'explainResponse', 'explainError', 'explainFailure', 'suggestTests', 'summarizeNotes', 'todosFromText', 'commitMessage'];
 
 export interface AiAssistButtonProps<F extends Feature> {
   feature: F;
@@ -75,7 +77,8 @@ export interface AiAssistButtonProps<F extends Feature> {
  *
  * Mount points: Utilities regex tool (`nlRegex`), HTTP client URL bar (`nlRequest`), response
  * panel (`explainResponse`), Tests tab (`suggestTests`), response body filter (`nlJq`, `nlJsonPath`),
- * Fake data (`mockData`), Notes (`summarizeNotes`), To-dos (`todosFromText`).
+ * Fake data (`mockData`), Notes (`summarizeNotes`), To-dos (`todosFromText`), Source control's commit box
+ * (`commitMessage`).
  */
 export function AiAssistButton<F extends Feature>(props: AiAssistButtonProps<F>) {
   const { feature, onResult, compact, className, disabled } = props;
@@ -491,6 +494,15 @@ export function AiResultView<F extends Feature>({ feature, result }: { feature: 
                 ))}
               </ul>
             )}
+          </>
+        );
+      }
+      case 'commitMessage': {
+        const x = r as FeatureMap['commitMessage']['output'];
+        return (
+          <>
+            <div className="strong small">{x.subject}</div>
+            {x.body && <pre className="ai-pre">{x.body}</pre>}
           </>
         );
       }

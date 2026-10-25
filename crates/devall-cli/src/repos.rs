@@ -68,6 +68,7 @@ fn state_label(r: &Repo) -> &'static str {
         (RepoState::NotARepo, _) => "not a repo",
         (_, RepoOrigin::Discovered) => "discovered",
         (_, RepoOrigin::Containing) => "contains project",
+        (_, RepoOrigin::Local) => "worktree (this machine)",
         _ => "ok",
     }
 }

@@ -23,7 +23,8 @@ use std::time::Duration;
 
 use devall_core::Project;
 use devall_core::repos::git::{self, Branches, Commit, GitFile, Summary};
-use devall_core::repos::{self, Repo, RepoState, RepoSuggestion, ops};
+use devall_core::repos::undo::Journal;
+use devall_core::repos::{self, Repo, RepoState, RepoSuggestion, ops, remotes};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -43,13 +44,32 @@ fn open(root: &str) -> R<Project> {
     Project::open(root).map_err(err)
 }
 
+/// The project's repositories — or just the folder's own repository while devall.yaml is missing
+/// from the work tree (see `repo_of`), so Source control keeps working mid-rebase.
+fn repos_for(root: &str) -> R<Vec<Repo>> {
+    match Project::open(root) {
+        Ok(p) => Ok(p.repos()),
+        Err(devall_core::Error::NotAProject(_)) => repos::containing(Path::new(root)).map(|r| vec![r]).ok_or_else(|| format!("not a /dev/all project (no devall.yaml in {root})")),
+        Err(e) => Err(err(e)),
+    }
+}
+
 /// The work tree a command acts on, from the project's own repo list. `None` = the default repo
 /// (the one containing the project folder, else the first present one).
 pub(crate) fn repo_of(root: &str, repo: Option<&str>) -> R<Repo> {
-    let p = open(root)?;
-    let r = match repo.filter(|r| !r.is_empty()) {
-        Some(name) => p.repo(name).ok_or_else(|| format!("{name} isn't a repository of this project"))?,
-        None => repos::default_repo(&p.repos()).cloned().ok_or("this project isn't in a git repository")?,
+    let name = repo.filter(|r| !r.is_empty());
+    let r = match Project::open(root) {
+        Ok(p) => match name {
+            Some(name) => p.repo(name).ok_or_else(|| format!("{name} isn't a repository of this project"))?,
+            None => repos::default_repo(&p.repos()).cloned().ok_or("this project isn't in a git repository")?,
+        },
+        // devall.yaml can vanish from the work tree mid-operation (rebasing the branch that added
+        // it onto one without it): keep the folder's own repository usable so the rebase/merge can
+        // still be resolved, continued or aborted from the app.
+        Err(devall_core::Error::NotAProject(_)) => repos::containing(Path::new(root))
+            .filter(|r| name.is_none_or(|n| r.name.eq_ignore_ascii_case(n)))
+            .ok_or_else(|| format!("not a /dev/all project (no devall.yaml in {root})"))?,
+        Err(e) => return Err(err(e)),
     };
     match r.state {
         RepoState::Found => Ok(r),
@@ -67,16 +87,20 @@ pub(crate) async fn in_repo<T: Send + 'static>(root: String, repo: Option<String
     .await
 }
 
-/// `in_repo` for commands that change the repository: serialized per repo (`git::mutate`).
-pub(crate) async fn in_repo_mut<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path) -> R<T> + Send + 'static) -> R<T> {
-    in_repo(root, repo, move |top| git::mutate(top, || f(top))).await
+/// The undo journal of a repository: `<project data>/git-undo.json`, keyed by its name.
+pub(crate) fn journal(root: &str, repo: &Repo) -> Journal {
+    Journal::for_project(Path::new(root), &repo.name)
 }
 
-fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
-    let mut args = head.to_vec();
-    args.push("--");
-    args.extend(paths.iter().map(String::as_str));
-    args
+/// `repo_of` + run `f` with the work tree and its undo journal on a worker thread (the
+/// operations serialize themselves per repository and journal what they change).
+pub(crate) async fn in_repo_j<T: Send + 'static>(root: String, repo: Option<String>, f: impl FnOnce(&Path, &Journal) -> R<T> + Send + 'static) -> R<T> {
+    blocking(move || {
+        let r = repo_of(&root, repo.as_deref())?;
+        let j = journal(&root, &r);
+        f(&r.path, &j)
+    })
+    .await
 }
 
 // ---------- repositories ----------
@@ -84,7 +108,7 @@ fn with_paths<'a>(head: &[&'a str], paths: &'a [String]) -> Vec<&'a str> {
 /// The project's repositories on this machine (listed, containing, discovered), without git.
 #[tauri::command]
 pub async fn git_repos(root: String) -> R<Vec<Repo>> {
-    blocking(move || Ok(open(&root)?.repos())).await
+    blocking(move || repos_for(&root)).await
 }
 
 #[derive(Serialize)]
@@ -100,7 +124,7 @@ pub struct RepoOverview {
 #[tauri::command]
 pub async fn git_overview(root: String, repos: Option<Vec<String>>) -> R<Vec<RepoOverview>> {
     blocking(move || {
-        let mut list = open(&root)?.repos();
+        let mut list = repos_for(&root)?;
         if let Some(only) = repos {
             list.retain(|r| only.contains(&r.name));
         }
@@ -203,33 +227,24 @@ pub async fn git_diff(root: String, repo: Option<String>, path: String, staged: 
 
 #[tauri::command]
 pub async fn git_stage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["add"], &paths)).map(|_| ())).await
+    in_repo_j(root, repo, move |top, j| ops::stage(top, Some(j), &paths)).await
 }
 
 #[tauri::command]
 pub async fn git_unstage(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["restore", "--staged"], &paths)).map(|_| ())).await
+    in_repo_j(root, repo, move |top, j| ops::unstage(top, Some(j), &paths)).await
 }
 
-/// Throws away working-tree changes (tracked files) — the UI confirms first.
+/// Throws away working-tree changes (tracked files back to their staged version, untracked
+/// files to the OS trash) — the UI confirms first; undo brings them back.
 #[tauri::command]
 pub async fn git_discard(root: String, repo: Option<String>, paths: Vec<String>) -> R<()> {
-    in_repo_mut(root, repo, move |top| git::run(top, &with_paths(&["restore"], &paths)).map(|_| ())).await
+    in_repo_j(root, repo, move |top, j| ops::discard(top, Some(j), &paths)).await
 }
 
 #[tauri::command]
 pub async fn git_commit(root: String, repo: Option<String>, message: String, amend: bool) -> R<String> {
-    if message.trim().is_empty() && !amend {
-        return Err("commit message is empty".into());
-    }
-    in_repo_mut(root, repo, move |top| {
-        let mut args = vec!["commit", "-m", message.as_str()];
-        if amend {
-            args.push("--amend");
-        }
-        git::run(top, &args)
-    })
-    .await
+    in_repo_j(root, repo, move |top, j| ops::commit(top, Some(j), &message, amend)).await
 }
 
 #[tauri::command]
@@ -237,19 +252,20 @@ pub async fn git_log(root: String, repo: Option<String>, path: Option<String>, l
     in_repo(root, repo, move |top| Ok(git::log(top, path.as_deref(), limit.unwrap_or(50)))).await
 }
 
-fn sync_args(action: &str) -> R<&'static [&'static str]> {
-    Ok(match action {
-        "fetch" => &["fetch", "--prune"],
-        "pull" => &["pull", "--ff-only"],
-        "push" => &["push"],
-        _ => return Err(format!("unknown action {action}")),
-    })
+/// Fetch (`--prune`), pull (`--ff-only`, journaled for undo) or push one repo; the output has
+/// credentials in URLs scrubbed.
+fn sync(dir: &Path, j: &Journal, action: &str) -> R<String> {
+    match action {
+        "fetch" => remotes::fetch(dir, devall_core::repos::compare::main_remote(dir).as_deref(), true),
+        "pull" => ops::pull(dir, Some(j)),
+        "push" => ops::push(dir, ops::PushMode::Normal, None, None),
+        _ => Err(format!("unknown action {action}")),
+    }
 }
 
 #[tauri::command]
 pub async fn git_sync(root: String, repo: Option<String>, action: String) -> R<String> {
-    let args = sync_args(&action)?;
-    in_repo_mut(root, repo, move |top| git::run(top, args)).await
+    in_repo_j(root, repo, move |top, j| sync(top, j, &action)).await
 }
 
 #[tauri::command]
@@ -259,10 +275,7 @@ pub async fn git_branches(root: String, repo: Option<String>) -> R<Vec<String>> 
 
 #[tauri::command]
 pub async fn git_checkout(root: String, repo: Option<String>, branch: String, create: bool) -> R<()> {
-    if !git::valid_branch(&branch) {
-        return Err(format!("“{branch}” isn't a valid branch name"));
-    }
-    in_repo_mut(root, repo, move |top| git::run(top, &if create { vec!["switch", "-c", &branch] } else { vec!["switch", &branch] }).map(|_| ())).await
+    in_repo_j(root, repo, move |top, j| ops::switch_branch(top, Some(j), &branch, create)).await
 }
 
 /// `git init` in the project folder (no repo yet) or in a listed folder that isn't a repo.
@@ -329,14 +342,23 @@ fn tail(s: &str) -> String {
     lines[lines.len().saturating_sub(3)..].join("\n")
 }
 
-/// Fetch all / Pull all (`fetch --prune`, `pull --ff-only`) over the named repos.
+/// Fetch all / Pull all (`fetch --prune`, `pull --ff-only` — journaled per repo) over the named repos.
 #[tauri::command]
 pub async fn git_bulk(root: String, repos: Vec<String>, action: String) -> R<Vec<BulkResult>> {
-    let args = match action.as_str() {
-        "fetch" | "pull" => sync_args(&action)?,
-        other => return Err(format!("{other} isn't a bulk action")),
+    if action != "fetch" && action != "pull" {
+        return Err(format!("{action} isn't a bulk action"));
+    }
+    let names: std::collections::HashMap<PathBuf, String> = {
+        let root = root.clone();
+        blocking(move || Ok(repos_for(&root)?.into_iter().map(|r| (r.path, r.name)).collect())).await?
     };
-    each_repo(root, repos, move |dir| git::mutate(dir, || git::run(dir, args)).map(|o| tail(&o))).await
+    let root2 = root.clone();
+    each_repo(root, repos, move |dir| {
+        let name = names.get(dir).cloned().unwrap_or_default();
+        let j = Journal::for_project(Path::new(&root2), &name);
+        sync(dir, &j, &action).map(|o| tail(&o))
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -415,7 +437,7 @@ pub struct GitChanged {
 pub async fn git_watch(app: AppHandle, state: State<'_, GitWatchState>, root: String) -> R<()> {
     let targets: Vec<(PathBuf, String)> = {
         let root = root.clone();
-        blocking(move || Ok(open(&root)?.repos().into_iter().filter(Repo::is_found).filter_map(|r| git::git_dir(&r.path).map(|d| (d, r.name))).collect())).await?
+        blocking(move || Ok(repos_for(&root)?.into_iter().filter(Repo::is_found).filter_map(|r| git::git_dir(&r.path).map(|d| (d, r.name))).collect())).await?
     };
     let mut cur = state.current.lock().unwrap();
     if cur.as_ref().is_some_and(|w| w.root == root && w.targets == targets) {
@@ -551,7 +573,7 @@ pub async fn repos_resolve(root: String, link: String) -> R<String> {
 /// Docker Compose files in the project's repositories (the Docker page offers `compose up`).
 #[tauri::command]
 pub async fn repos_compose_files(root: String) -> R<Vec<repos::ComposeFile>> {
-    blocking(move || Ok(repos::compose_files(&open(&root)?.repos()))).await
+    blocking(move || Ok(repos::compose_files(&repos_for(&root)?))).await
 }
 
 /// How a picked file should be referenced in project files: `repo:<name>/…`, project-relative or

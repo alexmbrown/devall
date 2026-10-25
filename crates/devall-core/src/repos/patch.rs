@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::git::{self, GitResult};
+use super::undo::{self, Journal, Kind, Op, Scope};
 
 /// Patches with more lines than this are shown on request only ("load anyway").
 pub const MAX_VIEW_LINES: usize = 5000;
@@ -347,9 +348,17 @@ pub enum LineAction {
 }
 
 /// Applies the picked hunks/lines of one file. `fingerprint` is the [`PatchView`]'s: if the diff
-/// changed since, nothing happens and the user is asked to look again.
-pub fn apply_selection(dir: &Path, path: &str, action: LineAction, fingerprint_seen: &str, selection: &[Selection], ignore_ws: bool) -> GitResult<()> {
-    git::mutate(dir, || {
+/// changed since, nothing happens and the user is asked to look again. Journaled for undo (a
+/// discard snapshots the file first).
+pub fn apply_selection(dir: &Path, j: Option<&Journal>, path: &str, action: LineAction, fingerprint_seen: &str, selection: &[Selection], ignore_ws: bool) -> GitResult<()> {
+    let lines: usize = selection.iter().map(|s| s.lines.as_ref().map_or(0, Vec::len)).sum();
+    let what = if lines > 0 { format!("{lines} line{} in {path}", if lines == 1 { "" } else { "s" }) } else { format!("{} hunk{} in {path}", selection.len(), if selection.len() == 1 { "" } else { "s" }) };
+    let op = match action {
+        LineAction::Stage => Op::new(Kind::Stage, format!("Stage {what}"), Scope::index()),
+        LineAction::Unstage => Op::new(Kind::Unstage, format!("Unstage {what}"), Scope::index()),
+        LineAction::Discard => Op::new(Kind::Discard, format!("Discard {what}"), Scope::paths(vec![path.to_string()])),
+    };
+    undo::journaled(dir, j, op, || {
         let raw = file_diff_raw(dir, path, action == LineAction::Unstage, ignore_ws)?;
         if fingerprint(&raw) != fingerprint_seen {
             return Err("the file changed since its diff was shown — look at it again and retry".into());

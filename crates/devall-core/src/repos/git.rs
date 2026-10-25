@@ -3,6 +3,7 @@
 //! resolve the folder from the project's repo list ([`super::resolve`]) — never from user input.
 
 use std::collections::{HashMap, VecDeque};
+use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -55,7 +56,29 @@ pub fn run_bytes(dir: &Path, args: &[&str]) -> GitResult<Vec<u8>> {
 
 /// Runs git with `input` on stdin (`apply -`, `hash-object --stdin-paths`, `check-attr --stdin`).
 pub fn run_input(dir: &Path, args: &[&str], input: &[u8]) -> GitResult<Vec<u8>> {
-    let out = output_with_input(dir, args, input)?;
+    run_input_env(dir, args, input, &[])
+}
+
+/// Extra environment for one git call (`GIT_INDEX_FILE` of a temporary index, editors).
+pub type Env<'a> = &'a [(&'a str, &'a OsStr)];
+
+/// [`run`] with extra environment variables.
+pub fn run_env(dir: &Path, args: &[&str], env: Env<'_>) -> GitResult<String> {
+    let mut cmd = command(dir);
+    cmd.args(args).stdin(Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().map_err(spawn_error)?;
+    if !out.status.success() {
+        return Err(failure(&out));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// [`run_input`] with extra environment variables.
+pub fn run_input_env(dir: &Path, args: &[&str], input: &[u8], env: Env<'_>) -> GitResult<Vec<u8>> {
+    let out = output_with_input(dir, args, input, env)?;
     if !out.status.success() {
         return Err(failure(&out));
     }
@@ -67,8 +90,33 @@ pub fn output(dir: &Path, args: &[&str]) -> GitResult<Output> {
     command(dir).args(args).stdin(Stdio::null()).output().map_err(spawn_error)
 }
 
-fn output_with_input(dir: &Path, args: &[&str], input: &[u8]) -> GitResult<Output> {
-    let mut child = command(dir).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(spawn_error)?;
+/// [`output`] with extra environment variables.
+pub fn output_env(dir: &Path, args: &[&str], env: Env<'_>) -> GitResult<Output> {
+    let mut cmd = command(dir);
+    cmd.args(args).stdin(Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.output().map_err(spawn_error)
+}
+
+/// stdout and stderr of a finished command, trimmed (git prints progress and hints on stderr).
+pub fn combined(out: &Output) -> String {
+    format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).trim().to_string()
+}
+
+/// A path inside the repository's git dir (`index`, `MERGE_HEAD`, `rebase-merge`…), absolute.
+pub fn git_path(dir: &Path, name: &str) -> GitResult<PathBuf> {
+    let p = run(dir, &["rev-parse", "--git-path", name])?.trim().to_string();
+    Ok(if Path::new(&p).is_absolute() { PathBuf::from(p) } else { dir.join(p) })
+}
+
+fn output_with_input(dir: &Path, args: &[&str], input: &[u8], env: Env<'_>) -> GitResult<Output> {
+    let mut cmd = command(dir);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(spawn_error)?;
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let data = input.to_vec();
     // Written from another thread so a large input can't deadlock against a full stdout pipe.

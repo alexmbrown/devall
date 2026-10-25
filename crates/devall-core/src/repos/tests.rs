@@ -318,3 +318,37 @@ fn git_status_and_switch_across_repos() {
     git::install_scan_hook(&repos[0].path).unwrap();
     assert!(git::has_scan_hook(&repos[0].path) && !git::has_scan_hook(&repos[1].path), "hooks are per repo");
 }
+
+#[test]
+fn local_only_repos_stay_out_of_devall_yaml() {
+    let _iso = crate::local::isolate_for_tests();
+    let (tmp, p) = workspace();
+    let wt = tmp.path().join("ws").join("shop-feature");
+    fake_repo(&wt, None);
+    let name = add_local_repo(&p, &wt, None).unwrap();
+    assert_eq!(name, "shop-feature");
+    let r = p.repos().into_iter().find(|r| r.name == name).unwrap();
+    assert_eq!(r.origin, RepoOrigin::Local);
+    assert_eq!(r.state, RepoState::Found);
+    assert!(p.repo(&name).is_some());
+    assert!(!fs::read_to_string(p.root().join("devall.yaml")).unwrap().contains("shop-feature"));
+    // Adding it again returns the same name; a folder that isn't a repo is refused.
+    assert_eq!(add_local_repo(&p, &wt, Some("other")).unwrap(), name);
+    assert!(add_local_repo(&p, tmp.path(), None).is_err());
+    remove_local_repo(&p, &name).unwrap();
+    assert!(p.repo(&name).is_none());
+    assert!(remove_local_repo(&p, &name).is_err());
+}
+
+#[test]
+fn containing_repo_without_a_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    fake_repo(dir.path(), None);
+    let sub = dir.path().join("api");
+    std::fs::create_dir_all(&sub).unwrap();
+    let r = super::containing(&sub).expect("the folder is inside a repo");
+    assert_eq!(r.origin, super::RepoOrigin::Containing);
+    assert_eq!(r.project_prefix.as_deref(), Some("api"));
+    let outside = tempfile::tempdir().unwrap();
+    assert!(super::containing(outside.path()).is_none());
+}

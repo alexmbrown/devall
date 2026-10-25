@@ -8,6 +8,7 @@ import { ChangedFileList, Counts, StatusLetter } from './ChangedFileList';
 import { useCompare } from './compareStore';
 import { DiffPane } from './DiffPane';
 import { displayOrder } from './review';
+import { fileViewItems } from './BlameView';
 
 /**
  * The selected commit in the graph: message, author, parents and refs, its files (against its
@@ -79,7 +80,7 @@ export function CommitDetails({ root, repo, sha, onJump, onCompareParent }: { ro
             )}
           </div>
         </div>
-        <ChangedFileList main={order.main} generated={order.generated} tree={tree} selected={sel} onSelect={setSel} showGenerated={showGen} onToggleGenerated={setShowGen} />
+        <ChangedFileList main={order.main} generated={order.generated} tree={tree} selected={sel} onSelect={setSel} showGenerated={showGen} onToggleGenerated={setShowGen} menu={(f) => [{ heading: f.path }, ...fileViewItems(f.path, sha, f.status !== 'D')]} />
       </div>
       <div className="git-details-diff">
         {file ? (

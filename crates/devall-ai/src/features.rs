@@ -212,6 +212,17 @@ pub enum FeatureInput {
     TodosFromText {
         text: String,
     },
+    /// A commit message for the staged diff (secrets and credential-like strings masked even for
+    /// local models). `recent` = recent commit subjects, for the repository's style.
+    CommitMessage {
+        diff: String,
+        #[serde(default)]
+        branch: String,
+        #[serde(default)]
+        recent: Vec<String>,
+        #[serde(default)]
+        hint: String,
+    },
 }
 
 impl FeatureInput {
@@ -233,6 +244,7 @@ impl FeatureInput {
             FeatureInput::SuggestTests(_) => "suggestTests",
             FeatureInput::SummarizeNotes { .. } => "summarizeNotes",
             FeatureInput::TodosFromText { .. } => "todosFromText",
+            FeatureInput::CommitMessage { .. } => "commitMessage",
         }
     }
 
@@ -388,6 +400,7 @@ pub fn prepare(input: &FeatureInput, env: &AiEnv<'_>, provider: &Provider) -> Re
     let mut sources = Vec::new();
     let mut omitted = Vec::new();
     let mut stream = false;
+    let mut pre_redactions = 0usize;
     let mut req = ChatRequest::default();
     match input {
         FeatureInput::Ask { question } => {
@@ -599,8 +612,39 @@ pub fn prepare(input: &FeatureInput, env: &AiEnv<'_>, provider: &Provider) -> Re
             req.temperature = Some(0.2);
             req.max_tokens = Some(1200);
         }
+        FeatureInput::CommitMessage { diff, branch, recent, hint } => {
+            if diff.trim().is_empty() {
+                return Err(AiError::Invalid("nothing is staged — stage the changes to describe first".into()));
+            }
+            // A diff may add a key or token: mask credential patterns even for a local model.
+            let (masked, n) = crate::redact::redact_credentials(diff);
+            pre_redactions += n;
+            req.system = system(prompts::COMMIT_SYSTEM);
+            let mut msg = String::new();
+            if !branch.trim().is_empty() {
+                msg.push_str(&format!("Branch: {}
+", branch.trim()));
+            }
+            if !recent.is_empty() {
+                let list: Vec<String> = recent.iter().take(10).map(|r| format!("- {}", r.chars().take(120).collect::<String>())).collect();
+                msg.push_str(&format!("Recent commit subjects (for style):
+{}
+", fence("data", &list.join("
+"))));
+            }
+            if !hint.trim().is_empty() {
+                msg.push_str(&format!("What the author says about it: {}
+", clip(hint.trim(), 500)));
+            }
+            msg.push_str(&format!("Staged diff:
+{}", fence("data", &clip(&masked, 24_000))));
+            req.messages.push(ChatMessage::user(msg));
+            req.json_schema = schema_spec("commit_message", prompts::commit_schema(), true);
+            req.temperature = Some(0.2);
+            req.max_tokens = Some(600);
+        }
     }
-    let redactions = env.redactor.redact_request(&mut req, provider.is_remote());
+    let redactions = pre_redactions + env.redactor.redact_request(&mut req, provider.is_remote());
     Ok(PreparedCall { feature: input.name(), request: req, sources, redactions, stream, omitted })
 }
 
@@ -1417,6 +1461,36 @@ pub async fn todos_from_text(env: &AiEnv<'_>, provider: &Provider, text: &str) -
     Ok(TodoSuggestions { meta: meta(provider, &call, Some(&out), &out.model), todos: clean_todos(&out.value, &ctx) })
 }
 
+// ── Commit messages ─────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitMessage {
+    pub subject: String,
+    pub body: String,
+    /// `subject` + blank line + `body`, ready for the commit box.
+    pub message: String,
+    pub meta: Meta,
+}
+
+/// A usable subject: one line, no trailing period, at most 72 characters.
+pub fn clean_subject(s: &str) -> String {
+    let line = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().trim_matches(['"', '`']).trim_end_matches('.').trim();
+    if line.chars().count() > 72 { line.chars().take(72).collect::<String>().trim_end().to_string() } else { line.to_string() }
+}
+
+pub async fn commit_message(env: &AiEnv<'_>, provider: &Provider, input: &FeatureInput) -> Result<CommitMessage> {
+    let call = prepare(input, env, provider)?;
+    let check = |v: &Value| -> std::result::Result<(), String> { if clean_subject(&s(v, "subject")).is_empty() { Err("the subject is empty.".into()) } else { Ok(()) } };
+    let out = structured::generate(provider, &call.request, &check).await?;
+    let subject = clean_subject(&s(&out.value, "subject"));
+    let body = s(&out.value, "body");
+    let message = if body.is_empty() { subject.clone() } else { format!("{subject}
+
+{body}") };
+    Ok(CommitMessage { meta: meta(provider, &call, Some(&out), &out.model), subject, body, message })
+}
+
 /// Runs any feature and returns its JSON result (Ask runs non-streaming here).
 pub async fn run(input: &FeatureInput, env: &AiEnv<'_>, provider: &Provider) -> Result<Value> {
     let to = |r: std::result::Result<Value, serde_json::Error>| r.map_err(|e| AiError::Protocol(e.to_string()));
@@ -1438,5 +1512,6 @@ pub async fn run(input: &FeatureInput, env: &AiEnv<'_>, provider: &Provider) -> 
         FeatureInput::SuggestTests(r) => to(serde_json::to_value(suggest_tests(env, provider, r).await?)),
         FeatureInput::SummarizeNotes { paths } => to(serde_json::to_value(summarize_notes(env, provider, paths).await?)),
         FeatureInput::TodosFromText { text } => to(serde_json::to_value(todos_from_text(env, provider, text).await?)),
+        FeatureInput::CommitMessage { .. } => to(serde_json::to_value(commit_message(env, provider, input).await?)),
     }
 }

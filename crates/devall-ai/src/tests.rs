@@ -604,3 +604,27 @@ async fn nl_mongo_and_kubectl_are_shape_checked_then_validated() {
     assert!(k.validated && k.meta.repaired, "the piped command was refused first");
     assert_eq!(FeatureInput::from_parts("nlSql", json!({"question": "q", "schema": "s"})).unwrap().name(), "nlSql");
 }
+
+#[tokio::test]
+async fn commit_message_masks_credentials_even_locally() {
+    let handler: Handler = Arc::new(|_req: &Seen| json_reply(openai_message(r#"{"subject": "Add the login form.", "body": "Validates the e-mail first."}"#)));
+    let (url, seen) = fake_server(handler).await;
+    let provider = local_provider(&url);
+    let env = AiEnv::new(None, None, Redactor::new(["hunter2-project-secret".to_string()].into_iter().collect()), false);
+    let diff = "diff --git a/src/login.ts b/src/login.ts\n+const key = 'sk-ant-abcdefghijklmnopqrstuvwxyz0123';\n+const pw = 'hunter2-project-secret';\n+export function login() {}\n";
+    let input = FeatureInput::from_parts("commitMessage", json!({ "diff": diff, "branch": "feature/login", "recent": ["feat: add signup"] })).unwrap();
+    assert_eq!(input.name(), "commitMessage");
+    let preview = features::preview(&input, &env, &provider).unwrap();
+    assert!(preview.redactions >= 2, "{}", preview.redactions);
+    let out = features::commit_message(&env, &provider, &input).await.unwrap();
+    assert_eq!(out.subject, "Add the login form");
+    assert_eq!(out.message, "Add the login form\n\nValidates the e-mail first.");
+    assert!(out.meta.redactions >= 2);
+    let sent = seen.lock().unwrap()[0].body.to_string();
+    assert!(!sent.contains("sk-ant-abcdefghijklmnop"), "credential pattern masked for a local model");
+    assert!(!sent.contains("hunter2-project-secret"), "project secret masked");
+    assert!(sent.contains("feature/login") && sent.contains("feat: add signup"));
+    let empty = FeatureInput::from_parts("commitMessage", json!({ "diff": "  " })).unwrap();
+    assert!(features::commit_message(&env, &provider, &empty).await.is_err());
+    assert_eq!(features::clean_subject("\"Fix a very long subject line that keeps going and going well beyond the seventy-two character limit.\""), "Fix a very long subject line that keeps going and going well beyond the");
+}

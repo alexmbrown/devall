@@ -2162,6 +2162,7 @@ dependencies = [
  "devall-core",
  "devall-data",
  "devall-db",
+ "devall-forge",
  "devall-history",
  "devall-http",
  "devall-import",
@@ -2192,6 +2193,20 @@ dependencies = [
  "tokio",
  "trash",
  "url",
+]
+
+[[package]]
+name = "devall-forge"
+version = "0.1.0"
+dependencies = [
+ "devall-core",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

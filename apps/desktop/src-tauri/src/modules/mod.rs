@@ -5,6 +5,8 @@ pub mod data;
 pub mod watch;
 pub mod history;
 pub mod git;
+pub mod git_forge;
+pub mod git_ops;
 pub mod git_review;
 pub mod load;
 pub mod notebooks;

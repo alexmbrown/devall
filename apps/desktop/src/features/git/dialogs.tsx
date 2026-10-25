@@ -340,6 +340,7 @@ const ORIGIN_HINT: Record<Repo['origin'], string> = {
   manifest: 'Listed in devall.yaml',
   containing: 'The repository the project folder is in (found automatically)',
   discovered: 'Found under the project folder, not listed in devall.yaml yet',
+  local: 'A worktree opened on this machine only — never written to devall.yaml',
 };
 
 export function RepoBadges({ repo }: { repo: Repo }) {
@@ -348,6 +349,7 @@ export function RepoBadges({ repo }: { repo: Repo }) {
       {repo.state === 'missing' && <span className="badge warning" title={`Not at ${repo.path} on this machine`}>missing</span>}
       {repo.state === 'notARepo' && <span className="badge warning" title="The folder exists but isn't a git repository">not a repo</span>}
       {repo.origin === 'discovered' && <span className="badge info" title={ORIGIN_HINT.discovered}>discovered</span>}
+      {repo.origin === 'local' && <span className="badge outline" title={ORIGIN_HINT.local}>worktree</span>}
       {repo.overridden && <span className="badge outline" title="Location set on this machine only (not in devall.yaml)">this machine</span>}
     </>
   );

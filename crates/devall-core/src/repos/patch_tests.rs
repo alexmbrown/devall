@@ -93,7 +93,7 @@ fn stages_unstages_and_discards_hunks() {
     two_hunks(&r);
     let v = file_view(r.root(), "f.txt", false, false, false).unwrap();
     assert_eq!(v.hunks.len(), 2);
-    apply_selection(r.root(), "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 1, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 1, lines: None }], false).unwrap();
     let staged = staged_diff(&r);
     assert!(staged.contains("+line 25 changed") && !staged.contains("line 2 changed"), "{staged}");
     // The unstaged diff now has only the first hunk.
@@ -101,11 +101,11 @@ fn stages_unstages_and_discards_hunks() {
     assert_eq!(left.hunks.len(), 1);
     // Unstage it again.
     let s = file_view(r.root(), "f.txt", true, false, false).unwrap();
-    apply_selection(r.root(), "f.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     assert!(staged_diff(&r).is_empty());
     // Discard the first hunk from the working tree: line 25's change stays.
     let w = file_view(r.root(), "f.txt", false, false, false).unwrap();
-    apply_selection(r.root(), "f.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     let now = text(&r.read("f.txt"));
     assert!(now.contains("line 2\n") && now.contains("line 25 changed\n"), "{now}");
 }
@@ -119,18 +119,18 @@ fn stages_single_lines() {
     let v = file_view(r.root(), "f.txt", false, false, false).unwrap();
     // Lines: " a", "-b", "+B1", "+B2", " c" → stage "-b" and "+B2".
     assert_eq!(v.hunks[0].lines.iter().map(|l| l.kind.as_str()).collect::<String>(), " -++ ");
-    apply_selection(r.root(), "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: Some(vec![1, 3]) }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: Some(vec![1, 3]) }], false).unwrap();
     assert_eq!(r.git(&["show", ":f.txt"]), "a\nB2\nc\n");
     assert_eq!(text(&r.read("f.txt")), "a\nB1\nB2\nc\n", "the working tree is untouched");
     // Unstage just "+B2" (index: a, B2, c vs HEAD: a, b, c → "-b", "+B2").
     let s = file_view(r.root(), "f.txt", true, false, false).unwrap();
     let plus = s.hunks[0].lines.iter().position(|l| l.kind == "+").unwrap();
-    apply_selection(r.root(), "f.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: Some(vec![plus]) }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: Some(vec![plus]) }], false).unwrap();
     assert_eq!(r.git(&["show", ":f.txt"]), "a\nc\n");
     // Discard just "+B1" from the working tree.
     let w = file_view(r.root(), "f.txt", false, false, false).unwrap();
     let b1 = w.hunks[0].lines.iter().position(|l| l.text == "B1").unwrap();
-    apply_selection(r.root(), "f.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: Some(vec![b1]) }], false).unwrap();
+    apply_selection(r.root(), None, "f.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: Some(vec![b1]) }], false).unwrap();
     assert_eq!(text(&r.read("f.txt")), "a\nB2\nc\n");
 }
 
@@ -140,7 +140,7 @@ fn refuses_a_stale_view() {
     two_hunks(&r);
     let v = file_view(r.root(), "f.txt", false, false, false).unwrap();
     r.write("f.txt", "something else entirely\n");
-    let err = apply_selection(r.root(), "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap_err();
+    let err = apply_selection(r.root(), None, "f.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap_err();
     assert!(err.contains("changed"), "{err}");
     assert!(staged_diff(&r).is_empty());
 }
@@ -160,11 +160,11 @@ fn crlf_working_tree_with_autocrlf() {
     .replace('\n', "\r\n"));
     let v = file_view(r.root(), "w.txt", false, false, false).unwrap();
     assert_eq!(v.hunks.len(), 2, "only the real changes, not every line ending");
-    apply_selection(r.root(), "w.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "w.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     let index = r.git(&["show", ":w.txt"]);
     assert!(index.contains("row 3 new\n") && !index.contains("row 18 new") && !index.contains('\r'), "{index:?}");
     let w = file_view(r.root(), "w.txt", false, false, false).unwrap();
-    apply_selection(r.root(), "w.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "w.txt", LineAction::Discard, &w.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     let now = text(&r.read("w.txt"));
     assert!(now.contains("row 3 new\r\n") && now.contains("row 18\r\n"), "{now:?}");
     assert!(!now.replace("\r\n", "").contains('\n'), "still CRLF everywhere: {now:?}");
@@ -181,7 +181,7 @@ fn crlf_blobs_keep_their_carriage_returns() {
     assert_eq!(v.hunks[0].lines[2].text, "TWO", "shown without the CR");
     let plus_two = v.hunks[0].lines.iter().position(|l| l.text == "TWO").unwrap();
     let minus = v.hunks[0].lines.iter().position(|l| l.kind == "-").unwrap();
-    apply_selection(r.root(), "c.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: Some(vec![minus, plus_two]) }], false).unwrap();
+    apply_selection(r.root(), None, "c.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: Some(vec![minus, plus_two]) }], false).unwrap();
     assert_eq!(r.git(&["show", ":c.txt"]), "one\r\nTWO\r\nthree\r\n");
 }
 
@@ -195,7 +195,7 @@ fn whitespace_only_changes_can_be_ignored() {
     let ws = file_view(r.root(), "s.txt", false, true, false).unwrap();
     let changed = |v: &PatchView| v.hunks.iter().flat_map(|h| &h.lines).filter(|l| l.kind != " ").count();
     assert!(changed(&ws) < changed(&all));
-    apply_selection(r.root(), "s.txt", LineAction::Stage, &ws.fingerprint, &[Selection { hunk: 0, lines: None }], true).unwrap();
+    apply_selection(r.root(), None, "s.txt", LineAction::Stage, &ws.fingerprint, &[Selection { hunk: 0, lines: None }], true).unwrap();
     let index = r.git(&["show", ":s.txt"]);
     assert!(index.contains("fn b() { y(); }"), "{index}");
 }
@@ -208,7 +208,7 @@ fn binary_files_are_whole_file_only() {
     r.write("b.bin", [0u8, 9, 9, 9]);
     let v = file_view(r.root(), "b.bin", false, false, false).unwrap();
     assert!(v.binary && v.hunks.is_empty());
-    assert!(apply_selection(r.root(), "b.bin", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).is_err());
+    assert!(apply_selection(r.root(), None, "b.bin", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).is_err());
 }
 
 #[test]
@@ -231,17 +231,17 @@ fn partially_unstages_a_new_file_and_stages_part_of_a_deletion() {
     r.git(&["add", "new.txt"]);
     let s = file_view(r.root(), "new.txt", true, false, false).unwrap();
     let b = s.hunks[0].lines.iter().position(|l| l.text == "b").unwrap();
-    apply_selection(r.root(), "new.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: Some(vec![b]) }], false).unwrap();
+    apply_selection(r.root(), None, "new.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: Some(vec![b]) }], false).unwrap();
     assert_eq!(r.git(&["show", ":new.txt"]), "a\nc\n", "still added, minus one line");
     // Unstaging all of it makes it untracked again.
     let s = file_view(r.root(), "new.txt", true, false, false).unwrap();
-    apply_selection(r.root(), "new.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "new.txt", LineAction::Unstage, &s.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     assert!(r.git(&["ls-files", "new.txt"]).trim().is_empty());
     // A deleted file: stage the removal of one line only.
     std::fs::remove_file(r.path("old.txt")).unwrap();
     let w = file_view(r.root(), "old.txt", false, false, false).unwrap();
     let y = w.hunks[0].lines.iter().position(|l| l.text == "y").unwrap();
-    apply_selection(r.root(), "old.txt", LineAction::Stage, &w.fingerprint, &[Selection { hunk: 0, lines: Some(vec![y]) }], false).unwrap();
+    apply_selection(r.root(), None, "old.txt", LineAction::Stage, &w.fingerprint, &[Selection { hunk: 0, lines: Some(vec![y]) }], false).unwrap();
     assert_eq!(r.git(&["show", ":old.txt"]), "x\nz\n");
 }
 
@@ -252,6 +252,6 @@ fn appends_to_a_file_without_a_final_newline() {
     r.commit("no eol");
     r.write("e.txt", "a\nb\nc\n");
     let v = file_view(r.root(), "e.txt", false, false, false).unwrap();
-    apply_selection(r.root(), "e.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
+    apply_selection(r.root(), None, "e.txt", LineAction::Stage, &v.fingerprint, &[Selection { hunk: 0, lines: None }], false).unwrap();
     assert_eq!(r.git(&["show", ":e.txt"]), "a\nb\nc\n");
 }

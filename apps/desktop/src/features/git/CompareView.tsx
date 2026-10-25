@@ -22,7 +22,6 @@ import {
   UnfoldVertical,
   WrapText,
 } from 'lucide-react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import type { monaco } from '@/components/editor/monaco';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Callout, Checkbox, Empty, RelTime, SearchInput, Segmented, Spinner, copyText } from '@/components/ui/misc';
@@ -35,7 +34,9 @@ import { ChangedFileList, Counts, StatusLetter } from './ChangedFileList';
 import { diffSides, listedFiles, navOrder, useCompare, type CompareSpec } from './compareStore';
 import { DiffPane } from './DiffPane';
 import { reviewKey, step } from './keys';
-import { ageText, compareSpec, compareTitle, hostCompareUrl, isStale, markdownSummary } from './model';
+import { ageText, compareSpec, compareTitle, isStale, markdownSummary } from './model';
+import { openPullRequest } from './PullRequestDialog';
+import { fileViewItems } from './BlameView';
 import { pickRef } from './RefPicker';
 import { nextUnreviewed, reviewProgress, reviewState } from './review';
 
@@ -124,6 +125,7 @@ function fileMenu(f: ChangedFile): MenuItemDef[] {
   const state = s.commitSel.length ? null : reviewState(f, s.marks);
   return [
     ...(state ? [{ label: state === 'reviewed' ? 'Mark not reviewed' : 'Mark reviewed', icon: <CheckCheck />, onSelect: () => void s.setReviewed([f], state !== 'reviewed') }] : []),
+    ...fileViewItems(f.path, s.data?.to ?? null, f.status !== 'D' && !f.untracked),
     { label: 'Copy path', icon: <Copy />, onSelect: () => void copyText(f.path, 'Path copied') },
     ...(f.oldPath ? [{ label: 'Copy old path', icon: <Copy />, onSelect: () => void copyText(f.oldPath!, 'Path copied') }] : []),
   ];
@@ -185,7 +187,7 @@ export function CompareFooter() {
       <div className="git-progress-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <span style={{ width: `${pct}%` }} />
       </div>
-      <button className="btn btn-primary w-full" onClick={() => void createMergeRequest()} title="Copies a Markdown summary (commits + files) and opens the host's compare page">
+      <button className="btn btn-primary w-full" onClick={() => void createMergeRequest()} title="Create the pull/merge request on GitHub or GitLab (title and description prefilled)">
         <GitPullRequestCreate /> Create merge request…
       </button>
     </div>
@@ -193,19 +195,16 @@ export function CompareFooter() {
 }
 
 /**
- * For now: copy a Markdown summary of the comparison and open the host's compare page (GitHub /
- * GitLab). Creating the MR in the app (title, description, reviewers) is the next step; this is
- * where it plugs in.
+ * "Create merge request…": opens the dialog that creates the pull request (GitHub) or merge
+ * request (GitLab) from this comparison — prefilled title, description (template + summary),
+ * branches, draft, reviewers, labels. Hosts it doesn't know fall back to copying the Markdown
+ * summary and opening the host's compare page.
  */
 export async function createMergeRequest() {
   const s = useCompare.getState();
   const data = s.data;
-  if (!data) return;
-  await copyText(markdownSummary(data), 'Summary copied as Markdown — paste it into the merge request');
-  const url = hostCompareUrl(data.remoteUrl, data.baseRemoteBranch ?? data.base.name, data.headRemoteBranch ?? data.head.name);
-  if (!url) return toast.info('No compare page to open', "The remote isn't GitHub or GitLab — paste the summary where you open the merge request.");
-  if (!data.headPushed) toast.info(`${data.head.name} isn't on the remote yet`, 'Push it first, then the compare page shows its changes.');
-  await openUrl(url).catch((e) => toast.error('Could not open the browser', errorMessage(e)));
+  if (!data || !s.root) return;
+  openPullRequest({ root: s.root, repo: s.repo, comparison: data });
 }
 
 // ---------- main pane: header + diff ----------

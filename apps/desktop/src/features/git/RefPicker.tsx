@@ -56,8 +56,8 @@ function RefPickerDialog({ p, close }: { p: Pending; close(v: string | null): vo
     const order: RefKind[] = ['branch', 'remote', 'tag'];
     list.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
     const typed = q.trim();
-    const extra: RefEntry[] = typed && looksLikeRev(typed) && !list.some((r) => r.name === typed) ? [{ name: typed, refname: '', sha: '', kind: 'commit', upstream: null, track: null, time: 0, subject: 'Use as typed (commit, tag or revision)', current: false }] : [];
-    if (!terms.length && refs?.detached) extra.push({ name: 'HEAD', refname: 'HEAD', sha: refs.head ?? '', kind: 'commit', upstream: null, track: null, time: 0, subject: 'The checked-out commit (detached)', current: true });
+    const extra: RefEntry[] = typed && looksLikeRev(typed) && !list.some((r) => r.name === typed) ? [{ name: typed, refname: '', sha: '', kind: 'commit', upstream: null, track: null, ahead: 0, behind: 0, gone: false, worktree: null, annotated: false, time: 0, subject: 'Use as typed (commit, tag or revision)', current: false }] : [];
+    if (!terms.length && refs?.detached) extra.push({ name: 'HEAD', refname: 'HEAD', sha: refs.head ?? '', kind: 'commit', upstream: null, track: null, ahead: 0, behind: 0, gone: false, worktree: null, annotated: false, time: 0, subject: 'The checked-out commit (detached)', current: true });
     return [...extra, ...list].slice(0, 400);
   }, [refs, q]);
 
