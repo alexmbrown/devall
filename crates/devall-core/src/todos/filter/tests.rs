@@ -1,7 +1,7 @@
 use chrono::{NaiveDate, NaiveTime};
 
 use super::*;
-use crate::todos::model::{Due, Recurrence, Freq};
+use crate::todos::model::{Due, Recurrence, Freq, TodoSettings};
 
 fn d(y: i32, m: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, day).unwrap()
@@ -32,6 +32,8 @@ fn task(id: &str, content: &str) -> Task {
         attachments: vec![],
         history: vec![],
         collapsed: false,
+        status: None,
+        status_order: 0,
     }
 }
 
@@ -46,7 +48,10 @@ fn tasks() -> Vec<Task> {
     b.labels = vec!["later".into(), "review-me".into()];
     b.list_id = "work".into();
     b.section_id = Some("s1".into());
+    b.status = Some("in-progress".into());
     let mut c = task("c", "Someday");
+    // An unknown column counts as the first one.
+    c.status = Some("gone".into());
     c.description = "Check the INVOICE totals".into();
     let mut e = task("e", "Standup");
     let mut due = Due::on(d(2026, 10, 26));
@@ -70,7 +75,9 @@ fn run(q: &str) -> Vec<Vec<String>> {
     let section_name = |id: &str| (id == "s1").then(|| "Backend".to_string());
     let due_date = |t: &Task| t.due.as_ref().map(|d| d.date);
     let created = |t: &Task| chrono::DateTime::from_timestamp_millis(t.created_at).unwrap().date_naive();
-    let cx = EvalCtx { today: d(2026, 10, 23), list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created };
+    let settings = TodoSettings::default();
+    let status_name = |t: &Task| settings.status_of(t).map(|c| c.name.clone());
+    let cx = EvalCtx { today: d(2026, 10, 23), list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name };
     query.groups.iter().map(|(_, e)| ts.iter().filter(|t| e.matches(t, &cx)).map(|t| t.id.clone()).collect()).collect()
 }
 
@@ -117,6 +124,22 @@ fn terms() {
 }
 
 #[test]
+fn status_terms() {
+    assert_eq!(one("status: in progress"), ["b"]);
+    assert_eq!(one("status:In  Progress"), ["b"]);
+    assert_eq!(one("status: \"In progress\" & @later"), ["b"]);
+    assert_eq!(one("status: in*"), ["b"]);
+    assert_eq!(one("status: to do"), ["a", "c", "e", "f"]);
+    assert_eq!(one("!status: to do"), ["b"]);
+    assert_eq!(one("#work & !status: in progress"), ["a"]);
+    // Filters only see open tasks: nothing is in the done column; unknown columns match nothing.
+    assert_eq!(one("status: done"), Vec::<String>::new());
+    assert_eq!(one("!status: done").len(), 5);
+    assert_eq!(one("status: blocked"), Vec::<String>::new());
+    assert_eq!(parse("status: In progress", &ctx()).unwrap().groups[0].1, Expr::Term(Term::Status("in progress".into())));
+}
+
+#[test]
 fn groups_and_escapes() {
     let q = parse("overdue, today , p2", &ctx()).unwrap();
     let titles: Vec<&str> = q.groups.iter().map(|(t, _)| t.as_str()).collect();
@@ -130,7 +153,7 @@ fn groups_and_escapes() {
 
 #[test]
 fn errors() {
-    for q in ["", "  ", "p1 &", "(today", "today)", "foo", "today | | p1", "search:", "due before: blah", "p5", "unknown: x", "today p1"] {
+    for q in ["", "  ", "p1 &", "(today", "today)", "foo", "today | | p1", "search:", "status:", "status: \"\"", "due before: blah", "p5", "unknown: x", "today p1"] {
         assert!(parse(q, &ctx()).is_err(), "{q} should fail");
     }
     assert!(parse("foo", &ctx()).unwrap_err().contains("unknown filter `foo`"));

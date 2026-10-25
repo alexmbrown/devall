@@ -238,6 +238,11 @@ fn due_label(t: &Task, today: NaiveDate) -> Option<String> {
 fn row(n: Option<usize>, depth: usize, t: &Task, data: &TodoData, today: NaiveDate, show_list: bool) -> String {
     let num = n.map(|n| format!("{n:>3}. ")).unwrap_or_else(|| "     ".into());
     let mut meta = Vec::new();
+    // The board column, when it's neither the first nor the done one ("In progress").
+    let s = &data.settings;
+    if let Some(c) = s.status_of(t).filter(|c| !c.done && s.first_column().is_some_and(|f| f.id != c.id)) {
+        meta.push(format!("[{}]", c.name));
+    }
     if let Some(d) = due_label(t, today) {
         meta.push(d);
     }
@@ -437,6 +442,9 @@ pub(crate) fn run_todo(base: &Path, cmd: TodoCmd, now: &Now, out: &mut dyn Write
             let list = data.list(&t.list_id).map(|l| l.name.clone()).unwrap_or_default();
             let section = t.section_id.as_deref().and_then(|s| data.sections.iter().find(|x| x.id == s)).map(|s| format!(" / {}", s.name)).unwrap_or_default();
             writeln!(out, "  list:     {list}{section}")?;
+            if let Some(c) = data.settings.status_of(t) {
+                writeln!(out, "  status:   {}", c.name)?;
+            }
             if let Some(d) = due_label(t, today) {
                 writeln!(out, "  due:      {d}")?;
             }
@@ -637,7 +645,7 @@ mod tests {
         assert!(out.starts_with("Updated: Write tests · Fri 30 Oct"), "{out}");
         run(b, &["comment", "2", "Checked the CI logs", "-p", p]);
         let out = run(b, &["show", "2", "-p", p]);
-        assert!(out.starts_with("Write tests\n  list:     Shop\n"), "{out}");
+        assert!(out.starts_with("Write tests\n  list:     Shop\n  status:   To do\n"), "{out}");
         assert!(out.contains("priority: p3") && out.contains("labels:   @review") && out.contains("Cover **refunds**") && out.contains("Checked the CI logs"), "{out}");
 
         // Recurring: completing moves it to the next date.

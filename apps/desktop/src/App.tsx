@@ -1,5 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
+import { Image as TauriImage } from '@tauri-apps/api/image';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ACCENT_TOKEN_NAMES, DEFAULT_ACCENT, accentTokens, renderAppIcon, validAccent } from '@/lib/accent';
 import { TopBar } from '@/components/layout/TopBar';
 import { SideNav } from '@/components/layout/SideNav';
 import { Workbench } from '@/components/workbench/Workbench';
@@ -53,6 +56,43 @@ function useThemeSync() {
   }, [density]);
 }
 
+/**
+ * The accent colour (Settings → Appearance): its tokens for the current theme on <html> (overriding
+ * tokens.css), and the window/taskbar icon repainted in it. The bundled icon is the default indigo,
+ * so the icon is only repainted once a custom colour was chosen (and back when it's reset).
+ */
+function useAccentSync() {
+  const accent = usePrefs((s) => validAccent(s.accentColor));
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      for (const name of ACCENT_TOKEN_NAMES) root.style.removeProperty(name);
+      if (!accent) return;
+      for (const [name, value] of Object.entries(accentTokens(accent, root.dataset.theme === 'dark' ? 'dark' : 'light'))) root.style.setProperty(name, value);
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, [accent]);
+
+  const painted = useRef(false);
+  useEffect(() => {
+    if (!isTauri || (!accent && !painted.current)) return;
+    painted.current = true;
+    // Debounced: the colour picker reports every step of a drag.
+    const timer = setTimeout(async () => {
+      try {
+        const { rgba, size } = await renderAppIcon(accent ?? DEFAULT_ACCENT);
+        await getCurrentWindow().setIcon(await TauriImage.new(rgba, size, size));
+      } catch {
+        /* no window icon on this platform (macOS uses the bundle's dock icon) */
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [accent]);
+}
+
 /** Pick up edits made outside the app (git pull, editor) when the window regains focus. */
 function useRefreshOnFocus() {
   useEffect(() => {
@@ -67,6 +107,7 @@ function useRefreshOnFocus() {
 
 export function App() {
   useThemeSync();
+  useAccentSync();
   useGlobalShortcuts();
   useRefreshOnFocus();
   usePluginCatalogSync();

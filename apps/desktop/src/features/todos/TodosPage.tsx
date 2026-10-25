@@ -1,64 +1,65 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Eye, EyeOff, Filter, FolderKanban, Hash, Inbox, Keyboard, List, ListChecks, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, SquareKanban, Trash2, X } from 'lucide-react';
+import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Columns3, Eye, EyeOff, Filter, FoldHorizontal, FolderKanban, Hash, Inbox, Keyboard, List, ListChecks, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, SquareKanban, Trash2, UnfoldHorizontal, X } from 'lucide-react';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Segmented, Spinner } from '@/components/ui/misc';
 import { confirmDialog } from '@/components/ui/dialogs';
 import { toast } from '@/components/ui/toast';
 import { AiAssistButton } from '@/features/ai';
-import type { NewTask, Snapshot } from '@/lib/api/todos';
+import type { Snapshot } from '@/lib/api/todos';
 import { useViewLabel } from '@/store/nav';
 import { TODO_DETAIL, usePrefs } from '@/store/prefs';
-import { addTask, completeTasks, deleteTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
+import { addTask, completeTasks, deleteTasks, moveTasks, setStatus, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
 import { BoardView } from './Board';
-import { canBoard, GROUP_LABELS, groupChoices } from './boardModel';
+import { canBoard, GROUP_LABELS, groupChoices, viewDefaults } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { openQuickAdd } from './QuickAddDialog';
 import { TaskDetail } from './TaskDetail';
 import { TodoNav } from './TodoNav';
 import { openTodoDialog, TodoDialogs } from './dialogs';
-import { LabelPicker, MovePicker, priorityItems } from './pickers';
+import { LabelPicker, MovePicker, priorityItems, statusItems } from './pickers';
 import { usePopover } from './Popover';
 import { addDays, colorVar, indentTarget, keyAction, moveCursor, openCount, outdentTarget, SORTS, viewKey, type ViewRef } from './lib';
-import { targets, useOptions, useTodoUi, useViewOptions } from './ui';
+import { DONE_DAYS, targets, useBoardPrefs, useOptions, useTodoUi, useViewOptions } from './ui';
 import { AllTasksView, CompletedView, FilterResults, LabelView, ListView, SearchResults, TodayView, UpcomingView } from './views';
 import './todos.css';
 
-/** Defaults for a task added from a view (quick add `Q`, AI suggestions). */
-function defaultsFor(view: ViewRef, snap: Snapshot): Omit<NewTask, 'text'> {
-  switch (view.kind) {
-    case 'list':
-      return { listId: view.id };
-    case 'inbox':
-      return { listId: 'inbox' };
-    case 'today':
-      return { due: { date: snap.today }, listId: snap.projectList ?? 'inbox' };
-    case 'label':
-      return { labels: [view.name], listId: snap.projectList ?? 'inbox' };
-    default:
-      return { listId: snap.projectList ?? 'inbox' };
-  }
-}
+const defaultsFor = viewDefaults;
 
-/** Layout (list / board), board grouping, sort and "show completed" for the current view. */
+/** Layout (list / board), board grouping and columns, sort and "show completed" for the current view. */
 function ViewControls({ view, sortable, completable }: { view: ViewRef; sortable: boolean; completable: boolean }) {
   const opts = useOptions(view);
   const setOpts = useViewOptions((s) => s.set);
   const showDone = useTodoUi((s) => s.showDone);
   const setUi = useTodoUi((s) => s.set);
+  const doneDays = useBoardPrefs((s) => s.doneDays);
+  const doneCollapsed = useBoardPrefs((s) => s.doneCollapsed);
+  const setBoard = useBoardPrefs((s) => s.set);
   const board = opts.layout === 'board';
+  // A status board always shows recent completions in its done column.
+  const statusBoard = board && opts.groupBy === 'status';
+  const canComplete = completable && !statusBoard;
   const check = (on: boolean) => (on ? '✓' : undefined);
   const items: MenuItemDef[] = [
     { heading: 'Layout' },
     { label: 'List', icon: <List />, hint: check(!board), onSelect: () => setOpts(view, { layout: 'list' }) },
     { label: 'Board', icon: <SquareKanban />, hint: check(board), onSelect: () => setOpts(view, { layout: 'board' }) },
     ...(board ? [{ separator: true }, { heading: 'Group by' }, ...groupChoices(view).map((g) => ({ label: GROUP_LABELS[g], hint: check(opts.groupBy === g), onSelect: () => setOpts(view, { groupBy: g }) }))] : []),
+    { separator: true },
+    { label: 'Edit columns…', icon: <Columns3 />, onSelect: () => openTodoDialog({ kind: 'columns' }) },
+    ...(statusBoard
+      ? [
+          { heading: 'Done column' },
+          ...DONE_DAYS.map((d) => ({ label: d === 1 ? 'Completed today' : `Completed in the last ${d} days`, hint: check(doneDays === d), onSelect: () => setBoard({ doneDays: d }) })),
+          { label: doneCollapsed ? 'Expand done column' : 'Collapse done column', icon: doneCollapsed ? <UnfoldHorizontal /> : <FoldHorizontal />, onSelect: () => setBoard({ doneCollapsed: !doneCollapsed }) },
+        ]
+      : []),
     ...(sortable ? [{ separator: true }, { heading: 'Sort by' }, ...SORTS.map((o) => ({ label: o.label, hint: check(opts.sort === o.value), onSelect: () => setOpts(view, { sort: o.value }) }))] : []),
-    ...(completable ? [{ separator: true }, { label: showDone ? 'Hide completed tasks' : 'Show completed tasks', icon: showDone ? <EyeOff /> : <Eye />, onSelect: () => setUi({ showDone: !showDone }) }] : []),
+    ...(canComplete ? [{ separator: true }, { label: showDone ? 'Hide completed tasks' : 'Show completed tasks', icon: showDone ? <EyeOff /> : <Eye />, onSelect: () => setUi({ showDone: !showDone }) }] : []),
   ];
   return (
     <>
-      {completable && (
+      {canComplete && (
         <button className={showDone ? 'icon-btn active' : 'icon-btn'} onClick={() => setUi({ showDone: !showDone })} title={showDone ? 'Hide completed' : 'Show completed'} aria-label="Show completed">
           {showDone ? <EyeOff /> : <Eye />}
         </button>
@@ -223,6 +224,14 @@ function BulkBar() {
         trigger={(p) => (
           <button className="btn btn-sm btn-ghost" {...p}>
             Priority
+          </button>
+        )}
+      />
+      <Menu
+        items={statusItems(snap.settings.columns, undefined, (c) => void setStatus(sel, c.id, undefined, c.done ? `Completed ${n} task${n === 1 ? '' : 's'}` : `Moved ${n} task${n === 1 ? '' : 's'} to ${c.name}`).then(() => c.done && setUi({ sel: [] })))}
+        trigger={(p) => (
+          <button className="btn btn-sm btn-ghost" {...p}>
+            Status
           </button>
         )}
       />

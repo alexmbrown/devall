@@ -49,12 +49,13 @@ import { resolveProjectLink } from '@/features/notes/links';
 import { useProjectLinkOpener } from '@/features/notes/NotesPage';
 import { useNav } from '@/store/nav';
 import { TODO_DETAIL, usePrefs } from '@/store/prefs';
-import { attachFiles, deleteTasks, moveTasks, pickAttachments, removeAttachment, updateTasks, useTodos } from '@/store/todos';
+import { attachFiles, deleteTasks, moveTasks, pickAttachments, removeAttachment, setStatus, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
+import { statusOf } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { QuickAddInput } from './QuickAddInput';
 import { CheckCircle, Composer, InlineText } from './TaskRow';
-import { LabelPicker, MovePicker, PriorityIcon, priorityItems } from './pickers';
+import { LabelPicker, MovePicker, PriorityIcon, priorityItems, StatusDot, statusItems } from './pickers';
 import { usePopover } from './Popover';
 import { appDocument, classifyLink, colorVar, dayLabel, dueInfo, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
 import { useTodoUi } from './ui';
@@ -562,6 +563,7 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
     0,
   );
   const info = dueInfo(task, today);
+  const status = statusOf(task, snap.settings.columns);
   const foreign = list?.kind === 'project' && list.id !== snap.projectList ? { name: list.name, root: list.projectRoot } : undefined;
   const go = (dir: 1 | -1) => {
     const next = moveCursor(order, task.id, dir);
@@ -631,6 +633,18 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
         <Title task={task} />
         <Description task={task} links={links} />
         <div className="td-props">
+          <span className="k">Status</span>
+          <span className="v">
+            <Menu
+              items={statusItems(snap.settings.columns, status?.id, (c) => void setStatus([task.id], c.id, undefined, c.done && !task.done ? 'Completed' : undefined))}
+              trigger={(p) => (
+                <button className="td-prop-btn" {...p} title="Board column — the done column completes the task">
+                  <StatusDot col={status} />
+                  <span className="truncate">{status?.name ?? 'No status'}</span>
+                </button>
+              )}
+            />
+          </span>
           <span className="k">Due</span>
           <span className="v">
             <button className={clsx('td-prop-btn', !info && 'placeholder')} onClick={due.toggle}>

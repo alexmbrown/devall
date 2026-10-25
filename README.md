@@ -83,6 +83,13 @@ cd apps/desktop && npm install
 cd apps/desktop && npm run app
 ```
 
+Install your own build (Windows: Start Menu "Dev All"; macOS: `~/Applications`). Run it again after
+changes to rebuild and replace the installed copy; an open copy is closed and reopened:
+
+```bash
+cd apps/desktop && npm run app:install
+```
+
 ```bash
 cargo test --workspace
 ```

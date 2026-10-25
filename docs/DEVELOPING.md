@@ -158,6 +158,21 @@ and reach the child process only through its environment. The CLI (`devall tunne
 reads the same file and keychain.
 Local AI and MCP read notes and to-dos through `devall_core::context`.
 
+**Statuses (board columns).** Boards group by workflow status by default. The columns are global
+(every list and view): `settings.columns` (`[{ id, name, color?, wipLimit?, done? }]`, default To do /
+In progress / Done) — exactly one is the done column; the first other column is where new and
+unstatused tasks land. A task's `status` is a column id (missing or unknown = the first column, which
+is how files from before columns load) and `statusOrder` its manual position in the column (ties fall
+back to list order). Completed tasks always show in the done column and keep `status` as the column
+they reopen into. `TodoOp::SetStatus` moves tasks (into the done column = complete — recurring tasks
+advance and return to the first column; out of it = reopen; `before`/`after` = position);
+`TaskPatch.status` does the same without a position; `TodoOp::SaveColumns` replaces the column list
+(tasks of removed columns go to `reassign[id]`, default the first column; `SaveSettings` never touches
+columns). Filters take `status: <name>` (`!status: …` excludes); MCP `list_todos` returns each task's
+`status` (column name) and `statuses`, `update_todo` takes `status` by name. Per-view layout, grouping
+and sort, and the done column's window/collapse are per-device UI state in `localStorage`
+(`devall.todos.viewOptions.v2`, `devall.todos.board`).
+
 New file types: one entity per file, YAML (WireMock mappings stay JSON for compatibility), stable key
 order, `version: 1`, no timestamps/UI state, written with `devall_core::fsutil::{write_yaml, atomic_write}`.
 Resolve user paths with `devall_core::fsutil::safe_join` (rejects `..`).

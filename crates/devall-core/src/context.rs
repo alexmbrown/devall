@@ -45,8 +45,16 @@ fn cap(s: &str, n: usize) -> String {
 /// One task as a Markdown checkbox line: `- [ ] Ship refunds (due Sat 2026-10-24 17:00 (every
 /// sat); deadline 2026-10-30; p1; @api) → http/payments/refund.req.yaml`.
 pub fn task_line(t: &Task) -> String {
+    task_line_with(t, None)
+}
+
+/// [`task_line`] with the board column (status) first in the details, e.g. `(in progress; due …)`.
+pub fn task_line_with(t: &Task, status: Option<&str>) -> String {
     let mut line = format!("- [{}] {}", if t.done { "x" } else { " " }, t.content);
     let mut meta = Vec::new();
+    if let Some(s) = status {
+        meta.push(s.to_lowercase());
+    }
     if let Some(d) = &t.due {
         let mut s = format!("due {}", d.date.format("%a %Y-%m-%d"));
         if let Some(time) = d.time {
@@ -91,7 +99,10 @@ pub fn tasks_markdown(data: &TodoData, rows: &[(usize, &Task)]) -> String {
             }
         }
         let indent = "  ".repeat(*depth);
-        out.push(format!("{indent}{}", task_line(t)));
+        // The board column, for tasks between the first and the done column ("in progress").
+        let s = &data.settings;
+        let status = s.status_of(t).filter(|c| !c.done && Some(c.id.as_str()) != s.first_column().map(|f| f.id.as_str())).map(|c| c.name.as_str());
+        out.push(format!("{indent}{}", task_line_with(t, status)));
         let desc = t.description.trim();
         if !desc.is_empty() {
             let short: String = desc.lines().map(str::trim).filter(|l| !l.is_empty()).take(3).collect::<Vec<_>>().join(" / ");
@@ -209,6 +220,9 @@ mod tests {
         sub.parent_id = Some(task.id.clone());
         sub.description = "Look for 400s\nthen retry".into();
         st.apply(crate::todos::TodoOp::Add { task: sub }, None, &crate::todos::Now::local()).unwrap();
+        let mut wip = crate::todos::NewTask::new("Rotate the signing key").in_list(p.id());
+        wip.status = Some("in progress".into());
+        st.apply(crate::todos::TodoOp::Add { task: wip }, None, &crate::todos::Now::local()).unwrap();
 
         let docs = collect(&p, Some(base.path()), &ContextOptions::default()).unwrap();
         let kinds: Vec<_> = docs.iter().map(|d| d.kind.as_str()).collect();
@@ -217,6 +231,7 @@ mod tests {
         assert!(todo.starts_with("- [ ] Re-sign stripe webhook replays (due "), "{todo}");
         assert!(todo.contains(" 09:00; p2; @stripe)"), "{todo}");
         assert!(todo.contains("\n  - [ ] Check the replay log\n    Look for 400s / then retry"), "{todo}");
+        assert!(todo.contains("\n- [ ] Rotate the signing key (in progress)"), "{todo}");
         assert!(!todo.contains("Personal errand"), "only the project's list");
         assert!(docs[2].text.contains("GET Create charge"));
 

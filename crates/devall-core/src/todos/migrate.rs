@@ -119,6 +119,8 @@ pub(crate) fn from_v1(dir: &Path) -> Option<(TodoData, Vec<PathBuf>)> {
                 attachments: Vec::new(),
                 history: Vec::new(),
                 collapsed: false,
+                status: None,
+                status_order: 0,
             });
         }
         converted.push(path);

@@ -91,6 +91,8 @@ pub struct NewTask {
     pub labels: Vec<String>,
     #[serde(default)]
     pub links: Vec<String>,
+    /// Board column (id or name); default and the done column: the first column.
+    pub status: Option<String>,
 }
 
 impl NewTask {
@@ -110,6 +112,7 @@ impl NewTask {
             deadline: None,
             labels: Vec::new(),
             links: Vec::new(),
+            status: None,
         }
     }
 
@@ -144,6 +147,8 @@ pub struct TaskPatch {
     #[serde(default)]
     pub add_links: Vec<String>,
     pub collapsed: Option<bool>,
+    /// Board column by id or name (case-insensitive), as [`TodoOp::SetStatus`] without a position.
+    pub status: Option<String>,
 }
 
 /// Every change to the store.
@@ -155,9 +160,29 @@ pub enum TodoOp {
     /// text with only attributes (`tomorrow p2`) keeps the content.
     Edit { id: String, text: String, #[serde(default)] ignore: Vec<String> },
     Update { ids: Vec<String>, patch: TaskPatch },
-    /// Completing a recurring task moves it to the next occurrence; un-completing an open recurring
-    /// task undoes its last completion.
+    /// Completing a recurring task moves it to the next occurrence (and back to the first board
+    /// column); un-completing an open recurring task undoes its last completion. Completed tasks
+    /// show in the done column; reopened ones go back to the column they were in.
     Complete { ids: Vec<String>, done: bool },
+    /// Moves tasks to a board column (id or name). Into the done column = complete; out of it =
+    /// reopen. `before`/`after`: place them next to that task of the column (manual order),
+    /// else tasks new to the column go to its end.
+    SetStatus {
+        ids: Vec<String>,
+        status: String,
+        #[serde(default)]
+        before: Option<String>,
+        #[serde(default)]
+        after: Option<String>,
+    },
+    /// Replaces the board columns (rename, add, remove, reorder, colour, WIP limit, done column).
+    /// Tasks of removed columns go to `reassign[<removed id>]` (default: the first column; the done
+    /// column completes them); every other task stays in the column it was in.
+    SaveColumns {
+        columns: Vec<StatusColumn>,
+        #[serde(default)]
+        reassign: HashMap<String, String>,
+    },
     Delete { ids: Vec<String> },
     /// Moves tasks (with their sub-tasks) to a list/section/parent, at `index` among the open
     /// siblings (completed ones are listed after them).
@@ -337,6 +362,43 @@ impl TodoData {
             }
         }
         changed
+    }
+
+    /// Repairs the board columns (e.g. a hand-edited file): the defaults when there are none,
+    /// exactly one done column, at least one other, unique ids. Returns whether anything changed.
+    pub fn ensure_columns(&mut self) -> bool {
+        let cols = &mut self.settings.columns;
+        let before = cols.clone();
+        cols.retain(|c| !c.name.trim().is_empty());
+        if cols.is_empty() {
+            *cols = default_columns();
+        }
+        match cols.iter().filter(|c| c.done).count() {
+            0 if cols.len() >= 2 => {
+                if let Some(last) = cols.last_mut() {
+                    last.done = true;
+                }
+            }
+            0 => cols.push(StatusColumn::new("done", "Done", Some("green"), true)),
+            1 => {}
+            _ => {
+                let keep = cols.iter().position(|c| c.done).unwrap_or(0);
+                for (i, c) in cols.iter_mut().enumerate() {
+                    c.done = i == keep;
+                }
+            }
+        }
+        if !cols.iter().any(|c| !c.done) {
+            cols.insert(0, StatusColumn::new("todo", "To do", None, false));
+        }
+        let mut seen = HashSet::new();
+        for c in cols.iter_mut() {
+            if c.id.trim().is_empty() || !seen.insert(c.id.clone()) {
+                c.id = new_id();
+                seen.insert(c.id.clone());
+            }
+        }
+        *cols != before
     }
 
     pub fn task(&self, id: &str) -> Option<&Task> {
@@ -524,6 +586,8 @@ impl TodoData {
                 links.push(l.to_string());
             }
         }
+        // A known open column; the done column and unknown names land in the first column.
+        let status = input.status.as_deref().and_then(|s| self.settings.column(s)).filter(|c| !c.done).map(|c| c.id.clone());
         let id = new_id();
         let parent_id = parent.map(|p| p.id);
         let task = Task {
@@ -547,8 +611,11 @@ impl TodoData {
             attachments: Vec::new(),
             history: Vec::new(),
             collapsed: false,
+            status,
+            status_order: 0,
         };
         self.tasks.push(task);
+        self.append_to_column(std::slice::from_ref(&id));
         if let Some(after) = input.after_id.as_deref()
             && self.task(after).is_some_and(|a| a.list_id == list_id && a.section_id == section_id && a.parent_id == parent_id)
         {
@@ -595,7 +662,11 @@ impl TodoData {
         Ok(())
     }
 
-    fn update(&mut self, ids: &[String], patch: TaskPatch, now: &Now) -> Result<usize> {
+    fn update(&mut self, ids: &[String], patch: TaskPatch, now: &Now) -> Result<(usize, Vec<Rescheduled>)> {
+        let status = match patch.status.as_deref() {
+            Some(s) => Some(self.column_id(s)?),
+            None => None,
+        };
         let due_string = match patch.due_string.as_deref() {
             Some(s) if !s.trim().is_empty() => Some(dates::parse_due(s, &now.ctx).map_err(Error::Invalid)?),
             Some(_) => Some(None),
@@ -663,7 +734,159 @@ impl TodoData {
             }
             t.updated_at = now.ms;
         }
-        Ok(ids.len())
+        let rescheduled = match status {
+            Some(s) => self.set_status(ids, &s, None, None, now)?.1,
+            None => Vec::new(),
+        };
+        Ok((ids.len(), rescheduled))
+    }
+
+    /// A column id from an id or name, or an error that lists the columns.
+    fn column_id(&self, key: &str) -> Result<String> {
+        self.settings.column(key).map(|c| c.id.clone()).ok_or_else(|| Error::Invalid(format!("unknown status `{}` — the columns are: {}", key.trim(), self.settings.column_names())))
+    }
+
+    /// Open tasks in a board column in board order: manual position, then list, section and
+    /// position in the list (the order the UI shows for "manual" sorting).
+    fn column_tasks(&self, column: &str) -> Vec<String> {
+        let mut lists: Vec<&TaskList> = self.lists.iter().collect();
+        lists.sort_by_key(|l| (l.kind != ListKind::Inbox, l.order));
+        let list_rank: HashMap<&str, usize> = lists.iter().enumerate().map(|(i, l)| (l.id.as_str(), i)).collect();
+        let section_rank: HashMap<&str, i64> = self.sections.iter().map(|s| (s.id.as_str(), s.order + 1)).collect();
+        let mut hits: Vec<&Task> = self.tasks.iter().filter(|t| !t.done && self.settings.status_of(t).is_some_and(|c| c.id == column)).collect();
+        hits.sort_by(|a, b| {
+            let key = |t: &Task| (t.status_order, list_rank.get(t.list_id.as_str()).copied().unwrap_or(usize::MAX), t.section_id.as_deref().and_then(|s| section_rank.get(s)).copied().unwrap_or(0), t.order);
+            key(a).cmp(&key(b)).then_with(|| a.id.cmp(&b.id))
+        });
+        hits.into_iter().map(|t| t.id.clone()).collect()
+    }
+
+    /// Puts open tasks at the end of the column they are in (new tasks, tasks that changed column).
+    fn append_to_column(&mut self, ids: &[String]) {
+        for id in ids {
+            let Some(col) = self.task(id).filter(|t| !t.done).and_then(|t| self.settings.status_of(t)).map(|c| c.id.clone()) else { continue };
+            let next = self.tasks.iter().filter(|t| !t.done && t.id != *id && self.settings.status_of(t).is_some_and(|c| c.id == col)).map(|t| t.status_order + 1).max().unwrap_or(0);
+            if let Some(t) = self.tasks.iter_mut().find(|t| t.id == *id) {
+                t.status_order = next;
+            }
+        }
+    }
+
+    fn set_status(&mut self, ids: &[String], key: &str, before: Option<&str>, after: Option<&str>, now: &Now) -> Result<(usize, Vec<Rescheduled>)> {
+        let col = self.settings.column(key).cloned().ok_or_else(|| Error::Invalid(format!("unknown status `{}` — the columns are: {}", key.trim(), self.settings.column_names())))?;
+        for id in ids {
+            self.task(id).ok_or_else(|| not_found("task", id))?;
+        }
+        if col.done {
+            let open: Vec<String> = ids.iter().filter(|id| self.task(id).is_some_and(|t| !t.done)).cloned().collect();
+            return self.complete(&open, true, now);
+        }
+        let arriving: Vec<String> = ids.iter().filter(|id| self.task(id).and_then(|t| self.settings.status_of(t)).is_none_or(|c| c.id != col.id)).cloned().collect();
+        // Out of the done column: reopen, into this column.
+        let reopen: Vec<String> = ids.iter().filter(|id| self.task(id).is_some_and(|t| t.done)).cloned().collect();
+        if !reopen.is_empty() {
+            self.complete(&reopen, false, now)?;
+        }
+        for id in ids {
+            let t = self.task_mut(id)?;
+            if t.status.as_deref() != Some(col.id.as_str()) {
+                t.status = Some(col.id.clone());
+                t.updated_at = now.ms;
+            }
+        }
+        let anchor = before.map(|a| (a, 0)).or(after.map(|a| (a, 1)));
+        match anchor {
+            Some((a, offset)) if !ids.iter().any(|id| id == a) => {
+                let mut order: Vec<String> = self.column_tasks(&col.id).into_iter().filter(|id| !ids.contains(id)).collect();
+                let at = order.iter().position(|id| id == a).map(|i| i + offset).unwrap_or(order.len());
+                for (k, id) in ids.iter().enumerate() {
+                    order.insert(at + k, id.clone());
+                }
+                let pos: HashMap<&str, i64> = order.iter().enumerate().map(|(i, id)| (id.as_str(), i as i64)).collect();
+                for t in &mut self.tasks {
+                    if let Some(p) = pos.get(t.id.as_str()) {
+                        t.status_order = *p;
+                    }
+                }
+            }
+            _ => self.append_to_column(&arriving),
+        }
+        Ok((ids.len(), Vec::new()))
+    }
+
+    /// Validates and saves new board columns, moving tasks as described on [`TodoOp::SaveColumns`].
+    /// Returns how many tasks changed column.
+    fn save_columns(&mut self, columns: Vec<StatusColumn>, reassign: HashMap<String, String>, now: &Now) -> Result<(usize, Vec<Rescheduled>)> {
+        let mut cols: Vec<StatusColumn> = Vec::new();
+        for mut c in columns {
+            c.name = c.name.split_whitespace().collect::<Vec<_>>().join(" ");
+            if c.name.is_empty() {
+                return Err(Error::Invalid("every column needs a name".into()));
+            }
+            if c.name.chars().count() > 40 {
+                return Err(Error::Invalid(format!("column names are at most 40 characters (`{}`)", c.name)));
+            }
+            if cols.iter().any(|x| x.name.to_lowercase() == c.name.to_lowercase()) {
+                return Err(Error::Invalid(format!("two columns are called `{}`", c.name)));
+            }
+            c.id = c.id.trim().to_string();
+            if c.id.is_empty() || c.id.len() > 64 || !c.id.chars().all(|x| x.is_ascii_alphanumeric() || x == '-' || x == '_') || cols.iter().any(|x| x.id == c.id) {
+                c.id = new_id();
+            }
+            c.color = norm_color(c.color);
+            c.wip_limit = c.wip_limit.filter(|n| *n > 0 && !c.done);
+            cols.push(c);
+        }
+        if cols.iter().filter(|c| c.done).count() != 1 {
+            return Err(Error::Invalid("exactly one column must be the done column".into()));
+        }
+        if cols.len() < 2 {
+            return Err(Error::Invalid("the board needs a column besides the done column".into()));
+        }
+        if cols.len() > 20 {
+            return Err(Error::Invalid("the board has at most 20 columns".into()));
+        }
+        let old = self.settings.clone();
+        let new_ids: HashSet<&str> = cols.iter().map(|c| c.id.as_str()).collect();
+        let first = cols.iter().find(|c| !c.done).map(|c| c.id.clone()).unwrap_or_default();
+        let done = cols.iter().find(|c| c.done).map(|c| c.id.clone()).unwrap_or_default();
+        // Where a removed column's tasks go.
+        let target = |old_id: &str| -> String { reassign.get(old_id).filter(|t| new_ids.contains(t.as_str())).cloned().unwrap_or_else(|| first.clone()) };
+        let mut changed = 0;
+        let mut complete: Vec<String> = Vec::new();
+        let mut moved: Vec<String> = Vec::new();
+        // Board edits aren't task edits: `updated_at` stays (completing below sets it).
+        for t in &mut self.tasks {
+            let unset = t.status.as_deref().is_none_or(|s| !old.columns.iter().any(|c| c.id == s && !c.done));
+            if t.done {
+                // The column it reopens into.
+                if let Some(s) = t.status.clone().filter(|s| !new_ids.contains(s.as_str())) {
+                    let to = target(&s);
+                    t.status = (to != done).then_some(to);
+                } else if t.status.as_deref() == Some(done.as_str()) {
+                    t.status = None;
+                }
+            } else {
+                // Open tasks stay in the column they're in, unless it was removed or became the done column.
+                let Some(cur) = old.status_of(t).map(|c| c.id.clone()) else { continue };
+                let to = if !new_ids.contains(cur.as_str()) { target(&cur) } else if cur == done { first.clone() } else { cur.clone() };
+                if to == done {
+                    complete.push(t.id.clone());
+                    t.status = None;
+                } else {
+                    t.status = if to == first && unset { None } else { Some(to.clone()) };
+                }
+                if to != cur {
+                    changed += 1;
+                    moved.push(t.id.clone());
+                }
+            }
+        }
+        self.settings.columns = cols;
+        moved.retain(|id| !complete.contains(id));
+        self.append_to_column(&moved);
+        let (_, rescheduled) = self.complete(&complete, true, now)?;
+        Ok((changed, rescheduled))
     }
 
     fn complete(&mut self, ids: &[String], done: bool, now: &Now) -> Result<(usize, Vec<Rescheduled>)> {
@@ -689,12 +912,15 @@ impl TodoData {
                         d.date = next;
                     }
                     t.updated_at = now.ms;
+                    // The next occurrence starts over in the first board column.
+                    t.status = None;
                     // Sub-tasks come back for the next occurrence.
                     for s in sub.iter().skip(1) {
                         let st = self.task_mut(s)?;
                         st.done = false;
                         st.completed_at = None;
                     }
+                    self.append_to_column(std::slice::from_ref(id));
                     rescheduled.push(Rescheduled { id: id.clone(), date: next });
                     continue;
                 }
@@ -710,14 +936,18 @@ impl TodoData {
                 count += 1;
                 let mut reopen = self.ancestors(id);
                 reopen.push(id.clone());
+                let mut reopened = Vec::new();
                 for a in reopen {
                     let at = self.task_mut(&a)?;
                     if at.done {
                         at.done = false;
                         at.completed_at = None;
                         at.updated_at = now.ms;
+                        reopened.push(a);
                     }
                 }
+                // Back to the column it was in before (its status), at the end.
+                self.append_to_column(&reopened);
             } else if let Some(last) = t.history.last().cloned() {
                 // Undo the last completion of a recurring task.
                 count += 1;
@@ -812,6 +1042,7 @@ impl TodoData {
     /// Applies an operation in memory.
     pub fn apply(&mut self, op: TodoOp, project: Option<&ProjectRef>, now: &Now) -> Result<Applied> {
         self.ensure_lists(project);
+        self.ensure_columns();
         let mut out = Applied::default();
         match op {
             TodoOp::Add { mut task } => {
@@ -826,12 +1057,10 @@ impl TodoData {
                 self.edit(&id, &text, &ignore, now)?;
                 out.count = 1;
             }
-            TodoOp::Update { ids, patch } => out.count = self.update(&ids, patch, now)?,
-            TodoOp::Complete { ids, done } => {
-                let (n, r) = self.complete(&ids, done, now)?;
-                out.count = n;
-                out.rescheduled = r;
-            }
+            TodoOp::Update { ids, patch } => (out.count, out.rescheduled) = self.update(&ids, patch, now)?,
+            TodoOp::Complete { ids, done } => (out.count, out.rescheduled) = self.complete(&ids, done, now)?,
+            TodoOp::SetStatus { ids, status, before, after } => (out.count, out.rescheduled) = self.set_status(&ids, &status, before.as_deref(), after.as_deref(), now)?,
+            TodoOp::SaveColumns { columns, reassign } => (out.count, out.rescheduled) = self.save_columns(columns, reassign, now)?,
             TodoOp::Delete { ids } => out.count = self.delete(&ids),
             TodoOp::Move { ids, list_id, section_id, parent_id, index } => out.count = self.move_tasks(&ids, &list_id, section_id, parent_id, index, now)?,
             TodoOp::Restore { tasks } => out.count = self.restore(tasks),
@@ -1019,7 +1248,9 @@ impl TodoData {
                 {
                     return Err(Error::Invalid(format!("reminder time must be HH:MM, got {t}")));
                 }
-                self.settings = TodoSettings { all_day_reminder: settings.all_day_reminder.filter(|t| !t.is_empty()), ..settings };
+                // Columns change only through `SaveColumns` (it reassigns tasks).
+                let columns = std::mem::take(&mut self.settings.columns);
+                self.settings = TodoSettings { all_day_reminder: settings.all_day_reminder.filter(|t| !t.is_empty()), columns, ..settings };
             }
             TodoOp::ClearCompleted { list_id } => {
                 let before = self.tasks.len();
@@ -1047,7 +1278,8 @@ impl TodoData {
         let section_name = |id: &str| section_names.get(id).map(|s| s.to_string());
         let due_date = |t: &Task| t.due.as_ref().map(|d| dates::local_due_date(d, local));
         let created = |t: &Task| chrono::DateTime::from_timestamp_millis(t.created_at).map(|d| d.with_timezone(local).date_naive()).unwrap_or(now.ctx.today);
-        let cx = EvalCtx { today: now.ctx.today, list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created };
+        let status_name = |t: &Task| self.settings.status_of(t).map(|c| c.name.clone());
+        let cx = EvalCtx { today: now.ctx.today, list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name };
         let list_order: HashMap<&str, i64> = self.lists.iter().map(|l| (l.id.as_str(), l.order)).collect();
         let open: Vec<&Task> = self.tasks.iter().filter(|t| !t.done && lists.is_none_or(|ls| ls.contains(&t.list_id))).collect();
         Ok(q.groups
@@ -1066,6 +1298,7 @@ impl TodoData {
     pub fn snapshot_in<Tz: TimeZone>(&self, project: Option<&ProjectRef>, now: &Now, local: &Tz) -> Snapshot {
         let mut data = self.clone();
         data.ensure_lists(project);
+        data.ensure_columns();
         let open: HashSet<&str> = data.tasks.iter().filter(|t| !t.done).map(|t| t.id.as_str()).collect();
         let cutoff = now.ms - SNAPSHOT_DONE_DAYS * 86_400_000;
         let tasks = data
@@ -1211,10 +1444,12 @@ impl TodoStore {
         let path = Self::file_path(base_dir);
         match std::fs::read(&path) {
             Ok(bytes) => {
-                let data: TodoData = serde_json::from_slice(&bytes).map_err(|e| Error::Parse { path: path.clone(), message: e.to_string() })?;
+                let mut data: TodoData = serde_json::from_slice(&bytes).map_err(|e| Error::Parse { path: path.clone(), message: e.to_string() })?;
                 if data.version > SCHEMA_VERSION {
                     return Err(Error::Invalid(format!("{} was written by a newer /dev/all (schema v{}); update the app", path.display(), data.version)));
                 }
+                // Files from before board columns get the defaults (tasks without a status are in the first one).
+                data.ensure_columns();
                 Ok((TodoData { version: SCHEMA_VERSION, ..data }, Vec::new()))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => match migrate::from_v1(&base_dir.join("todos")) {

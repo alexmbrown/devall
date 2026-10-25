@@ -293,6 +293,18 @@ pub struct Task {
     /// Sub-tasks folded in the list.
     #[serde(default, skip_serializing_if = "is_false")]
     pub collapsed: bool,
+    /// Board column (workflow status) id, see [`TodoSettings::columns`]. `None` (and unknown ids)
+    /// = the first column. Completed tasks are always in the done column; for them this is the
+    /// column they come back to when reopened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// Position in its board column (manual order across lists; ties fall back to list order).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub status_order: i64,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,7 +371,38 @@ fn yes() -> bool {
     true
 }
 
-/// Reminder preferences. Reminders fire only while the desktop app is running.
+/// A board column: one workflow status (`To do`, `In progress`, `Done`…).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusColumn {
+    /// Stable id (tasks refer to it); empty when the UI adds a column (one is generated).
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    /// Palette name, like list colours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Work-in-progress limit (open cards); shown as `n/limit` on the board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wip_limit: Option<u32>,
+    /// The done column (exactly one): moving a task into it completes the task.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub done: bool,
+}
+
+impl StatusColumn {
+    pub fn new(id: &str, name: &str, color: Option<&str>, done: bool) -> Self {
+        Self { id: id.into(), name: name.into(), color: color.map(str::to_string), wip_limit: None, done }
+    }
+}
+
+/// `To do`, `In progress`, `Done`.
+pub fn default_columns() -> Vec<StatusColumn> {
+    vec![StatusColumn::new("todo", "To do", None, false), StatusColumn::new("in-progress", "In progress", Some("blue"), false), StatusColumn::new("done", "Done", Some("green"), true)]
+}
+
+/// Reminder preferences (reminders fire only while the desktop app is running) and the board's
+/// status columns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoSettings {
@@ -372,11 +415,53 @@ pub struct TodoSettings {
     /// `HH:MM`: also remind about tasks due that day without a time (empty = off).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub all_day_reminder: Option<String>,
+    /// Board columns (workflow statuses), in order: exactly one is the done column; the first
+    /// other column is where new and unstatused tasks land. Changed only through
+    /// `TodoOp::SaveColumns` (which reassigns tasks), never by `SaveSettings`.
+    #[serde(default = "default_columns")]
+    pub columns: Vec<StatusColumn>,
 }
 
 impl Default for TodoSettings {
     fn default() -> Self {
-        Self { reminders: true, remind_before_minutes: 0, all_day_reminder: None }
+        Self { reminders: true, remind_before_minutes: 0, all_day_reminder: None, columns: default_columns() }
+    }
+}
+
+impl TodoSettings {
+    /// Where new and unstatused tasks land: the first column that isn't the done column.
+    pub fn first_column(&self) -> Option<&StatusColumn> {
+        self.columns.iter().find(|c| !c.done)
+    }
+
+    pub fn done_column(&self) -> Option<&StatusColumn> {
+        self.columns.iter().find(|c| c.done)
+    }
+
+    /// The column a task is in: the done column when completed, else its status (unknown or
+    /// missing → the first column).
+    pub fn status_of(&self, t: &Task) -> Option<&StatusColumn> {
+        if t.done {
+            return self.done_column();
+        }
+        t.status.as_deref().and_then(|s| self.columns.iter().find(|c| c.id == s && !c.done)).or_else(|| self.first_column())
+    }
+
+    /// A column by id, else by name (case-insensitive).
+    pub fn column(&self, key: &str) -> Option<&StatusColumn> {
+        let k = key.trim();
+        self.columns.iter().find(|c| c.id == k).or_else(|| self.column_named(k))
+    }
+
+    /// A column by name (case-insensitive, surrounding spaces ignored).
+    pub fn column_named(&self, name: &str) -> Option<&StatusColumn> {
+        let n = name.trim().to_lowercase();
+        self.columns.iter().find(|c| c.name.to_lowercase() == n)
+    }
+
+    /// The column names, for error messages (`To do, In progress, Done`).
+    pub fn column_names(&self) -> String {
+        self.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
     }
 }
 

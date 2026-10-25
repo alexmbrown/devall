@@ -150,6 +150,7 @@ pub fn list_todos(ctx: &Ctx, include_done: bool, filter: Option<&str>) -> Result
                 "id": t.id,
                 "content": t.content,
                 "description": t.description,
+                "status": status_name(&data, t),
                 "done": t.done,
                 "priority": t.priority.to_string(),
                 "due": t.due.as_ref().map(|d| json!({
@@ -173,11 +174,17 @@ pub fn list_todos(ctx: &Ctx, include_done: bool, filter: Option<&str>) -> Result
         .collect();
     let md = devall_core::context::tasks_markdown(&data, &rows);
     let note = if ctx.options.read_only_local {
-        "Personal to-do list for this project (read-only here, stored outside the repo). Priorities: p1 = most urgent, p4 = none."
+        "Personal to-do list for this project (read-only here, stored outside the repo). Priorities: p1 = most urgent, p4 = none. `status` is the task's board column (see `statuses`, in board order; completed tasks are in the done column)."
     } else {
-        "Personal to-do list for this project (stored outside the repo; change it with add_todo, update_todo, complete_todo, comment_todo). Priorities: p1 = most urgent, p4 = none."
+        "Personal to-do list for this project (stored outside the repo; change it with add_todo, update_todo, complete_todo, comment_todo). Priorities: p1 = most urgent, p4 = none. `status` is the task's board column (see `statuses`, in board order; completed tasks are in the done column); move a task with update_todo { status }."
     };
-    Ok(ctx.clean_value(json!({ "items": items, "markdown": md, "note": note })))
+    let statuses: Vec<Value> = data.settings.columns.iter().map(|c| json!({ "name": c.name, "done": c.done, "wipLimit": c.wip_limit })).collect();
+    Ok(ctx.clean_value(json!({ "items": items, "statuses": statuses, "markdown": md, "note": note })))
+}
+
+/// The name of the board column a task is in.
+fn status_name(data: &devall_core::todos::TodoData, t: &devall_core::todos::Task) -> Option<String> {
+    data.settings.status_of(t).map(|c| c.name.clone())
 }
 
 // ---------- writes: shared notes and the personal to-do list ----------
@@ -291,6 +298,7 @@ fn task_json(ctx: &Ctx, data: &devall_core::todos::TodoData, id: &str) -> Value 
         "id": t.id,
         "content": t.content,
         "description": t.description,
+        "status": status_name(data, t),
         "done": t.done,
         "priority": t.priority.to_string(),
         "due": t.due.as_ref().map(|d| json!({ "date": d.date.format("%Y-%m-%d").to_string(), "time": d.time.map(|x| x.format("%H:%M").to_string()), "recurring": d.recurrence.is_some(), "rule": (!d.string.is_empty()).then(|| d.string.clone()) })),
@@ -319,7 +327,7 @@ pub fn add_todo(ctx: &Ctx, text: &str, description: Option<&str>, parent: Option
     Ok(json!({ "task": task_json(ctx, &store.data, &id), "note": "Added to the user's personal to-do list for this project (shown in /dev/all → To-dos)." }))
 }
 
-/// Changes a task: content/description/priority/dates/labels. Missing fields stay as they are.
+/// Changes a task: content/description/priority/dates/labels/status. Missing fields stay as they are.
 pub fn update_todo(ctx: &Ctx, id: &str, args: &serde_json::Map<String, Value>) -> Result<Value, String> {
     use devall_core::todos::{Now, Priority, TaskPatch, TodoOp, TodoStore};
     let (base, project) = todo_scope(ctx)?;
@@ -329,6 +337,12 @@ pub fn update_todo(ctx: &Ctx, id: &str, args: &serde_json::Map<String, Value>) -
     let list = |k: &str| args.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(|x| x.trim_start_matches('@').to_string()).collect::<Vec<_>>());
     let priority = match s("priority") {
         Some(p) => Some(serde_json::from_value::<Priority>(json!(p.trim().to_lowercase())).map_err(|_| format!("priority must be p1, p2, p3 or p4 (got {p})"))?),
+        None => None,
+    };
+    // A board column by name (case-insensitive); ids work too.
+    let cols = &store.data.settings;
+    let status = match s("status") {
+        Some(name) => Some(cols.column_named(&name).or_else(|| cols.column(&name)).map(|c| c.id.clone()).ok_or_else(|| format!("unknown status \"{}\": the columns are {}", name.trim(), cols.column_names()))?),
         None => None,
     };
     let patch = TaskPatch {
@@ -341,10 +355,12 @@ pub fn update_todo(ctx: &Ctx, id: &str, args: &serde_json::Map<String, Value>) -
         add_labels: list("addLabels").unwrap_or_default(),
         remove_labels: list("removeLabels").unwrap_or_default(),
         add_links: list("addLinks").unwrap_or_default(),
+        status,
         ..Default::default()
     };
-    store.apply(TodoOp::Update { ids: vec![full.clone()], patch }, Some(&project), &Now::local()).map_err(err)?;
-    Ok(json!({ "task": task_json(ctx, &store.data, &full) }))
+    let out = store.apply(TodoOp::Update { ids: vec![full.clone()], patch }, Some(&project), &Now::local()).map_err(err)?;
+    let next = out.rescheduled.first().map(|r| r.date.format("%Y-%m-%d").to_string());
+    Ok(json!({ "task": task_json(ctx, &store.data, &full), "nextOccurrence": next }))
 }
 
 /// Completes (or reopens) a task. Completing a recurring task moves it to its next occurrence.

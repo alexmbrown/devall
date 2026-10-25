@@ -3,10 +3,11 @@ import clsx from 'clsx';
 import { AlignLeft, ArrowRightLeft, AtSign, CalendarDays, Check, ChevronDown, CopyPlus, GripVertical, Link2, ListTree, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, Target, Trash2 } from 'lucide-react';
 import { Menu } from '@/components/ui/Menu';
 import type { NewTask, TaskView } from '@/lib/api/todos';
-import { addTask, completeTasks, deleteTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
+import { addTask, completeTasks, deleteTasks, moveTasks, setStatus, updateTasks, useTodos } from '@/store/todos';
+import { statusChip, statusOf } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { QuickAddInput, type QuickAddInputHandle } from './QuickAddInput';
-import { LabelPicker, MovePicker, priorityItems } from './pickers';
+import { LabelPicker, MovePicker, priorityItems, statusItems } from './pickers';
 import { usePopover } from './Popover';
 import { colorVar, dayLabel, dropPosition, dropTarget, dueInfo, rangeSelect, ruleText, subtree, todayYmd, type Row } from './lib';
 import { beginDrag, endDrag, useTodoUi } from './ui';
@@ -129,13 +130,30 @@ export function TaskRow({ row, context, dueMode = 'full', drop }: { row: Row; co
     { heading: 'Priority' },
     ...priorityItems(t.priority, (p) => void updateTasks(ids(), { priority: p })),
     { separator: true },
+    { heading: 'Status' },
+    ...statusItems(snap?.settings.columns ?? [], snap ? statusOf(t, snap.settings.columns)?.id : undefined, (c) => void setStatus(ids(), c.id, undefined, c.done ? 'Completed' : undefined)),
+    { separator: true },
     { label: 'Add sub-task', icon: <ListTree />, onSelect: () => setUi({ composer: `sub:${t.id}` }) },
     {
       label: 'Duplicate',
       icon: <CopyPlus />,
       onSelect: () =>
         void addTask(
-          { text: t.content, parse: false, listId: t.listId, sectionId: t.sectionId, parentId: t.parentId, afterId: t.id, description: t.description, priority: t.priority, due: t.due, deadline: t.deadline, labels: t.labels, links: t.links },
+          {
+            text: t.content,
+            parse: false,
+            listId: t.listId,
+            sectionId: t.sectionId,
+            parentId: t.parentId,
+            afterId: t.id,
+            description: t.description,
+            priority: t.priority,
+            due: t.due,
+            deadline: t.deadline,
+            labels: t.labels,
+            links: t.links,
+            status: t.done ? undefined : t.status,
+          },
           true,
         ),
     },
@@ -251,9 +269,39 @@ export function TaskRow({ row, context, dueMode = 'full', drop }: { row: Row; co
  * The meta line under a task title (rows and board cards): due, deadline, counts, labels and where
  * the task lives. Items shrink and ellipsize instead of overflowing the row.
  */
-export function Meta({ t, info, dueMode = 'full', today, kids, open, where, onDue }: { t: TaskView; info: ReturnType<typeof dueInfo>; dueMode?: 'full' | 'time'; today: string; kids: number; open: number; where?: string; onDue?(e: React.MouseEvent): void }) {
+export function Meta({
+  t,
+  info,
+  dueMode = 'full',
+  today,
+  kids,
+  open,
+  where,
+  onDue,
+  hideStatus,
+}: {
+  t: TaskView;
+  info: ReturnType<typeof dueInfo>;
+  dueMode?: 'full' | 'time';
+  today: string;
+  kids: number;
+  open: number;
+  where?: string;
+  onDue?(e: React.MouseEvent): void;
+  /** Cards in a status column don't repeat their column. */
+  hideStatus?: boolean;
+}) {
   const labels = useTodos((s) => s.snap?.labels);
+  const columns = useTodos((s) => s.snap?.settings.columns);
   const items: ReactNode[] = [];
+  // Where it is on the board, for columns between the first and the done one ("In progress").
+  const status = !hideStatus && columns ? statusChip(t, columns) : undefined;
+  if (status)
+    items.push(
+      <span key="status" className="td-status" style={{ ['--c' as string]: colorVar(status.color) }} title={`Status: ${status.name}`}>
+        <span className="truncate">{status.name}</span>
+      </span>,
+    );
   if (info && (dueMode === 'full' || info.time || info.recurring)) {
     const text = `${dueMode === 'full' ? info.text : ''}${info.time ? `${dueMode === 'full' ? ' ' : ''}${info.time}` : ''}`;
     items.push(

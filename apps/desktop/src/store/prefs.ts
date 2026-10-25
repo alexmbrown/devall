@@ -6,6 +6,7 @@ export type Theme = 'system' | 'light' | 'dark';
 export type Density = 'compact' | 'comfortable';
 /** Request/response arrangement: side by side, stacked, or by the editor's width. */
 export type ReqLayout = 'auto' | 'columns' | 'rows';
+export type LogoStyle = 'accent' | 'classic';
 
 /** Shared width of every page's left list/tree pane (`SidePane`). */
 export const SIDE_PANE = { min: 240, default: 280, max: 560 } as const;
@@ -38,6 +39,10 @@ interface PrefsState {
   clipboardDetect: boolean;
   /** Sidebar order, groups and hidden sections. */
   sidebar: SidebarLayout;
+  /** Accent colour (#rrggbb) for the UI, the logo and the window icon; null = the default indigo. */
+  accentColor: string | null;
+  /** The top-bar logo in the accent colour, or the original grey artwork. */
+  logoStyle: LogoStyle;
   set<K extends keyof Omit<PrefsState, 'set'>>(key: K, value: PrefsState[K]): void;
 }
 
@@ -59,6 +64,8 @@ export const usePrefs = create<PrefsState>()(
       activeEnv: {},
       clipboardDetect: true,
       sidebar: defaultSidebar(),
+      accentColor: null,
+      logoStyle: 'accent',
       set: (key, value) => set({ [key]: value } as Partial<PrefsState>),
     }),
     {

@@ -1,9 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import type { Snapshot, TaskView } from '@/lib/api/todos';
-import { boardColumns, boardDrop, childCounts, columnDefaults, groupChoices, topLevel, viewTasks, type BoardColumn } from './boardModel';
+import type { Snapshot, StatusColumn, TaskView } from '@/lib/api/todos';
+import {
+  boardColumns,
+  boardDrop,
+  boardTasks,
+  childCounts,
+  columnCounts,
+  columnDefaults,
+  columnOrder,
+  columnsError,
+  groupChoices,
+  insertColumn,
+  moveColumn,
+  statusChip,
+  statusOf,
+  topLevel,
+  viewDefaults,
+  viewTasks,
+  type BoardColumn,
+} from './boardModel';
 import { resolveOptions } from './ui';
 
 const TODAY = '2026-10-23'; // a Friday
+/** Local noon `days` after TODAY, as Unix ms (completion times). */
+const at = (days = 0) => new Date(2026, 9, 23 + days, 12).getTime();
+const COLUMNS: StatusColumn[] = [
+  { id: 'todo', name: 'To do' },
+  { id: 'in-progress', name: 'In progress', color: 'blue' },
+  { id: 'done', name: 'Done', color: 'green', done: true },
+];
 
 let n = 0;
 function task(p: Partial<TaskView> & { id?: string }): TaskView {
@@ -25,7 +50,7 @@ function snapshot(tasks: TaskView[]): Snapshot {
     ],
     labels: [],
     filters: [{ id: 'F', name: 'Mine', query: 'p1', order: 0, count: 1, groups: [{ title: 'p1', ids: ['a'] }] }],
-    settings: { reminders: true, remindBeforeMinutes: 0 },
+    settings: { reminders: true, remindBeforeMinutes: 0, columns: COLUMNS },
     tasks,
     projectList: 'P',
     completedCount: 0,
@@ -48,13 +73,14 @@ describe('board columns', () => {
   ];
   const snap = snapshot(tasks);
 
-  it('offers groupings per view', () => {
-    expect(groupChoices({ kind: 'list', id: 'L' })[0]).toBe('section');
-    expect(groupChoices({ kind: 'all' })[0]).toBe('list');
-    expect(groupChoices({ kind: 'upcoming' })[0]).toBe('due');
-    expect(groupChoices({ kind: 'today' })[0]).toBe('priority');
-    expect(resolveOptions({ kind: 'list', id: 'L' })).toEqual({ layout: 'list', groupBy: 'section', sort: 'manual' });
-    expect(resolveOptions({ kind: 'today' }, { layout: 'board', groupBy: 'section' })).toEqual({ layout: 'board', groupBy: 'priority', sort: 'manual' });
+  it('offers groupings per view: status columns first everywhere', () => {
+    for (const v of [{ kind: 'list', id: 'L' }, { kind: 'inbox' }, { kind: 'all' }, { kind: 'today' }, { kind: 'upcoming' }, { kind: 'label', name: 'x' }, { kind: 'filter', id: 'F' }] as const) expect(groupChoices(v)[0]).toBe('status');
+    expect(groupChoices({ kind: 'list', id: 'L' })).toEqual(['status', 'section', 'priority', 'due']);
+    expect(groupChoices({ kind: 'all' })).toEqual(['status', 'list', 'priority', 'due']);
+    expect(groupChoices({ kind: 'upcoming' })[1]).toBe('due');
+    expect(resolveOptions({ kind: 'list', id: 'L' })).toEqual({ layout: 'list', groupBy: 'status', sort: 'manual' });
+    expect(resolveOptions({ kind: 'all' }, { layout: 'board', groupBy: 'list' })).toEqual({ layout: 'board', groupBy: 'list', sort: 'manual' });
+    expect(resolveOptions({ kind: 'today' }, { layout: 'board', groupBy: 'section' })).toEqual({ layout: 'board', groupBy: 'status', sort: 'manual' });
     expect(resolveOptions({ kind: 'completed' }, { layout: 'board' }).layout).toBe('list');
   });
 
@@ -154,13 +180,111 @@ describe('board drops', () => {
     expect(boardDrop(tasks, tomorrow, ['gone'])).toBeNull();
   });
 
-  it('adds tasks with the column as defaults', () => {
-    expect(columnDefaults(now, 'inbox')).toEqual({ listId: 'L', sectionId: 's1' });
-    expect(columnDefaults(none, 'inbox')).toEqual({ listId: 'L', sectionId: undefined });
+  it('adds tasks with the view and the column as defaults', () => {
+    expect(columnDefaults(now, { listId: 'inbox' })).toEqual({ listId: 'L', sectionId: 's1' });
+    expect(columnDefaults(none, { listId: 'inbox' })).toEqual({ listId: 'L', sectionId: undefined });
     const byP = boardColumns(snap, [], 'priority', { sort: 'manual', today: TODAY });
-    expect(columnDefaults(byP[1], 'P')).toEqual({ priority: 2, listId: 'P' });
+    expect(columnDefaults(byP[1], { listId: 'P' })).toEqual({ priority: 2, listId: 'P' });
     const byDue = boardColumns(snap, [], 'due', { sort: 'manual', today: TODAY });
-    expect(columnDefaults(byDue[0], 'P')).toEqual({ due: { date: TODAY }, listId: 'P' });
-    expect(columnDefaults(byDue[byDue.length - 1], 'P')).toEqual({ listId: 'P' });
+    expect(columnDefaults(byDue[0], { listId: 'P' })).toEqual({ due: { date: TODAY }, listId: 'P' });
+    // "No date" drops the view's date (Today).
+    expect(columnDefaults(byDue[byDue.length - 1], viewDefaults({ kind: 'today' }, snap))).toEqual({ listId: 'P' });
+    // Status columns keep the view's defaults (Today's date, the label) and set the status; the done column adds none.
+    const byStatus = boardColumns(snap, [], 'status', { sort: 'manual', today: TODAY });
+    expect(columnDefaults(byStatus[1], viewDefaults({ kind: 'today' }, snap))).toEqual({ due: { date: TODAY }, listId: 'P', status: 'in-progress' });
+    expect(columnDefaults(byStatus[0], viewDefaults({ kind: 'label', name: 'bug' }, snap))).toEqual({ labels: ['bug'], listId: 'P', status: 'todo' });
+    expect(columnDefaults(byStatus[2], viewDefaults({ kind: 'list', id: 'L' }, snap))).toEqual({ listId: 'L' });
+  });
+});
+
+describe('status columns', () => {
+  const tasks = [
+    task({ id: 'a', order: 1 }),
+    task({ id: 'b', order: 0, status: 'in-progress', priority: 1 }),
+    task({ id: 'c', order: 2, status: 'gone' }),
+    task({ id: 'd', order: 3, status: 'in-progress', statusOrder: 0, sectionId: 's1' }),
+    task({ id: 'i', listId: 'inbox', order: 0, status: 'in-progress', due: { date: TODAY } }),
+    task({ id: 'x', order: 4, done: true, completedAt: at(0), status: 'in-progress' }),
+    task({ id: 'y', order: 5, done: true, completedAt: at(-1) }),
+    task({ id: 'old', order: 6, done: true, completedAt: at(-8) }),
+    task({ id: 'p', listId: 'P', order: 0, status: 'done' }),
+  ];
+  const snap = snapshot(tasks);
+  const cols = (view: Parameters<typeof viewTasks>[1], doneDays = 7, sort: 'manual' | 'priority' = 'manual') =>
+    boardColumns(snap, boardTasks(snap, view, 'status', false, doneDays), 'status', { listId: view.kind === 'list' ? view.id : undefined, sort, today: TODAY });
+
+  it('resolves a task’s column like Rust does', () => {
+    expect(statusOf(tasks[0], COLUMNS)?.id).toBe('todo');
+    expect(statusOf(tasks[1], COLUMNS)?.id).toBe('in-progress');
+    expect(statusOf(tasks[2], COLUMNS)?.id).toBe('todo'); // unknown column → the first
+    expect(statusOf(tasks[5], COLUMNS)?.id).toBe('done'); // completed: the done column, whatever its status
+    expect(statusOf(tasks[8], COLUMNS)?.id).toBe('todo'); // open but pointing at the done column → the first
+    // The first column is the first that isn't the done column.
+    expect(statusOf(tasks[0], [COLUMNS[2], COLUMNS[1], COLUMNS[0]])?.id).toBe('in-progress');
+    // Chips only for columns between the first and the done one.
+    expect(statusChip(tasks[1], COLUMNS)?.name).toBe('In progress');
+    expect([tasks[0], tasks[5]].map((t) => statusChip(t, COLUMNS))).toEqual([undefined, undefined]);
+    expect(Object.fromEntries(columnCounts(tasks, COLUMNS))).toEqual({ todo: 3, 'in-progress': 3 });
+  });
+
+  it('groups by status, with the recent completions in the done column', () => {
+    const list = cols({ kind: 'list', id: 'L' });
+    expect(list.map((c) => c.key)).toEqual(['status:todo', 'status:in-progress', 'status:done']);
+    expect(cards(list, 'status:todo')).toEqual(['a', 'c']);
+    // Manual order: position in the column, then list, section, position.
+    expect(cards(list, 'status:in-progress')).toEqual(['b', 'd']);
+    // Newest completion first; older than the done window stays out (whatever "show completed" says).
+    expect(cards(list, 'status:done')).toEqual(['x', 'y']);
+    expect(cards(cols({ kind: 'list', id: 'L' }, 1), 'status:done')).toEqual(['x']);
+    expect(list.map((c) => c.ordered)).toEqual([true, true, false]);
+    expect(list[2].target).toEqual({ kind: 'status', status: 'done', done: true });
+    expect(list[1].column?.color).toBe('blue');
+    // Sorted by an attribute: no manual positions.
+    const byP = cols({ kind: 'list', id: 'L' }, 7, 'priority');
+    expect(byP[1].ordered).toBe(false);
+    // Across lists: Inbox first.
+    expect(cards(cols({ kind: 'all' }), 'status:in-progress')).toEqual(['i', 'b', 'd']);
+    // Today: open tasks due today or earlier; done ones due by today.
+    expect(cards(cols({ kind: 'today' }), 'status:in-progress')).toEqual(['i']);
+    expect(cards(cols({ kind: 'today' }), 'status:done')).toEqual([]);
+    // Filters only know open tasks.
+    expect(boardTasks(snap, { kind: 'filter', id: 'F' }, 'status', false, 7).every((t) => !t.done)).toBe(true);
+    // Other groupings keep the "show completed" rule.
+    expect(boardTasks(snap, { kind: 'list', id: 'L' }, 'section', false, 7).some((t) => t.done)).toBe(false);
+  });
+
+  it('orders a column by its manual position first', () => {
+    const order = columnOrder(snap);
+    const ids = (list: TaskView[]) => [...list].sort(order).map((t) => t.id);
+    expect(ids([task({ id: 'm', statusOrder: 2 }), task({ id: 'n', statusOrder: 1, listId: 'P' }), task({ id: 'o', statusOrder: 1, listId: 'inbox' })])).toEqual(['o', 'n', 'm']);
+  });
+
+  it('drops between status columns', () => {
+    const list = cols({ kind: 'list', id: 'L' });
+    const [todo, wip, done] = list;
+    expect(boardDrop(tasks, wip, ['a'])).toEqual({ kind: 'status', status: 'in-progress' });
+    expect(boardDrop(tasks, wip, ['a'], { id: 'd', pos: 'before' })).toEqual({ kind: 'status', status: 'in-progress', before: 'd' });
+    expect(boardDrop(tasks, wip, ['a'], { id: 'b', pos: 'after' })).toEqual({ kind: 'status', status: 'in-progress', after: 'b' });
+    // Reordering inside a column; dropping on its empty space changes nothing.
+    expect(boardDrop(tasks, todo, ['c'], { id: 'a', pos: 'before' })).toEqual({ kind: 'status', status: 'todo', before: 'a' });
+    expect(boardDrop(tasks, todo, ['c'])).toBeNull();
+    // Into the done column: completes (positions don't matter); already done: nothing.
+    expect(boardDrop(tasks, done, ['a', 'b'], { id: 'x', pos: 'before' })).toEqual({ kind: 'status', status: 'done' });
+    expect(boardDrop(tasks, done, ['x'])).toBeNull();
+    // Out of the done column: reopens there.
+    expect(boardDrop(tasks, todo, ['x'])).toEqual({ kind: 'status', status: 'todo' });
+    expect(boardDrop(tasks, wip, ['gone'])).toBeNull();
+  });
+
+  it('edits the column list', () => {
+    expect(moveColumn(COLUMNS, 'in-progress', -1).map((c) => c.id)).toEqual(['in-progress', 'todo', 'done']);
+    expect(moveColumn(COLUMNS, 'done', 1)).toBe(COLUMNS);
+    expect(insertColumn(COLUMNS, ' Review ').map((c) => c.name)).toEqual(['To do', 'In progress', 'Review', 'Done']);
+    expect(insertColumn(moveColumn(COLUMNS, 'done', -1), 'Later').map((c) => c.name)).toEqual(['To do', 'Done', 'In progress', 'Later']);
+    expect(columnsError(COLUMNS)).toBeNull();
+    expect(columnsError([...COLUMNS, { id: '', name: 'to  DO' }])).toContain('To do');
+    expect(columnsError([COLUMNS[0], { ...COLUMNS[1], done: true }, COLUMNS[2]])).toContain('exactly one');
+    expect(columnsError([COLUMNS[2]])).toContain('besides');
+    expect(columnsError([{ id: '', name: ' ' }, COLUMNS[2]])).toContain('name');
   });
 });

@@ -74,6 +74,13 @@ export interface Task {
   /** Completions of a recurring task. */
   history?: { at: number; due: string }[];
   collapsed?: boolean;
+  /**
+   * Board column (status) id. Missing or unknown = the first column; completed tasks are always in
+   * the done column (for them this is where they go back to when reopened).
+   */
+  status?: string;
+  /** Position in its board column (manual order across lists). */
+  statusOrder?: number;
 }
 
 export interface TaskView extends Task {
@@ -126,11 +133,26 @@ export interface FilterView extends SavedFilter {
   error?: string;
 }
 
+/** A board column: one workflow status. */
+export interface StatusColumn {
+  /** Stable id (empty for a column being added: Rust assigns one). */
+  id: string;
+  name: string;
+  /** Palette name. */
+  color?: string | null;
+  /** Work-in-progress limit (open cards), shown as `n/limit`. */
+  wipLimit?: number | null;
+  /** The done column (exactly one): moving a card into it completes the task. */
+  done?: boolean;
+}
+
 export interface TodoSettings {
   reminders: boolean;
   remindBeforeMinutes: number;
   /** `HH:MM` reminder for dated tasks without a time. */
   allDayReminder?: string;
+  /** Board columns in order; changed only with `saveColumns` (`saveSettings` ignores them). */
+  columns: StatusColumn[];
 }
 
 export interface Snapshot {
@@ -163,6 +185,8 @@ export interface NewTask {
   deadline?: string;
   labels?: string[];
   links?: string[];
+  /** Board column id (the done column = the first column). */
+  status?: string;
 }
 
 export interface TaskPatch {
@@ -182,6 +206,8 @@ export interface TaskPatch {
   links?: string[];
   addLinks?: string[];
   collapsed?: boolean;
+  /** Board column id or name (the done column completes, leaving it reopens). */
+  status?: string;
 }
 
 export type TodoOp =
@@ -189,6 +215,10 @@ export type TodoOp =
   | { type: 'edit'; id: string; text: string; ignore?: string[] }
   | { type: 'update'; ids: string[]; patch: TaskPatch }
   | { type: 'complete'; ids: string[]; done: boolean }
+  /** To a board column; `before`/`after` a task of that column (manual order), else at its end. */
+  | { type: 'setStatus'; ids: string[]; status: string; before?: string; after?: string }
+  /** Replaces the columns; tasks of removed columns go to `reassign[removed id]` (default: the first column). */
+  | { type: 'saveColumns'; columns: StatusColumn[]; reassign?: Record<string, string> }
   | { type: 'delete'; ids: string[] }
   | { type: 'move'; ids: string[]; listId: string; sectionId?: string | null; parentId?: string | null; index?: number | null }
   | { type: 'restore'; tasks: Task[] }

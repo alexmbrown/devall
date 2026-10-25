@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { AtSign, Check, Flag, Hash, Inbox, Plus, Rows3 } from 'lucide-react';
-import type { Priority } from '@/lib/api/todos';
+import { AtSign, Check, CheckCircle2, Flag, Hash, Inbox, Plus, Rows3 } from 'lucide-react';
+import type { Priority, StatusColumn } from '@/lib/api/todos';
 import type { MenuItemDef } from '@/components/ui/Menu';
 import { useTodos } from '@/store/todos';
 import { Popover } from './Popover';
@@ -105,6 +105,16 @@ export function PriorityIcon({ p }: { p: Priority }) {
 
 export function priorityItems(current: Priority | undefined, onPick: (p: Priority) => void): MenuItemDef[] {
   return ([1, 2, 3, 4] as Priority[]).map((p) => ({ label: `Priority ${p}`, icon: <PriorityIcon p={p} />, hint: current === p ? '✓' : String(p), onSelect: () => onPick(p) }));
+}
+
+/** A status column's marker: its colour dot, a check for the done column. */
+export function StatusDot({ col }: { col?: StatusColumn }) {
+  return col?.done ? <CheckCircle2 className="td-status-done" style={{ color: colorVar(col.color) }} /> : <span className="td-swatch" style={{ background: colorVar(col?.color) }} />;
+}
+
+/** Menu items to pick a status column (`current`: the task's column id). */
+export function statusItems(cols: StatusColumn[], current: string | undefined, onPick: (c: StatusColumn) => void): MenuItemDef[] {
+  return cols.map((c) => ({ label: c.name, icon: <StatusDot col={c} />, hint: current === c.id ? '✓' : undefined, onSelect: () => onPick(c) }));
 }
 
 export function ColorPicker({ value, onChange }: { value?: string | null; onChange(c: string | null): void }) {

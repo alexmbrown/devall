@@ -1,29 +1,105 @@
 /**
- * Pure helpers for the Board layout (Todoist-style columns): which columns a view gets, the cards
- * in each, and what dropping cards does (a `move` into a list/section, or an `update` of priority
- * or due date). No React — tested in `boardModel.test.ts`.
+ * Pure helpers for the Board layout: which columns a view gets, the cards in each, and what
+ * dropping cards does (a `status` change — the default grouping, workflow columns such as To do /
+ * In progress / Done — a `move` into a list/section, or an `update` of priority or due date).
+ * Also the status (column) helpers shared with list rows and the detail panel. No React — tested
+ * in `boardModel.test.ts`.
  */
-import type { NewTask, Priority, Section, Snapshot, Task, TaskList, TaskPatch, TaskView } from '@/lib/api/todos';
-import { addDays, attention, byDue, compareBy, dayHeading, dropTarget, dueDay, navOrder, type MoveTarget, type SortKey, type ViewRef } from './lib';
+import type { NewTask, Priority, Section, Snapshot, StatusColumn, Task, TaskList, TaskPatch, TaskView } from '@/lib/api/todos';
+import { addDays, attention, byDue, compareBy, dayHeading, dropTarget, dueDay, navOrder, ymd, type MoveTarget, type SortKey, type ViewRef } from './lib';
 
 export type Layout = 'list' | 'board';
-export type GroupBy = 'section' | 'list' | 'priority' | 'due';
+export type GroupBy = 'status' | 'section' | 'list' | 'priority' | 'due';
 
-export const GROUP_LABELS: Record<GroupBy, string> = { section: 'Section', list: 'List', priority: 'Priority', due: 'Due date' };
+export const GROUP_LABELS: Record<GroupBy, string> = { status: 'Status', section: 'Section', list: 'List', priority: 'Priority', due: 'Due date' };
 
-/** Board groupings that make sense for a view; the first is the default. */
+/** Board groupings that make sense for a view; the first (status columns) is the default. */
 export function groupChoices(view: ViewRef): GroupBy[] {
   switch (view.kind) {
     case 'list':
     case 'inbox':
-      return ['section', 'priority', 'due'];
+      return ['status', 'section', 'priority', 'due'];
     case 'all':
-      return ['list', 'priority', 'due'];
+      return ['status', 'list', 'priority', 'due'];
     case 'upcoming':
-      return ['due', 'priority', 'list'];
+      return ['status', 'due', 'priority', 'list'];
     default:
-      return ['priority', 'due', 'list'];
+      return ['status', 'priority', 'due', 'list'];
   }
+}
+
+// ── statuses (board columns) ─────────────────────────────────────────────────────────────────────
+
+/** Where new and unstatused tasks land: the first column that isn't the done column. */
+export const firstColumn = (cols: StatusColumn[]) => cols.find((c) => !c.done);
+export const doneColumn = (cols: StatusColumn[]) => cols.find((c) => c.done);
+
+/** The column a task is in (mirrors `TodoSettings::status_of`): done → the done column; unknown or missing → the first column. */
+export function statusOf(t: Pick<Task, 'done' | 'status'>, cols: StatusColumn[]): StatusColumn | undefined {
+  if (t.done) return doneColumn(cols);
+  return cols.find((c) => c.id === t.status && !c.done) ?? firstColumn(cols);
+}
+
+/** The status chip list rows show: only for columns between the first and the done one ("In progress"). */
+export function statusChip(t: Pick<Task, 'done' | 'status'>, cols: StatusColumn[]): StatusColumn | undefined {
+  const c = statusOf(t, cols);
+  return c && !c.done && c.id !== firstColumn(cols)?.id ? c : undefined;
+}
+
+/**
+ * Manual order inside a status column (mirrors `TodoData::column_tasks`): the position set by
+ * dragging, then list (the snapshot's order: Inbox first), section and position in the list.
+ */
+export function columnOrder(snap: Pick<Snapshot, 'lists' | 'sections'>): (a: Task, b: Task) => number {
+  const listRank = new Map(snap.lists.map((l, i) => [l.id, i]));
+  const sectionRank = new Map(snap.sections.map((s) => [s.id, s.order + 1]));
+  const key = (t: Task) => [t.statusOrder ?? 0, listRank.get(t.listId) ?? Number.MAX_SAFE_INTEGER, (t.sectionId && sectionRank.get(t.sectionId)) || 0, t.order];
+  return (a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+
+/** Open tasks per column id (what removing a column would move). */
+export function columnCounts(tasks: Pick<Task, 'done' | 'status'>[], cols: StatusColumn[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const t of tasks) {
+    if (t.done) continue;
+    const c = statusOf(t, cols);
+    if (c) out.set(c.id, (out.get(c.id) ?? 0) + 1);
+  }
+  return out;
+}
+
+/** `cols` with `id` moved one place left (-1) or right (+1). */
+export function moveColumn(cols: StatusColumn[], id: string, delta: -1 | 1): StatusColumn[] {
+  const i = cols.findIndex((c) => c.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= cols.length) return cols;
+  const out = [...cols];
+  [out[i], out[j]] = [out[j], out[i]];
+  return out;
+}
+
+/** `cols` with a new column `name`, before the done column when that one is last. */
+export function insertColumn(cols: StatusColumn[], name: string): StatusColumn[] {
+  const col: StatusColumn = { id: '', name: name.trim() };
+  const at = cols.length && cols[cols.length - 1].done ? cols.length - 1 : cols.length;
+  return [...cols.slice(0, at), col, ...cols.slice(at)];
+}
+
+/** Problems with an edited column list (what Rust refuses too), or null. */
+export function columnsError(cols: StatusColumn[]): string | null {
+  if (cols.some((c) => !c.name.trim())) return 'Every column needs a name.';
+  const names = cols.map((c) => c.name.trim().replace(/\s+/g, ' ').toLowerCase());
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
+  if (dup) return `Two columns are called “${cols[names.indexOf(dup)].name.trim()}”.`;
+  if (cols.filter((c) => c.done).length !== 1) return 'Pick exactly one done column.';
+  if (cols.length < 2) return 'Add a column besides the done column.';
+  if (cols.length > 20) return 'A board has at most 20 columns.';
+  return null;
 }
 
 /** Views that can be shown as a board (Completed is a log). */
@@ -31,6 +107,8 @@ export const canBoard = (view: ViewRef) => view.kind !== 'completed';
 
 /** Where cards dropped into a column go. */
 export type ColumnTarget =
+  /** A status column (`done`: dropping completes). */
+  | { kind: 'status'; status: string; done: boolean }
   /** A list (`sectionId` null = no section). `wholeList`: the column shows every section of the list. */
   | { kind: 'slot'; listId: string; sectionId: string | null; wholeList?: boolean }
   | { kind: 'priority'; priority: Priority }
@@ -40,14 +118,15 @@ export type ColumnTarget =
   | { kind: 'none' };
 
 export interface BoardColumn {
-  /** `section:<id>`, `section:` (no section), `list:<id>`, `p1`…`p4`, `due:<YYYY-MM-DD>`, `due:` (no date), `due:overdue`, `due:later`. */
+  /** `status:<id>`, `section:<id>`, `section:` (no section), `list:<id>`, `p1`…`p4`, `due:<YYYY-MM-DD>`, `due:` (no date), `due:overdue`, `due:later`. */
   key: string;
   title: string;
   tasks: TaskView[];
   target: ColumnTarget;
   /** Cards keep their manual order: they can be dragged within the column. */
   ordered: boolean;
-  /** For headers: the section or list the column stands for (rename, reorder). */
+  /** For headers: the status, section or list the column stands for (rename, reorder). */
+  column?: StatusColumn;
   section?: Section;
   list?: TaskList;
   priority?: Priority;
@@ -86,6 +165,38 @@ export function viewTasks(snap: Snapshot, view: ViewRef, showDone: boolean): Tas
   }
 }
 
+/** Completed tasks a view's done column can show (filters only ever match open tasks). */
+function doneInView(snap: Snapshot, view: ViewRef, t: TaskView): boolean {
+  switch (view.kind) {
+    case 'inbox':
+      return t.listId === 'inbox';
+    case 'list':
+      return t.listId === view.id;
+    case 'all':
+      return true;
+    case 'today':
+      return (dueDay(t) ?? '9999') <= snap.today;
+    case 'upcoming':
+      return !!dueDay(t);
+    case 'label':
+      return !!t.labels?.includes(view.name);
+    default:
+      return false;
+  }
+}
+
+/**
+ * The tasks a board shows (before grouping). Status boards show the view's open tasks plus those
+ * completed in the last `doneDays` days (the done column, whatever "show completed" says); other
+ * groupings show completed tasks only with `showDone`.
+ */
+export function boardTasks(snap: Snapshot, view: ViewRef, groupBy: GroupBy, showDone: boolean, doneDays: number): TaskView[] {
+  if (groupBy !== 'status') return viewTasks(snap, view, showDone);
+  const since = addDays(snap.today, -(Math.max(1, doneDays) - 1));
+  const recent = (t: TaskView) => !!t.completedAt && ymd(new Date(t.completedAt)) >= since;
+  return [...viewTasks(snap, view, false), ...snap.tasks.filter((t) => t.done && recent(t) && doneInView(snap, view, t))];
+}
+
 /** Drops tasks whose parent is shown too: they appear as a count on the parent's card. */
 export function topLevel(tasks: TaskView[]): TaskView[] {
   const ids = new Set(tasks.map((t) => t.id));
@@ -117,6 +228,21 @@ export function boardColumns(snap: Snapshot, tasks: TaskView[], groupBy: GroupBy
   const manual = ctx.sort === 'manual';
   const cmp = doneLast(compareBy(ctx.sort));
   switch (groupBy) {
+    case 'status': {
+      // Every column is a drop target, empty or not; the done column lists the latest completions first.
+      const cols = snap.settings.columns;
+      const order = columnOrder(snap);
+      const byStatus = new Map<string, TaskView[]>();
+      for (const t of cards) {
+        const c = statusOf(t, cols);
+        if (c) byStatus.set(c.id, [...(byStatus.get(c.id) ?? []), t]);
+      }
+      return cols.map((column): BoardColumn => {
+        const mine = byStatus.get(column.id) ?? [];
+        const sorted = column.done ? mine.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)) : mine.sort(manual ? order : cmp);
+        return { key: `status:${column.id}`, title: column.name, tasks: sorted, target: { kind: 'status', status: column.id, done: !!column.done }, ordered: manual && !column.done, column };
+      });
+    }
     case 'section': {
       const listId = ctx.listId ?? 'inbox';
       const sections = snap.sections.filter((s) => s.listId === listId).sort((a, b) => a.order - b.order);
@@ -154,7 +280,7 @@ export function boardColumns(snap: Snapshot, tasks: TaskView[], groupBy: GroupBy
   }
 }
 
-export type BoardDrop = { kind: 'move'; target: MoveTarget } | { kind: 'update'; patch: TaskPatch };
+export type BoardDrop = { kind: 'status'; status: string; before?: string; after?: string } | { kind: 'move'; target: MoveTarget } | { kind: 'update'; patch: TaskPatch };
 
 /**
  * What dropping `moving` cards into `col` does: before/after the card `over` (ordered columns),
@@ -165,6 +291,14 @@ export function boardDrop(tasks: Task[], col: BoardColumn, moving: string[], ove
   const movingTasks = tasks.filter((x) => moving.includes(x.id));
   if (!movingTasks.length) return null;
   switch (t.kind) {
+    case 'status': {
+      const here = (x: Task) => col.tasks.some((c) => c.id === x.id);
+      // The done column: completes (positions don't matter there).
+      if (t.done) return movingTasks.every((x) => x.done) ? null : { kind: 'status', status: t.status };
+      const target = over && col.ordered ? col.tasks.find((x) => x.id === over.id && !moving.includes(x.id)) : undefined;
+      if (target && over) return over.pos === 'before' ? { kind: 'status', status: t.status, before: target.id } : { kind: 'status', status: t.status, after: target.id };
+      return movingTasks.every(here) ? null : { kind: 'status', status: t.status };
+    }
     case 'slot': {
       const target = over && col.ordered ? tasks.find((x) => x.id === over.id && !moving.includes(x.id)) : undefined;
       if (target && over) return { kind: 'move', target: dropTarget(tasks, target, over.pos, moving) };
@@ -181,17 +315,37 @@ export function boardDrop(tasks: Task[], col: BoardColumn, moving: string[], ove
   }
 }
 
-/** Defaults for a task added at the bottom of a column. */
-export function columnDefaults(col: BoardColumn, fallbackList: string): Omit<NewTask, 'text'> {
+/** Defaults for a task added from a view (quick add `Q`, AI suggestions, board columns): its list, Today's date, the label. */
+export function viewDefaults(view: ViewRef, snap: Pick<Snapshot, 'today' | 'projectList'>): Omit<NewTask, 'text'> {
+  switch (view.kind) {
+    case 'list':
+      return { listId: view.id };
+    case 'inbox':
+      return { listId: 'inbox' };
+    case 'today':
+      return { due: { date: snap.today }, listId: snap.projectList ?? 'inbox' };
+    case 'label':
+      return { labels: [view.name], listId: snap.projectList ?? 'inbox' };
+    default:
+      return { listId: snap.projectList ?? 'inbox' };
+  }
+}
+
+/** Defaults for a task added at the bottom of a column: the view's (`base`) plus the column's. */
+export function columnDefaults(col: BoardColumn, base: Omit<NewTask, 'text'>): Omit<NewTask, 'text'> {
   const t = col.target;
   switch (t.kind) {
+    case 'status':
+      return t.done ? base : { ...base, status: t.status };
     case 'slot':
-      return { listId: t.listId, sectionId: t.sectionId ?? undefined };
+      return { ...base, listId: t.listId, sectionId: t.sectionId ?? undefined };
     case 'priority':
-      return { priority: t.priority, listId: fallbackList };
-    case 'due':
-      return t.date ? { due: { date: t.date }, listId: fallbackList } : { listId: fallbackList };
+      return { ...base, priority: t.priority };
+    case 'due': {
+      const { due: _drop, ...rest } = base;
+      return t.date ? { ...rest, due: { date: t.date } } : rest;
+    }
     default:
-      return { listId: fallbackList };
+      return base;
   }
 }

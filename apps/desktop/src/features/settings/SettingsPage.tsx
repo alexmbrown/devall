@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
+import clsx from 'clsx';
 import { Field, Segmented, Switch } from '@/components/ui/misc';
+import { ACCENT_PRESETS, DEFAULT_ACCENT, validAccent } from '@/lib/accent';
 import { useNav } from '@/store/nav';
-import { usePrefs, type Density, type ReqLayout, type Theme } from '@/store/prefs';
+import { usePrefs, type Density, type LogoStyle, type ReqLayout, type Theme } from '@/store/prefs';
 import { useWorkspace } from '@/store/workspace';
 import { SidebarSettings } from './SidebarSettings';
 import { TunnelSettingsSection } from '@/features/tunnels/ByoComponents';
@@ -9,6 +11,7 @@ import { HistorySettingsSection } from './HistorySettings';
 
 export default function SettingsPage() {
   const p = usePrefs();
+  const accent = validAccent(p.accentColor) ?? DEFAULT_ACCENT;
   const app = useWorkspace((s) => s.app);
   const param = useNav((s) => s.param);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -44,6 +47,37 @@ export default function SettingsPage() {
             options={[
               { value: 'compact', label: 'Compact' },
               { value: 'comfortable', label: 'Comfortable' },
+            ]}
+          />
+        </Field>
+        <Field label="Accent colour" hint="Buttons, highlights, the logo and the window icon.">
+          <div className="accent-swatches">
+            {ACCENT_PRESETS.map((c) => (
+              <button
+                key={c.hex}
+                className={clsx('accent-swatch', accent === c.hex && 'on')}
+                style={{ background: c.hex }}
+                title={c.name}
+                aria-label={c.name}
+                aria-pressed={accent === c.hex}
+                onClick={() => p.set('accentColor', c.hex === DEFAULT_ACCENT ? null : c.hex)}
+              />
+            ))}
+            <input type="color" className="accent-custom" value={accent} onChange={(e) => p.set('accentColor', e.target.value)} title="Custom colour" aria-label="Custom colour" />
+            {p.accentColor && (
+              <button className="btn btn-sm btn-ghost" onClick={() => p.set('accentColor', null)}>
+                Reset
+              </button>
+            )}
+          </div>
+        </Field>
+        <Field label="Logo">
+          <Segmented<LogoStyle>
+            value={p.logoStyle}
+            onChange={(v) => p.set('logoStyle', v)}
+            options={[
+              { value: 'accent', label: 'Accent colour' },
+              { value: 'classic', label: 'Original grey' },
             ]}
           />
         </Field>

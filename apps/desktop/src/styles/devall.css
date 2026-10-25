@@ -178,9 +178,18 @@
 .g-D { color: var(--danger); }
 .g-R, .g-C { color: var(--info); }
 
-/* The original logo artwork is drawn for dark backgrounds; invert it for the light theme. */
-.logo-img, .brand .logo-img { display: block; width: auto; user-select: none; }
-[data-theme='light'] .logo-img { filter: invert(1); }
+/* The logo (components/Logo.tsx): the <D/A> tile in the accent colour with readable text, or the
+   original grey; then "Dev" bold, "All" thin. */
+.logo { display: inline-flex; align-items: center; user-select: none; line-height: 1; color: var(--text); --logo-panel: #4a4849; --logo-text: #ffffff; }
+.logo.accent { --logo-panel: var(--accent); --logo-text: var(--accent-text); }
+.logo svg { display: block; flex-shrink: 0; }
+.logo-word { white-space: nowrap; letter-spacing: -0.01em; }
+.logo-word b { font-weight: 700; }
+.logo-word span { font-weight: 300; }
+.accent-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.accent-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; }
+.accent-swatch.on { box-shadow: 0 0 0 2px var(--text); }
+.accent-custom { width: 30px; height: 24px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: none; cursor: pointer; }
 
 /* Move to project dialog. */
 .move-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); }

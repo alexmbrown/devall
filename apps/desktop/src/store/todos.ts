@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
-import { MAX_ATTACHMENT_BYTES, todosApi, type Attachment, type NewTask, type Snapshot, type Task, type TaskPatch, type TaskView, type TodoApplyResult, type TodoAttachResult, type TodoOp } from '@/lib/api/todos';
+import { MAX_ATTACHMENT_BYTES, todosApi, type Attachment, type NewTask, type Snapshot, type StatusColumn, type Task, type TaskPatch, type TaskView, type TodoApplyResult, type TodoAttachResult, type TodoOp } from '@/lib/api/todos';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { attention, dayLabel, parseViewKey, subtree, viewKey, type MoveTarget, type ViewRef } from '@/features/todos/lib';
@@ -164,6 +164,26 @@ export async function moveTasks(ids: string[], to: MoveTarget, message?: string)
   if (!ids.length) return;
   const before = capture(ids);
   await useTodos.getState().apply({ type: 'move', ids, listId: to.listId, sectionId: to.sectionId, parentId: to.parentId, index: to.index }, message, message ? { restore: before } : undefined);
+}
+
+/**
+ * Moves tasks to a board column (`at`: next to a card of that column, manual order). The done
+ * column completes them (recurring ones move to their next date); leaving it reopens them.
+ * `message` shows a toast with Undo.
+ */
+export async function setStatus(ids: string[], status: string, at?: { before?: string; after?: string }, message?: string) {
+  if (!ids.length) return;
+  const before = capture(ids);
+  const r = await useTodos.getState().apply({ type: 'setStatus', ids, status, before: at?.before, after: at?.after });
+  if (!r || !message) return;
+  const next = r.applied.rescheduled;
+  const title = next.length === 1 && ids.length === 1 ? `${message} — next: ${dayLabel(next[0].date, r.snapshot.today)}` : message;
+  toast.success(title, undefined, { label: 'Undo', run: () => void runUndo({ restore: before }) });
+}
+
+/** Saves the board columns; tasks of removed columns go to `reassign[id]` (default: the first column). */
+export async function saveColumns(columns: StatusColumn[], reassign?: Record<string, string>, message?: string) {
+  return useTodos.getState().apply({ type: 'saveColumns', columns, reassign }, message);
 }
 
 /** Forgets an attachment (the file stays on disk until garbage collection, so Undo works). */

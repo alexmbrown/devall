@@ -516,6 +516,226 @@ fn attachments_survive_undo_and_go_with_permanent_deletes() {
     assert!(serde_json::from_value::<TodoOp>(json!({"type": "addAttachment", "id": "T", "attachment": {"id": "A", "name": "x", "mime": "x/y", "size": 1, "addedAt": 0}})).is_err());
 }
 
+/// The column a task is in (its id).
+fn col(s: &TodoData, id: &str) -> String {
+    s.settings.status_of(s.task(id).unwrap()).unwrap().id.clone()
+}
+
+/// Open tasks of a column, in board order (contents).
+fn column(s: &TodoData, col: &str) -> Vec<String> {
+    s.column_tasks(col).iter().map(|id| s.task(id).unwrap().content.clone()).collect()
+}
+
+#[test]
+fn files_without_status_load_into_the_default_columns() {
+    let base = tempfile::tempdir().unwrap();
+    let dir = base.path().join("todos");
+    std::fs::create_dir_all(&dir).unwrap();
+    // A v2 file from before board columns: no `columns` setting, no `status` on tasks.
+    std::fs::write(
+        dir.join(FILE),
+        r#"{"version":2,"settings":{"reminders":false},"lists":[{"id":"inbox","name":"Inbox","kind":"inbox"}],"tasks":[
+            {"id":"T1","content":"Open","listId":"inbox","createdAt":1},
+            {"id":"T2","content":"Finished","listId":"inbox","done":true,"completedAt":5,"createdAt":2}]}"#,
+    )
+    .unwrap();
+    let data = TodoStore::read(base.path()).unwrap();
+    assert_eq!(data.settings.columns, default_columns());
+    assert!(!data.settings.reminders, "other settings are kept");
+    let names: Vec<&str> = data.settings.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["To do", "In progress", "Done"]);
+    assert_eq!((col(&data, "T1").as_str(), col(&data, "T2").as_str()), ("todo", "done"));
+    // Tasks without a status don't write one; the settings now carry the columns.
+    let json = serde_json::to_value(&data).unwrap();
+    assert!(json["tasks"][0].get("status").is_none() && json["tasks"][0].get("statusOrder").is_none());
+    assert_eq!(json["settings"]["columns"][2], json!({"id": "done", "name": "Done", "color": "green", "done": true}));
+    // A hand-edited file with broken columns is repaired on load.
+    std::fs::write(dir.join(FILE), r#"{"version":2,"settings":{"columns":[{"id":"a","name":"A","done":true},{"id":"a","name":"B","done":true}]}}"#).unwrap();
+    let data = TodoStore::read(base.path()).unwrap();
+    let cols = &data.settings.columns;
+    assert_eq!((cols.len(), cols.iter().filter(|c| c.done).count()), (2, 1));
+    assert!(cols[0].done && cols[0].id != cols[1].id);
+    assert_eq!(data.settings.first_column().unwrap().name, "B");
+}
+
+#[test]
+fn the_done_column_completes_and_reopens() {
+    let mut s = store();
+    let a = add(&mut s, "A", INBOX);
+    let b = add(&mut s, "B", INBOX);
+    assert_eq!(col(&s, &a), "todo");
+    // By name (any case) or id.
+    apply(&mut s, json!({"type": "setStatus", "ids": [a], "status": "in PROGRESS"}));
+    assert_eq!(col(&s, &a), "in-progress");
+    // Into the done column = complete; it remembers where it came from.
+    apply(&mut s, json!({"type": "setStatus", "ids": [a], "status": "done"}));
+    let t = s.task(&a).unwrap();
+    assert!(t.done && t.completed_at == Some(now().ms));
+    assert_eq!(col(&s, &a), "done");
+    // Reopening (check circle, undo) goes back to that column.
+    apply(&mut s, json!({"type": "complete", "ids": [a], "done": false}));
+    assert_eq!((s.task(&a).unwrap().done, col(&s, &a).as_str()), (false, "in-progress"));
+    // Completing anywhere puts it in the done column; a task that was never moved reopens in the first.
+    apply(&mut s, json!({"type": "complete", "ids": [b], "done": true}));
+    assert_eq!(col(&s, &b), "done");
+    apply(&mut s, json!({"type": "complete", "ids": [b], "done": false}));
+    assert_eq!(col(&s, &b), "todo");
+    // Out of the done column into another: reopened there.
+    apply(&mut s, json!({"type": "complete", "ids": [b], "done": true}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [b], "status": "in-progress"}));
+    assert_eq!((s.task(&b).unwrap().done, col(&s, &b).as_str()), (false, "in-progress"));
+
+    // A recurring task advances and starts over in the first column.
+    let r = add(&mut s, "Standup every weekday 9am", INBOX);
+    apply(&mut s, json!({"type": "setStatus", "ids": [r], "status": "In progress"}));
+    let out = s.apply(serde_json::from_value(json!({"type": "setStatus", "ids": [r], "status": "Done"})).unwrap(), None, &later(3)).unwrap();
+    assert_eq!(out.rescheduled, [Rescheduled { id: r.clone(), date: d(2026, 10, 27) }]);
+    let t = s.task(&r).unwrap();
+    assert!(!t.done && t.status.is_none() && t.history.len() == 1);
+    assert_eq!(col(&s, &r), "todo");
+    // So does completing it with the check circle from another column.
+    apply(&mut s, json!({"type": "setStatus", "ids": [r], "status": "in-progress"}));
+    apply(&mut s, json!({"type": "complete", "ids": [r], "done": true}));
+    assert_eq!(col(&s, &r), "todo");
+
+    // The update patch takes a status too (MCP, bulk edits); unknown names list the columns.
+    let out = apply(&mut s, json!({"type": "update", "ids": [a], "patch": {"status": "Done", "priority": 2}}));
+    assert_eq!(out.count, 1);
+    assert!(s.task(&a).unwrap().done && s.task(&a).unwrap().priority == Priority::P2);
+    let bad: TodoOp = serde_json::from_value(json!({"type": "update", "ids": [b], "patch": {"status": "Blocked", "priority": 1}})).unwrap();
+    let err = s.apply(bad, None, &now()).unwrap_err().to_string();
+    assert!(err.contains("`Blocked`") && err.contains("To do, In progress, Done"), "{err}");
+    assert_eq!(s.task(&b).unwrap().priority, Priority::P4, "nothing changes on error");
+    let bad: TodoOp = serde_json::from_value(json!({"type": "setStatus", "ids": [b], "status": "nope"})).unwrap();
+    assert!(s.apply(bad, None, &now()).is_err());
+
+    // New tasks: a column by name; the done column (and unknown ones) mean the first column.
+    let n = apply(&mut s, json!({"type": "add", "task": {"text": "C", "listId": INBOX, "status": "In progress"}})).created.unwrap();
+    assert_eq!(col(&s, &n), "in-progress");
+    let n = apply(&mut s, json!({"type": "add", "task": {"text": "D", "listId": INBOX, "status": "done"}})).created.unwrap();
+    assert!(!s.task(&n).unwrap().done);
+    assert_eq!(col(&s, &n), "todo");
+    // Reminders' settings never touch the columns.
+    apply(&mut s, json!({"type": "saveSettings", "settings": {"reminders": true, "columns": []}}));
+    assert_eq!(s.settings.columns, default_columns());
+}
+
+#[test]
+fn manual_order_within_columns() {
+    let mut s = store();
+    let a = add(&mut s, "A", INBOX);
+    let b = add(&mut s, "B", INBOX);
+    let c = add(&mut s, "C", "01PROJECT");
+    // Before any manual move: list order (Inbox first), then position.
+    assert_eq!(column(&s, "todo"), ["A", "B", "C"]);
+    apply(&mut s, json!({"type": "setStatus", "ids": [c], "status": "todo", "before": a}));
+    assert_eq!(column(&s, "todo"), ["C", "A", "B"]);
+    apply(&mut s, json!({"type": "setStatus", "ids": [c], "status": "todo", "after": b}));
+    assert_eq!(column(&s, "todo"), ["A", "B", "C"]);
+    // Into another column at a position; without one, at its end.
+    apply(&mut s, json!({"type": "setStatus", "ids": [a], "status": "in-progress"}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [b], "status": "in-progress", "before": a}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [c], "status": "in-progress"}));
+    assert_eq!(column(&s, "in-progress"), ["B", "A", "C"]);
+    // Setting the column a task is already in keeps its place.
+    apply(&mut s, json!({"type": "update", "ids": [b], "patch": {"status": "In progress"}}));
+    assert_eq!(column(&s, "in-progress"), ["B", "A", "C"]);
+    // New tasks go to the end of their column; so do reopened ones.
+    let d = add(&mut s, "D", INBOX);
+    let e = add(&mut s, "E", INBOX);
+    apply(&mut s, json!({"type": "setStatus", "ids": [e], "status": "todo", "before": d}));
+    assert_eq!(column(&s, "todo"), ["E", "D"]);
+    apply(&mut s, json!({"type": "complete", "ids": [e], "done": true}));
+    let f = add(&mut s, "F", INBOX);
+    apply(&mut s, json!({"type": "complete", "ids": [e], "done": false}));
+    assert_eq!(column(&s, "todo"), ["D", "F", "E"]);
+    let _ = f;
+}
+
+#[test]
+fn saving_columns_moves_tasks_of_removed_columns() {
+    let mut s = store();
+    let a = add(&mut s, "A", INBOX);
+    let b = add(&mut s, "B", INBOX);
+    let c = add(&mut s, "C", INBOX);
+    let r = add(&mut s, "Water plants every day", INBOX);
+    // Add "Review" before Done (a new column gets an id), rename "In progress", colour + WIP limit.
+    let cols = json!([
+        {"id": "todo", "name": "To do"},
+        {"id": "in-progress", "name": " Doing  now ", "color": "Purple", "wipLimit": 3},
+        {"name": "Review", "wipLimit": 0},
+        {"id": "done", "name": "Done", "done": true, "wipLimit": 2}
+    ]);
+    apply(&mut s, json!({"type": "saveColumns", "columns": cols}));
+    let saved = &s.settings.columns;
+    assert_eq!(saved.len(), 4);
+    assert_eq!((saved[1].name.as_str(), saved[1].color.as_deref(), saved[1].wip_limit), ("Doing now", Some("purple"), Some(3)));
+    assert!(!saved[2].id.is_empty() && saved[2].wip_limit.is_none());
+    assert!(saved[3].wip_limit.is_none(), "no WIP limit on the done column");
+    let review = saved[2].id.clone();
+    apply(&mut s, json!({"type": "setStatus", "ids": [a], "status": "review"}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [b], "status": "doing now"}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [c], "status": "review"}));
+    apply(&mut s, json!({"type": "complete", "ids": [c], "done": true}));
+    // The filter language sees the new names.
+    assert_eq!(s.run_filter_in("status: review", None, &now(), &Paris).unwrap()[0].ids, std::slice::from_ref(&a));
+
+    // Remove Review, its tasks to "Doing now" (the completed one reopens there too).
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "in-progress", "name": "Doing now"}, {"id": "done", "name": "Done", "done": true}]);
+    let out = apply(&mut s, json!({"type": "saveColumns", "columns": cols, "reassign": {review.clone(): "in-progress"}}));
+    assert_eq!(out.count, 1, "one open task changed column");
+    assert_eq!(col(&s, &a), "in-progress");
+    assert_eq!(s.task(&c).unwrap().status.as_deref(), Some("in-progress"));
+
+    // Reordering keeps every task where it is: unstatused ones stay in "To do".
+    apply(&mut s, json!({"type": "setStatus", "ids": [r], "status": "in-progress"}));
+    let cols = json!([{"id": "in-progress", "name": "Doing now"}, {"id": "todo", "name": "To do"}, {"id": "done", "name": "Done", "done": true}]);
+    assert_eq!(apply(&mut s, json!({"type": "saveColumns", "columns": cols})).count, 0);
+    assert_eq!(s.settings.first_column().unwrap().id, "in-progress");
+    let d = add(&mut s, "D", INBOX);
+    assert_eq!((col(&s, &d).as_str(), col(&s, &a).as_str()), ("in-progress", "in-progress"), "new tasks land in the first column");
+    assert!(column(&s, "todo").is_empty(), "{:?}", column(&s, "todo"));
+
+    // Remove "Doing now" (no reassignment given: the new first column); recurring R goes along.
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "done", "name": "Done", "done": true}]);
+    apply(&mut s, json!({"type": "saveColumns", "columns": cols}));
+    for id in [&a, &b, &d, &r] {
+        assert_eq!(col(&s, id), "todo", "{id}");
+    }
+    // Removing a column into the done column completes its tasks (recurring ones advance).
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "wip", "name": "WIP"}, {"id": "done", "name": "Done", "done": true}]);
+    apply(&mut s, json!({"type": "saveColumns", "columns": cols}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [a, r], "status": "wip"}));
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "done", "name": "Done", "done": true}]);
+    let out = apply(&mut s, json!({"type": "saveColumns", "columns": cols, "reassign": {"wip": "done"}}));
+    assert!(s.task(&a).unwrap().done);
+    assert_eq!(out.rescheduled.len(), 1);
+    assert_eq!(col(&s, &r), "todo");
+
+    // Making another column the done column: its open tasks move to the first column.
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "ship", "name": "Shipping"}, {"id": "done", "name": "Done", "done": true}]);
+    apply(&mut s, json!({"type": "saveColumns", "columns": cols}));
+    apply(&mut s, json!({"type": "setStatus", "ids": [b], "status": "ship"}));
+    let cols = json!([{"id": "todo", "name": "To do"}, {"id": "ship", "name": "Shipped", "done": true}, {"id": "done", "name": "Archive"}]);
+    apply(&mut s, json!({"type": "saveColumns", "columns": cols}));
+    assert_eq!((s.task(&b).unwrap().done, col(&s, &b).as_str()), (false, "todo"));
+    assert_eq!(col(&s, &a), "ship", "completed tasks show in the (new) done column");
+
+    // Invalid boards are refused and change nothing.
+    let before = s.settings.columns.clone();
+    for cols in [
+        json!([{"name": "To do"}, {"name": "Done"}]),
+        json!([{"name": "To do", "done": true}, {"name": "Done", "done": true}]),
+        json!([{"name": "Done", "done": true}]),
+        json!([{"name": "To do"}, {"name": "to DO"}, {"name": "Done", "done": true}]),
+        json!([{"name": "  "}, {"name": "Done", "done": true}]),
+    ] {
+        let op: TodoOp = serde_json::from_value(json!({"type": "saveColumns", "columns": cols})).unwrap();
+        assert!(s.apply(op, None, &now()).is_err(), "{cols}");
+    }
+    assert_eq!(s.settings.columns, before);
+}
+
 #[test]
 fn empty_base_creates_a_fresh_store_on_first_save() {
     let base = tempfile::tempdir().unwrap();

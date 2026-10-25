@@ -1,15 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
-import { BellRing } from 'lucide-react';
+import { ArrowDown, ArrowUp, BellRing, Plus, Trash2 } from 'lucide-react';
+import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Modal } from '@/components/ui/Modal';
 import { Callout, Field, Kbd, MOD, Switch } from '@/components/ui/misc';
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
-import { todosApi, type TodoSettings } from '@/lib/api/todos';
-import { useTodos } from '@/store/todos';
-import { ColorPicker } from './pickers';
+import { todosApi, type StatusColumn, type TodoSettings } from '@/lib/api/todos';
+import { saveColumns, useTodos } from '@/store/todos';
+import { columnCounts, columnsError, doneColumn, firstColumn } from './boardModel';
+import { COLORS, colorVar } from './lib';
+import { ColorPicker, StatusDot } from './pickers';
 
-type DialogSpec = { kind: 'list'; id?: string } | { kind: 'label'; name?: string } | { kind: 'filter'; id?: string; query?: string } | { kind: 'settings' } | { kind: 'help' };
+type DialogSpec =
+  | { kind: 'list'; id?: string }
+  | { kind: 'label'; name?: string }
+  | { kind: 'filter'; id?: string; query?: string }
+  | { kind: 'settings' }
+  | { kind: 'help' }
+  | { kind: 'columns' }
+  | { kind: 'deleteColumn'; id: string };
 
 const useDialog = create<{ spec: DialogSpec | null }>(() => ({ spec: null }));
 
@@ -115,6 +125,7 @@ export const FILTER_SYNTAX: [string, string][] = [
   ['7 days', 'due in the next 7 days (with today)'],
   ['no date', 'also no labels, no deadline, recurring, subtask'],
   ['search: invoice', 'title or description contains'],
+  ['status: in progress', 'board column; !status: to do excludes one'],
   ['@review*  /back*', 'wildcards; /section'],
   ['overdue, today', 'comma: separate groups'],
 ];
@@ -196,7 +207,7 @@ function FragmentRow({ q, d, onUse }: { q: string; d: string; onUse(): void }) {
 
 function SettingsDialog() {
   const current = useTodos((s) => s.snap?.settings);
-  const [s, setS] = useState<TodoSettings>(current ?? { reminders: true, remindBeforeMinutes: 0 });
+  const [s, setS] = useState<TodoSettings>(current ?? { reminders: true, remindBeforeMinutes: 0, columns: [] });
   const save = async () => {
     const r = await useTodos.getState().apply({ type: 'saveSettings', settings: { ...s, allDayReminder: s.allDayReminder || undefined } }, 'Reminder settings saved');
     if (r) close();
@@ -247,6 +258,215 @@ function SettingsDialog() {
           </div>
         </Field>
         <Callout>Reminders fire only while /dev/all is running (nothing runs in the background after you quit). Clicking one opens the task; its Complete button completes it.</Callout>
+      </div>
+    </Modal>
+  );
+}
+
+type ColumnRow = StatusColumn & { key: string };
+
+const colourName = (c: string) => c[0].toUpperCase() + c.slice(1);
+
+function colourItems(current: string | null | undefined, onPick: (c: string | null) => void): MenuItemDef[] {
+  return [
+    { label: 'No colour', icon: <span className="td-swatch" />, hint: !current ? '✓' : undefined, onSelect: () => onPick(null) },
+    ...COLORS.map((c) => ({ label: colourName(c), icon: <span className="td-swatch" style={{ background: colorVar(c) }} />, hint: current === c ? '✓' : undefined, onSelect: () => onPick(c) })),
+  ];
+}
+
+/**
+ * The board's status columns: rename, colour, WIP limit, order, which one is the done column, add
+ * and delete (asking where the tasks of a deleted column go). Saved in one `saveColumns`.
+ */
+function ColumnsDialog() {
+  const snap = useTodos((s) => s.snap);
+  const initial = useMemo(() => snap?.settings.columns ?? [], [snap]);
+  const [rows, setRows] = useState<ColumnRow[]>(() => initial.map((c) => ({ ...c, key: c.id })));
+  const [moves, setMoves] = useState<Record<string, string>>({});
+  const [focus, setFocus] = useState<string | null>(null);
+  const counts = useMemo(() => columnCounts(snap?.tasks ?? [], initial), [snap, initial]);
+  const removed = initial.filter((c) => !rows.some((r) => r.id === c.id) && (counts.get(c.id) ?? 0) > 0);
+  // Tasks can only go to columns that exist already.
+  const targets = rows.filter((r) => r.id);
+  const first = firstColumn(rows);
+  const error = columnsError(rows);
+  const oldDone = doneColumn(initial);
+  const newDone = doneColumn(rows);
+  const doneMoves = newDone && newDone.id !== oldDone?.id ? (counts.get(newDone.id) ?? 0) : 0;
+  const patch = (key: string, p: Partial<ColumnRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  const move = (i: number, delta: -1 | 1) =>
+    setRows((rs) => {
+      const j = i + delta;
+      if (j < 0 || j >= rs.length) return rs;
+      const out = [...rs];
+      [out[i], out[j]] = [out[j], out[i]];
+      return out;
+    });
+  const add = () => {
+    const key = `new-${Date.now()}`;
+    setRows((rs) => {
+      const at = rs.length && rs[rs.length - 1].done ? rs.length - 1 : rs.length;
+      return [...rs.slice(0, at), { key, id: '', name: '' }, ...rs.slice(at)];
+    });
+    setFocus(key);
+  };
+  const save = async () => {
+    if (error) return;
+    const reassign: Record<string, string> = {};
+    for (const c of removed) if (moves[c.id] && targets.some((t) => t.id === moves[c.id])) reassign[c.id] = moves[c.id];
+    const r = await saveColumns(
+      rows.map(({ key: _key, ...c }) => ({ ...c, name: c.name.trim() })),
+      reassign,
+      'Columns saved',
+    );
+    if (r) close();
+  };
+  return (
+    <Modal
+      open
+      onClose={close}
+      title="Board columns"
+      size="lg"
+      footer={
+        <>
+          <button className="btn" onClick={add} disabled={rows.length >= 20}>
+            <Plus /> Add column
+          </button>
+          <span className="spacer" />
+          <button className="btn" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={() => void save()} disabled={!!error}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="col">
+        <p className="small muted">
+          Every board (lists, All tasks, Today, Upcoming, labels and filters) shows these columns. New tasks start in the first column; moving a card to the done column completes the task, and
+          reopening it brings it back.
+        </p>
+        <div className="td-col-editor" role="list">
+          {rows.map((r, i) => (
+            <div key={r.key} className="td-col-row" role="listitem">
+              <span className="td-col-moves">
+                <button className="icon-btn sm" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${r.name || 'column'} up`} title="Move up (left on the board)">
+                  <ArrowUp />
+                </button>
+                <button className="icon-btn sm" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label={`Move ${r.name || 'column'} down`} title="Move down (right on the board)">
+                  <ArrowDown />
+                </button>
+              </span>
+              <Menu
+                items={() => colourItems(r.color, (color) => patch(r.key, { color }))}
+                trigger={(p) => (
+                  <button className="icon-btn sm" {...p} aria-label="Colour" title="Colour">
+                    <StatusDot col={r} />
+                  </button>
+                )}
+              />
+              <input
+                className="input sm td-col-name"
+                autoFocus={focus === r.key}
+                value={r.name}
+                placeholder="Column name"
+                maxLength={40}
+                aria-label="Column name"
+                onChange={(e) => patch(r.key, { name: e.target.value })}
+                onKeyDown={(e) => e.key === 'Enter' && void save()}
+              />
+              <span className="subtle xs td-col-count" title="Open tasks in this column">
+                {r.id && counts.get(r.id) ? `${counts.get(r.id)} open` : ''}
+              </span>
+              <input
+                className="input sm td-col-wip"
+                type="number"
+                min={0}
+                max={9999}
+                placeholder={r.done ? '—' : 'No limit'}
+                disabled={!!r.done}
+                aria-label="WIP limit"
+                title="WIP limit: most open cards in this column"
+                value={r.done ? '' : (r.wipLimit ?? '')}
+                onChange={(e) => patch(r.key, { wipLimit: Math.max(0, Math.floor(Number(e.target.value))) || null })}
+              />
+              <label className="td-col-done" title="The done column: moving a card here completes the task">
+                <input type="radio" name="td-done-column" checked={!!r.done} onChange={() => setRows((rs) => rs.map((x) => ({ ...x, done: x.key === r.key, wipLimit: x.key === r.key ? null : x.wipLimit })))} />
+                Done
+              </label>
+              <button className="icon-btn sm danger" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} disabled={!!r.done} aria-label={`Delete ${r.name || 'column'}`} title={r.done ? 'Make another column the done column first' : 'Delete column'}>
+                <Trash2 />
+              </button>
+            </div>
+          ))}
+        </div>
+        {removed.map((c) => (
+          <Field key={c.id} label={`${counts.get(c.id)} open task${counts.get(c.id) === 1 ? '' : 's'} of “${c.name}” move to`}>
+            <select className="select" value={moves[c.id] ?? ''} onChange={(e) => setMoves({ ...moves, [c.id]: e.target.value })}>
+              <option value="">{`The first column${first?.name.trim() ? ` (${first.name.trim()})` : ''}`}</option>
+              {targets.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name.trim() || t.id}
+                  {t.done ? ' — completes them' : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ))}
+        {doneMoves > 0 && newDone && <Callout kind="warning">{`${doneMoves} open task${doneMoves === 1 ? '' : 's'} in “${newDone.name}” will move to the first column (completed tasks always show in the done column).`}</Callout>}
+        {error && <div className="td-col-error small">{error}</div>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Deleting one column from its header: where do its tasks go? */
+function DeleteColumnDialog({ id }: { id: string }) {
+  const snap = useTodos((s) => s.snap);
+  const cols = snap?.settings.columns ?? [];
+  const col = cols.find((c) => c.id === id);
+  const rest = cols.filter((c) => c.id !== id);
+  const n = columnCounts(snap?.tasks ?? [], cols).get(id) ?? 0;
+  const [to, setTo] = useState(() => firstColumn(rest)?.id ?? '');
+  const error = columnsError(rest);
+  if (!col) return null;
+  const save = async () => {
+    const r = await saveColumns(rest, n && to ? { [id]: to } : undefined, `Deleted column ${col.name}`);
+    if (r) close();
+  };
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Delete “${col.name}”?`}
+      footer={
+        <>
+          <button className="btn" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn btn-danger" onClick={() => void save()} disabled={!!error}>
+            Delete column
+          </button>
+        </>
+      }
+    >
+      <div className="col">
+        {n > 0 ? (
+          <Field label={`Its ${n} open task${n === 1 ? '' : 's'} move to`}>
+            <select className="select" value={to} onChange={(e) => setTo(e.target.value)} autoFocus>
+              {rest.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.done ? ' — completes them' : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <p className="small muted">The column is empty. Completed tasks that came from it reopen in the first column.</p>
+        )}
+        {error && <div className="td-col-error small">{error}</div>}
       </div>
     </Modal>
   );
@@ -339,5 +559,9 @@ export function TodoDialogs() {
       return <SettingsDialog />;
     case 'help':
       return <HelpDialog />;
+    case 'columns':
+      return <ColumnsDialog />;
+    case 'deleteColumn':
+      return <DeleteColumnDialog key={spec.id} id={spec.id} />;
   }
 }

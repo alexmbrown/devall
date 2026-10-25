@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { groupChoices, type GroupBy, type Layout } from './boardModel';
 import { viewKey, type DropPos, type SortKey, type ViewRef } from './lib';
 
-/** Something other than tasks being dragged: a section (header/column), a list (left pane, board column) or a saved filter. */
-export type DragItem = { kind: 'section' | 'list' | 'filter'; id: string };
+/** Something other than tasks being dragged: a section (header/column), a list (left pane, board column), a status column or a saved filter. */
+export type DragItem = { kind: 'section' | 'list' | 'column' | 'filter'; id: string };
 
 /** Page-level UI state of the to-do page: selection, keyboard cursor, inline edit, drag & drop. */
 interface UiState {
@@ -79,12 +79,27 @@ export interface ViewOptions {
   sort: SortKey;
 }
 
-const OPTIONS_KEY = 'devall.todos.viewOptions';
+const OPTIONS_KEY = 'devall.todos.viewOptions.v2';
+/** Before status columns (boards grouped by section/list by default). */
+const OLD_OPTIONS_KEY = 'devall.todos.viewOptions';
 
 function storedOptions(): Record<string, Partial<ViewOptions>> {
   try {
-    const v = JSON.parse(localStorage.getItem(OPTIONS_KEY) ?? '{}');
-    return v && typeof v === 'object' ? v : {};
+    const raw = localStorage.getItem(OPTIONS_KEY);
+    if (raw) {
+      const v = JSON.parse(raw);
+      return v && typeof v === 'object' ? v : {};
+    }
+    // Keep layouts and sorting from before; every board starts over on the new default grouping (Status).
+    const old = JSON.parse(localStorage.getItem(OLD_OPTIONS_KEY) ?? '{}');
+    const out: Record<string, Partial<ViewOptions>> = {};
+    if (old && typeof old === 'object')
+      for (const [k, o] of Object.entries(old as Record<string, Partial<ViewOptions>>)) {
+        if (!o || typeof o !== 'object') continue;
+        const { groupBy: _drop, ...rest } = o;
+        out[k] = rest;
+      }
+    return out;
   } catch {
     return {};
   }
@@ -118,3 +133,39 @@ export function useOptions(view: ViewRef): ViewOptions {
   const stored = useViewOptions((s) => s.byView[viewKey(view)]);
   return resolveOptions(view, stored);
 }
+
+// ── status boards: the done column (all views), remembered on this machine ──────────────────────
+
+/** How many days of completions the done column shows (the snapshot has the last 7). */
+export const DONE_DAYS = [1, 3, 7] as const;
+
+export interface BoardPrefs {
+  doneDays: number;
+  /** The done column folded to a narrow strip. */
+  doneCollapsed: boolean;
+}
+
+const BOARD_KEY = 'devall.todos.board';
+
+function storedBoard(): BoardPrefs {
+  const d: BoardPrefs = { doneDays: 7, doneCollapsed: false };
+  try {
+    const v = JSON.parse(localStorage.getItem(BOARD_KEY) ?? '{}') as Partial<BoardPrefs>;
+    return { doneDays: DONE_DAYS.includes(v.doneDays as 1 | 3 | 7) ? v.doneDays! : d.doneDays, doneCollapsed: v.doneCollapsed === true };
+  } catch {
+    return d;
+  }
+}
+
+export const useBoardPrefs = create<BoardPrefs & { set(p: Partial<BoardPrefs>): void }>((set, get) => ({
+  ...storedBoard(),
+  set(p) {
+    const next = { doneDays: get().doneDays, doneCollapsed: get().doneCollapsed, ...p };
+    try {
+      localStorage.setItem(BOARD_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode */
+    }
+    set(next);
+  },
+}));

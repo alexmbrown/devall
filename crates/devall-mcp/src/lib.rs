@@ -192,11 +192,11 @@ impl DevallMcp {
             Tool::new("list_mocks", "WireMock-compatible mock stubs in mocks/mappings: method, URL matcher, response status, priority and scenario.", empty()).annotate(ro("List mocks")),
             Tool::new("list_repos", "The project's git repositories (a multi-repo project shares its requests, environments and notes across several frontend/backend repos): name, group, checked-out branch, local path, remote, state (found / missing / notARepo) and whether it is listed in devall.yaml. Files in a repo are referenced as repo:<name>/<path>.", empty()).annotate(ro("List repositories")),
             Tool::new("list_requests", "Saved requests in the project (path, name, method, protocol, folder). Paths are what read_request and send_request take.", empty()).annotate(ro("List saved requests")),
-            Tool::new("list_todos", "The user's personal to-do list for this project (stored outside the repo): tasks with priority (p1 most urgent), due date/time and recurrence, deadline, labels, section, sub-tasks, links, attachment names (files kept on the user's machine) and comments.", schema(json!({
+            Tool::new("list_todos", "The user's personal to-do list for this project (stored outside the repo): tasks with their status (board column, e.g. \"To do\", \"In progress\", \"Done\"; the user's columns are listed in `statuses`), priority (p1 most urgent), due date/time and recurrence, deadline, labels, section, sub-tasks, links, attachment names (files kept on the user's machine) and comments.", schema(json!({
                 "type": "object",
                 "properties": {
                     "includeDone": { "type": "boolean", "description": "Also return completed items" },
-                    "filter": { "type": "string", "description": "Optional filter, e.g. \"today | overdue\", \"p1 & @bug\", \"due before: next week\", \"search: refunds\"" }
+                    "filter": { "type": "string", "description": "Optional filter, e.g. \"today | overdue\", \"p1 & @bug\", \"status: in progress\", \"!status: to do\", \"due before: next week\", \"search: refunds\"" }
                 },
                 "additionalProperties": false
             }))).annotate(ro("List personal to-dos")),
@@ -271,12 +271,13 @@ impl DevallMcp {
                     },
                     "required": ["text"], "additionalProperties": false
                 }))).annotate(local("Add a to-do", false)),
-                Tool::new("update_todo", "Change a task in this project's to-do list. Only the fields given change.", schema(json!({
+                Tool::new("update_todo", "Change a task in this project's to-do list. Only the fields given change. `status` moves it to another board column (e.g. \"In progress\" when you start on it); the done column completes it.", schema(json!({
                     "type": "object",
                     "properties": {
                         "id": id_prop,
                         "content": { "type": "string" },
                         "description": { "type": "string" },
+                        "status": { "type": "string", "description": "Board column by name, case-insensitive (the user's columns are in list_todos → statuses; default To do, In progress, Done). The done column completes the task (a recurring one moves to its next date)" },
                         "priority": { "type": "string", "enum": ["p1", "p2", "p3", "p4"] },
                         "due": { "type": "string", "description": "Natural language (\"fri 9am\", \"every weekday\"); empty string clears" },
                         "deadline": { "type": ["string", "null"], "description": "YYYY-MM-DD or natural language; empty/null clears" },

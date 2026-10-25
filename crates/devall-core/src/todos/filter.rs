@@ -4,14 +4,16 @@
 //! today | overdue            p1 & @bug              #Work & !@later
 //! due before: next week      no date                search: invoice
 //! (p1 | p2) & 7 days         @review*               overdue, today      (`,` = separate groups)
+//! status: in progress        !status: to do
 //! ```
 //!
 //! Terms: `today`, `tomorrow`, `yesterday`, `overdue`/`od`, `no date`, `no time`, `recurring`,
 //! `no labels`, `no deadline`, `no section`, `subtask`, `all`, `p1`…`p4`, `no priority`, `@label`,
 //! `#list`, `/section` (`*` wildcards), `N days`/`next N days` (today and the following N-1 days),
 //! `due: <date>`, `due before: <date>`, `due after: <date>` (also `date…`), `deadline: <date>`,
-//! `deadline before:`/`after:`, `created before:`/`after:`, `search: <text>`, or a bare date
-//! (`jan 15`, `next fri`). Operators: `&`, `|`, `!`, parentheses. Filters only match open tasks.
+//! `deadline before:`/`after:`, `created before:`/`after:`, `search: <text>`, `status: <column>`
+//! (board column name, `*` wildcards), or a bare date (`jan 15`, `next fri`). Operators: `&`, `|`,
+//! `!`, parentheses. Filters only match open tasks (so never the done column).
 
 use chrono::NaiveDate;
 
@@ -46,6 +48,8 @@ pub enum Term {
     CreatedBefore(NaiveDate),
     CreatedAfter(NaiveDate),
     Search(String),
+    /// Board column name (lowercase, `*` wildcards).
+    Status(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +248,10 @@ fn term(raw: &str, ctx: &DateCtx) -> Result<Term, String> {
                         let text = s.split_once(':').map(|(_, v)| v.trim().to_lowercase()).unwrap_or_default();
                         if text.is_empty() { Err("`search:` needs some text".into()) } else { Ok(Term::Search(text)) }
                     }
+                    "status" => {
+                        let name = val.trim_matches('"').trim();
+                        if name.is_empty() { Err("`status:` needs a column name, e.g. status: in progress".into()) } else { Ok(Term::Status(name.to_string())) }
+                    }
                     other => Err(format!("unknown filter `{other}:`")),
                 };
             }
@@ -318,6 +326,8 @@ pub struct EvalCtx<'a> {
     pub due_date: &'a dyn Fn(&Task) -> Option<NaiveDate>,
     /// Creation day of a task (from `createdAt`).
     pub created: &'a dyn Fn(&Task) -> NaiveDate,
+    /// Name of the board column a task is in (see [`super::model::TodoSettings::status_of`]).
+    pub status_name: &'a dyn Fn(&Task) -> Option<String>,
 }
 
 impl Expr {
@@ -357,6 +367,7 @@ impl Expr {
                     Term::CreatedBefore(x) => (cx.created)(t) < *x,
                     Term::CreatedAfter(x) => (cx.created)(t) > *x,
                     Term::Search(s) => t.content.to_lowercase().contains(s) || t.description.to_lowercase().contains(s),
+                    Term::Status(p) => (cx.status_name)(t).is_some_and(|n| wild(p, n.trim())),
                 }
             }
         }

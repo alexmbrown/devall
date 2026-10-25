@@ -1,32 +1,33 @@
-import { useState } from 'react';
+import clsx from 'clsx';
+import { usePrefs } from '@/store/prefs';
+import { ICON, MARK } from './brandMark';
 
 /**
- * The /dev/all wordmark: a light panel with dark "dev" and "all" and a transparent "/" cut-out,
- * drawn for dark backgrounds.
- *
- * Uses the original artwork at `public/brand/logo.png` — as-is in the dark theme, colour-inverted
- * in the light theme (`.logo-img` in devall.css), so the cut-out slash always shows the page behind
- * it. If the PNG is missing, a vector copy with the same cut-out is drawn from `--logo-*` tokens.
+ * The <D/A> mark on its rounded tile — the app icon, drawn from the same traced path
+ * (scripts/brand-assets.py → brandMark.ts). Colours come from `--logo-panel` / `--logo-text`.
+ */
+export function BrandMark({ size, className }: { size: number; className?: string }) {
+  const tile = ICON.size - 2 * ICON.inset;
+  return (
+    <svg className={className} viewBox={`${ICON.inset} ${ICON.inset} ${tile} ${tile}`} width={size} height={size} aria-hidden>
+      <rect x={ICON.inset} y={ICON.inset} width={tile} height={tile} rx={ICON.radius} fill="var(--logo-panel)" />
+      <path transform={`translate(${ICON.markX} ${ICON.markY}) scale(${ICON.markScale})`} fill="var(--logo-text)" fillRule="evenodd" d={MARK.path} />
+    </svg>
+  );
+}
+
+/**
+ * The long logo: the mark, then "Dev" (bold) "All" (thin). The tile is the accent colour with
+ * readable text, or the original grey, per Settings → Appearance.
  */
 export function Logo({ height = 22, className }: { height?: number; className?: string }) {
-  const [missing, setMissing] = useState(false);
-  if (!missing)
-    return <img className={`logo-img ${className ?? ''}`} src="./brand/logo.png" alt="/dev/all" style={{ height }} onError={() => setMissing(true)} draggable={false} />;
+  const style = usePrefs((s) => s.logoStyle);
   return (
-    <svg className={className} viewBox="0 0 171 57" height={height} width={(height * 171) / 57} role="img" aria-label="/dev/all">
-      <defs>
-        <mask id="devall-logo-slash">
-          <rect width="171" height="57" fill="#fff" />
-          <polygon points="88,57 100,57 120,0 108,0" fill="#000" />
-        </mask>
-      </defs>
-      <rect width="171" height="57" fill="var(--logo-panel)" mask="url(#devall-logo-slash)" />
-      <text x="6" y="41" fontSize="40" fill="var(--logo-text)" fontFamily="'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif">
-        dev
-      </text>
-      <text x="118" y="41" fontSize="40" fill="var(--logo-text)" fontFamily="'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif">
-        all
-      </text>
-    </svg>
+    <span className={clsx('logo', style === 'accent' && 'accent', className)} role="img" aria-label="Dev All" style={{ gap: Math.round(height * 0.32) }}>
+      <BrandMark size={height} />
+      <span className="logo-word" style={{ fontSize: Math.round(height * 0.78) }}>
+        <b>Dev</b> <span>All</span>
+      </span>
+    </span>
   );
 }

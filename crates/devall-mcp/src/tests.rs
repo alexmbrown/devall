@@ -233,6 +233,9 @@ async fn legacy_initialize_handshake_and_tools() {
     let t = text_of(&todos);
     assert!(t.contains("Add idempotency keys to orders"), "{t}");
     assert_eq!(todos["structuredContent"]["items"][0]["priority"], "p1");
+    assert_eq!(todos["structuredContent"]["items"][0]["status"], "To do");
+    let statuses: Vec<&str> = todos["structuredContent"]["statuses"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(statuses, ["To do", "In progress", "Done"]);
     assert!(!t.contains("Private errand"), "other lists stay private");
     let p1 = c.call("list_todos", json!({ "filter": "p1 & @orders" }), None).await;
     assert_eq!(p1["structuredContent"]["items"].as_array().map(Vec::len), Some(1));
@@ -422,8 +425,20 @@ async fn agents_keep_notes_and_todos() {
     assert_eq!(up["task"]["labels"], json!(["payments", "tests"]));
     assert!(up["task"]["due"].is_null());
     assert!(srv.call("update_todo", &a(json!({ "id": short, "priority": "urgent" }))).await.is_err());
+    // Status: the board column, by name in any case; unknown names list the columns.
+    assert_eq!(t["status"], "To do");
+    let moved = srv.call("update_todo", &a(json!({ "id": short, "status": "in PROGRESS" }))).await.unwrap();
+    assert_eq!((moved["task"]["status"].as_str(), moved["task"]["done"].as_bool()), (Some("In progress"), Some(false)));
+    let bad = srv.call("update_todo", &a(json!({ "id": short, "status": "Blocked" }))).await.unwrap_err();
+    assert!(bad.contains("Blocked") && bad.contains("To do, In progress, Done"), "{bad}");
+    let wip = srv.call("list_todos", &a(json!({ "filter": "status: in progress" }))).await.unwrap();
+    assert_eq!(wip["items"].as_array().map(|i| i.iter().map(|x| x["id"].as_str().unwrap().to_string()).collect::<Vec<_>>()), Some(vec![id.clone()]));
     assert_eq!(srv.call("comment_todo", &a(json!({ "id": short, "text": "Covered partial refunds" }))).await.unwrap()["comments"], 1);
-    assert_eq!(srv.call("complete_todo", &a(json!({ "id": short }))).await.unwrap()["task"]["done"], true);
+    let done = srv.call("complete_todo", &a(json!({ "id": short }))).await.unwrap();
+    assert_eq!((done["task"]["done"].as_bool(), done["task"]["status"].as_str()), (Some(true), Some("Done")));
+    // Reopening returns it to the column it was in; moving it to the done column completes it.
+    assert_eq!(srv.call("complete_todo", &a(json!({ "id": short, "done": false }))).await.unwrap()["task"]["status"], "In progress");
+    assert_eq!(srv.call("update_todo", &a(json!({ "id": short, "status": "done" }))).await.unwrap()["task"]["done"], true);
     // Attachments (added in the app) are listed by name.
     let mut st = devall_core::todos::TodoStore::open(&f.data).unwrap();
     st.attach_bytes(&id, "refunds.png", Some("image/png"), b"png", None, &devall_core::todos::Now::local()).unwrap();

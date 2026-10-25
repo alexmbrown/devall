@@ -64,3 +64,10 @@ opt-level = 2
 codegen-units = 1
 lto = true
 strip = true
+
+# Your own installed copy (scripts/install-local.*): optimised like release, but quick to rebuild.
+[profile.local]
+inherits = "release"
+codegen-units = 16
+lto = "thin"
+incremental = true

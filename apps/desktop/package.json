@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build",
+    "app:install": "node ../../scripts/install-local.mjs",
     "app:bundle": "node ../../scripts/fetch-llama-server.mjs && tauri build --config src-tauri/tauri.bundle.conf.json --config src-tauri/binaries/tauri.libs.conf.json"
   },
   "dependencies": {
