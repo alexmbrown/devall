@@ -3,7 +3,6 @@ import clsx from 'clsx';
 import {
   AppWindow,
   ArrowRightLeft,
-  AtSign,
   CalendarDays,
   ChevronDown,
   ChevronUp,
@@ -23,6 +22,7 @@ import {
   GitBranch,
   Hash,
   History,
+  Image as ImageIcon,
   Inbox,
   Link2,
   ListTree,
@@ -57,13 +57,14 @@ import { useNav } from '@/store/nav';
 import { TODO_DETAIL, usePrefs } from '@/store/prefs';
 import { attachFiles, deleteTasks, moveTasks, pickAttachments, removeAttachment, setStatus, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
+import { previewable, useAttachmentUrl } from './attachmentUrl';
 import { statusOf } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { QuickAddInput } from './QuickAddInput';
 import { CheckCircle, Composer, InlineText } from './TaskRow';
-import { LabelPicker, MovePicker, PriorityIcon, priorityItems, StatusDot, statusItems } from './pickers';
+import { LabelChip, LabelColorPopover, LabelPicker, MovePicker, PriorityIcon, priorityItems, StatusDot, statusItems } from './pickers';
 import { usePopover } from './Popover';
-import { appDocument, classifyLink, colorVar, dayLabel, dueInfo, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
+import { appDocument, classifyLink, colorVar, dayLabel, dueInfo, labelColor, linkLabel, moveCursor, parseYmd, ruleText, timeLabel, todayYmd, treeRows } from './lib';
 import { useTodoUi } from './ui';
 
 const REVEAL_LABEL = isMac ? 'Reveal in Finder' : typeof navigator !== 'undefined' && navigator.platform.startsWith('Win') ? 'Show in Explorer' : 'Show in folder';
@@ -314,46 +315,6 @@ function Links({ task, links }: { task: TaskView; links: LinkActions }) {
 
 // ── attachments ────────────────────────────────────────────────────────────────────────────────
 
-/** Image types the webview renders (others show as files). */
-const PREVIEWABLE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml', 'image/x-icon', 'image/avif'];
-const PREVIEW_MAX = 15 * 1024 * 1024;
-const previewable = (a: Attachment) => PREVIEWABLE.includes(a.mime) && a.size <= PREVIEW_MAX;
-
-/** Blob URLs of loaded images, newest last (a small cache shared by thumbnails and the preview). */
-const urls = new Map<string, Promise<string>>();
-
-function attachmentUrl(taskId: string, id: string, mime: string): Promise<string> {
-  const key = `${taskId}/${id}`;
-  let p = urls.get(key);
-  if (!p) {
-    p = todosApi.attachmentBytes(taskId, id).then((buf) => URL.createObjectURL(new Blob([buf], { type: mime })));
-    p.catch(() => urls.delete(key));
-    urls.set(key, p);
-    if (urls.size > 60) {
-      const [oldKey, old] = urls.entries().next().value!;
-      urls.delete(oldKey);
-      void old.then((u) => URL.revokeObjectURL(u)).catch(() => {});
-    }
-  }
-  return p;
-}
-
-function useAttachmentUrl(taskId: string, a: Attachment): { url: string | null; failed: boolean } {
-  const [state, setState] = useState<{ key: string; url: string | null; failed: boolean }>({ key: '', url: null, failed: false });
-  const { id, mime } = a;
-  const key = `${taskId}/${id}`;
-  useEffect(() => {
-    let live = true;
-    attachmentUrl(taskId, id, mime)
-      .then((url) => live && setState({ key, url, failed: false }))
-      .catch(() => live && setState({ key, url: null, failed: true }));
-    return () => {
-      live = false;
-    };
-  }, [taskId, id, mime, key]);
-  return state.key === key ? state : { url: null, failed: false };
-}
-
 function fileIcon(a: Attachment) {
   const m = a.mime;
   if (m.startsWith('image/')) return <FileImage />;
@@ -378,9 +339,11 @@ function revealAttachment(taskId: string, a: Attachment) {
 }
 
 function attachmentMenu(taskId: string, a: Attachment): MenuItemDef[] {
+  const cover = useTodos.getState().snap?.tasks.find((t) => t.id === taskId)?.cover?.attachmentId === a.id;
   return [
     { label: 'Open', icon: <ExternalLink />, onSelect: () => openAttachment(taskId, a) },
     { label: REVEAL_LABEL, icon: <FolderOpen />, onSelect: () => revealAttachment(taskId, a) },
+    ...(previewable(a) ? [{ label: cover ? 'Remove as card cover' : 'Make card cover', icon: <ImageIcon />, onSelect: () => void updateTasks([taskId], { cover: cover ? null : { attachmentId: a.id } }) }] : []),
     { separator: true },
     { label: 'Remove', icon: <Trash2 />, danger: true, onSelect: () => void removeAttachment(taskId, a) },
   ];
@@ -552,6 +515,7 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
   const pref = usePrefs((s) => s.todoDetailWidth);
   const setPref = usePrefs((s) => s.set);
   const [dropping, setDropping] = useState(false);
+  const [labelColorFor, setLabelColor] = useState<{ name: string; anchor: DOMRect } | null>(null);
   const due = usePopover();
   const deadline = usePopover();
   const labels = usePopover();
@@ -696,12 +660,13 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
           <span className="k">Labels</span>
           <span className="v">
             {(task.labels ?? []).map((l) => (
-              <span key={l} className="tag td-tag" style={{ color: colorVar(snap.labels.find((x) => x.name === l)?.color) }}>
-                <AtSign /> <span className="truncate">{l}</span>
-                <button onClick={() => void updateTasks([task.id], { removeLabels: [l] })} aria-label={`Remove ${l}`}>
-                  <X />
-                </button>
-              </span>
+              <LabelChip
+                key={l}
+                name={l}
+                color={labelColor(l, snap.labels)}
+                onColor={(e) => setLabelColor({ name: l, anchor: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
+                onRemove={() => void updateTasks([task.id], { removeLabels: [l] })}
+              />
             ))}
             <button className="td-prop-btn placeholder" onClick={labels.toggle}>
               <Plus /> {task.labels?.length ? '' : 'Add label'}
@@ -807,6 +772,7 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
       {due.anchor && <DuePicker anchor={due.anchor} onClose={due.close} mode="due" due={task.due} today={today} onPatch={(p) => void updateTasks([task.id], p)} />}
       {deadline.anchor && <DuePicker anchor={deadline.anchor} onClose={deadline.close} mode="deadline" deadline={task.deadline} today={today} onPatch={(p) => void updateTasks([task.id], p)} />}
       {labels.anchor && <LabelPicker anchor={labels.anchor} onClose={labels.close} selected={task.labels ?? []} onToggle={(name, on) => void updateTasks([task.id], on ? { addLabels: [name] } : { removeLabels: [name] })} />}
+      {labelColorFor && <LabelColorPopover name={labelColorFor.name} anchor={labelColorFor.anchor} onClose={() => setLabelColor(null)} />}
       {move.anchor && (
         <MovePicker
           anchor={move.anchor}

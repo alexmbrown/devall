@@ -9,9 +9,9 @@ import { addTask, completeTasks, deleteTasks, moveTasks, setStatus, updateTasks,
 import { statusChip, statusOf } from './boardModel';
 import { DuePicker } from './DuePicker';
 import { QuickAddInput, type QuickAddInputHandle } from './QuickAddInput';
-import { LabelPicker, MovePicker, priorityItems, statusItems } from './pickers';
+import { LabelChip, LabelPicker, MovePicker, priorityItems, statusItems } from './pickers';
 import { usePopover } from './Popover';
-import { colorVar, dayLabel, dropPosition, dropTarget, dueInfo, rangeSelect, ruleText, subtree, todayYmd, type Row } from './lib';
+import { colorVar, dayLabel, dropPosition, dropTarget, dueInfo, labelColor, rangeSelect, ruleText, subtree, todayYmd, type Row } from './lib';
 import { beginDrag, endDrag, useTodoUi } from './ui';
 
 /** Sub-task indent per level (px). */
@@ -173,7 +173,7 @@ export function TaskRow({ row, context, dueMode = 'full', drop }: { row: Row; co
         ref={ref}
         tabIndex={-1}
         data-task={t.id}
-        className={clsx('td-row', t.done && 'done', row.kids > 0 && 'has-kids', isCursor && 'cursor', isSel && 'sel', isOpen && 'open-detail', dragging && 'dragging', dropHere && (drop === 'tree' ? `drop-${dropHere}` : 'drop-into'))}
+        className={clsx('td-row', t.done && 'done', row.context && 'context', row.kids > 0 && 'has-kids', isCursor && 'cursor', isSel && 'sel', isOpen && 'open-detail', dragging && 'dragging', dropHere && (drop === 'tree' ? `drop-${dropHere}` : 'drop-into'))}
         style={{ ['--indent' as string]: `${indent}px`, ['--drop-indent' as string]: `${dropHere === 'child' ? indent + INDENT : indent}px` }}
         onClick={click}
         onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && setUi({ editing: t.id })}
@@ -350,15 +350,7 @@ export function Meta({
         {t.attachments.length}
       </span>,
     );
-  for (const l of t.labels ?? []) {
-    const c = labels?.find((x) => x.name === l)?.color;
-    items.push(
-      <span key={`@${l}`} className="td-label" style={{ ['--c' as string]: colorVar(c) }} title={`@${l}`}>
-        <AtSign />
-        <span className="truncate">{l}</span>
-      </span>,
-    );
-  }
+  for (const l of t.labels ?? []) items.push(<LabelChip key={`@${l}`} name={l} color={labelColor(l, labels)} className="td-label" />);
   if (where)
     items.push(
       <span key="list" className="td-listname" title={where}>

@@ -231,6 +231,16 @@ impl Attachment {
     }
 }
 
+/// A board card's cover: one of the task's image attachments, or a colour (palette name or `#hex`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cover {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
 /// One completion of a recurring task.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -301,6 +311,9 @@ pub struct Task {
     /// Position in its board column (manual order across lists; ties fall back to list order).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub status_order: i64,
+    /// The card's cover on boards (an image attachment or a colour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<Cover>,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -350,8 +363,30 @@ pub struct Section {
 #[serde(rename_all = "camelCase")]
 pub struct Label {
     pub name: String,
+    /// Palette name or `#rrggbb`; `None` = the name's default colour ([`default_label_color`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+}
+
+impl Label {
+    /// Its colour, or the default colour of its name.
+    pub fn color_or_default(&self) -> String {
+        self.color.clone().unwrap_or_else(|| default_label_color(&self.name).to_string())
+    }
+}
+
+/// Colours labels get by default (the palette without gray).
+pub const LABEL_PALETTE: [&str; 8] = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"];
+
+/// The default colour of a label: FNV-1a (32-bit) of the lower-case name's UTF-8 bytes picks one of
+/// [`LABEL_PALETTE`], so a label looks the same everywhere (mirrored in the UI's `defaultLabelColor`).
+pub fn default_label_color(name: &str) -> &'static str {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in name.trim().trim_start_matches('@').to_lowercase().bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    LABEL_PALETTE[(h % LABEL_PALETTE.len() as u32) as usize]
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -580,5 +615,15 @@ mod tests {
         assert!(serde_json::from_str::<Due>(r#"{"date":"26/10/2026"}"#).is_err());
         let d: Due = serde_json::from_str(r#"{"date":"2026-10-26","time":"17:30:00"}"#).unwrap();
         assert_eq!(d.time, NaiveTime::from_hms_opt(17, 30, 0));
+    }
+
+    #[test]
+    fn default_label_colours_are_stable() {
+        // Fixed values: the UI's `defaultLabelColor` (lib.ts) must give the same ones.
+        for (name, color) in [("bug", "blue"), ("api", "pink"), ("waiting-on", "yellow"), ("urgent", "red"), ("verify", "teal"), ("Bug", "blue"), ("@bug", "blue"), ("", "blue")] {
+            assert_eq!(default_label_color(name), color, "{name}");
+        }
+        assert_eq!(Label { name: "api".into(), color: None }.color_or_default(), "pink");
+        assert_eq!(Label { name: "api".into(), color: Some("#ff8800".into()) }.color_or_default(), "#ff8800");
     }
 }

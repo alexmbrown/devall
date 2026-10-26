@@ -1,13 +1,14 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { AtSign, CalendarDays, CalendarRange, CheckCircle2, ChevronDown, Filter, FolderKanban, Hash, Inbox, ListChecks, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CalendarDays, CalendarRange, CheckCircle2, ChevronDown, Filter, FolderKanban, Hash, Inbox, ListChecks, Lock, Merge, MoreHorizontal, Palette, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
 import { Menu, useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
 import { SearchInput } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
 import { confirmDialog } from '@/components/ui/dialogs';
 import { moveTasks, updateTasks, useTodos } from '@/store/todos';
-import { colorVar, openCount, reorderIds, viewKey, type ViewRef } from './lib';
+import { colorVar, labelColor, openCount, reorderIds, viewKey, type ViewRef } from './lib';
 import { openTodoDialog } from './dialogs';
+import { LabelColorPopover } from './pickers';
 import { beginDrag, endDrag, useTodoUi, type DragItem } from './ui';
 import { reorderLists, useDropZone } from './views';
 
@@ -21,6 +22,7 @@ export function TodoNav() {
   const search = useTodoUi((s) => s.search);
   const setUi = useTodoUi((s) => s.set);
   const [closed, setClosed] = useState<Record<string, boolean>>({ other: true });
+  const [colouring, setColouring] = useState<{ name: string; anchor: DOMRect } | null>(null);
   const ctx = useContextMenu();
   const toggle = (k: string) => setClosed((c) => ({ ...c, [k]: !c[k] }));
   const go = (v: ViewRef) => {
@@ -115,8 +117,19 @@ export function TodoNav() {
       <Group label="Labels" closed={closed.labels} onToggle={() => toggle('labels')} onAdd={() => openTodoDialog({ kind: 'label' })} addTitle="New label" />
       {!closed.labels &&
         (snap?.labels ?? []).map((l) => {
+          const color = labelColor(l.name, snap?.labels);
           const menu: MenuItemDef[] = [
-            { label: 'Edit label…', icon: <Pencil />, onSelect: () => openTodoDialog({ kind: 'label', name: l.name }) },
+            {
+              label: 'Colour…',
+              icon: <Palette />,
+              onSelect: () => {
+                const el = document.querySelector<HTMLElement>(`.td-nav [data-nav="${CSS.escape(`label:${l.name}`)}"]`);
+                if (el) setColouring({ name: l.name, anchor: el.getBoundingClientRect() });
+              },
+            },
+            { label: 'Rename…', icon: <Pencil />, onSelect: () => openTodoDialog({ kind: 'label', name: l.name }) },
+            { label: 'Merge into…', icon: <Merge />, disabled: (snap?.labels.length ?? 0) < 2, onSelect: () => openTodoDialog({ kind: 'mergeLabel', name: l.name }) },
+            { separator: true },
             {
               label: 'Delete label…',
               icon: <Trash2 />,
@@ -132,7 +145,8 @@ export function TodoNav() {
           return (
             <Item
               key={l.name}
-              icon={<AtSign style={{ color: colorVar(l.color) }} />}
+              navKey={`label:${l.name}`}
+              icon={<Tag className="td-nav-label" style={{ color: colorVar(color), fill: `color-mix(in srgb, ${colorVar(color)} 30%, transparent)` }} />}
               label={l.name}
               on={current === `label:${l.name}` && !search}
               count={openCount(tasks, (t) => !!t.labels?.includes(l.name))}
@@ -182,6 +196,7 @@ export function TodoNav() {
           );
         })}
       {ctx.node}
+      {colouring && <LabelColorPopover name={colouring.name} anchor={colouring.anchor} onClose={() => setColouring(null)} />}
     </SidePane>
   );
 }
@@ -242,6 +257,7 @@ function Item({
   onContext,
   onDropTasks,
   reorder,
+  navKey,
 }: {
   icon: ReactNode;
   label: string;
@@ -255,6 +271,8 @@ function Item({
   onDropTasks?(ids: string[]): void;
   /** Drag to reorder among items of the same kind. */
   reorder?: { item: DragItem; onItem(moving: string, pos: 'before' | 'after'): void };
+  /** `data-nav` (popovers anchor to the item). */
+  navKey?: string;
 }) {
   const zone = useDropZone(onDropTasks, reorder && { kind: reorder.item.kind, onItem: reorder.onItem });
   return (
@@ -262,6 +280,7 @@ function Item({
       className={clsx('td-nav-item', on && 'on', zone.over && (zone.over === 'into' ? 'drop' : `drop-${zone.over}`))}
       role="button"
       tabIndex={0}
+      data-nav={navKey}
       title={title ?? label}
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}

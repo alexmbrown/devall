@@ -3,7 +3,7 @@
  * drag-and-drop targets, keyboard shortcuts and quick-add highlighting. No React, no IPC — tested in
  * `lib.test.ts`. Natural-language parsing and filters live in Rust (`devall_core::todos`).
  */
-import type { Due, Priority, QuickToken, Section, Snapshot, Task, TaskList, TaskView } from '@/lib/api/todos';
+import type { Due, Label, Priority, QuickToken, Section, Snapshot, Task, TaskList, TaskView } from '@/lib/api/todos';
 import { parseRepoLink } from '@/lib/api/git';
 
 export type ViewRef =
@@ -210,6 +210,8 @@ export interface Row {
   open: number;
   /** All sub-tasks. */
   kids: number;
+  /** Shown only because a sub-task matches the filter (dimmed). */
+  context?: boolean;
 }
 
 /** Sub-task nesting shown in lists (deeper tasks render at this depth). */
@@ -244,28 +246,64 @@ export function compareBy(sort: SortKey): (a: TaskView, b: TaskView) => number {
 
 /**
  * Tasks of one slot (list + section) as tree rows: sub-tasks after their parent (unless the
- * parent is collapsed), siblings by position (or `sort`), completed ones last (only with `showDone`).
+ * parent is collapsed), siblings by position (or `sort`), completed ones last (only with `showDone`;
+ * an open sub-task of a hidden completed parent moves up a level rather than disappearing).
+ * `match` (a filter): only matching tasks and their parents (`context`), collapsed parents open.
  */
-export function treeRows(tasks: TaskView[], showDone: boolean, maxDepth = MAX_DEPTH, sort: SortKey = 'manual'): Row[] {
-  const ids = new Set(tasks.map((t) => t.id));
+export function treeRows(tasks: TaskView[], showDone: boolean, maxDepth = MAX_DEPTH, sort: SortKey = 'manual', match?: (t: TaskView) => boolean): Row[] {
+  const shown = showDone ? tasks : tasks.filter((t) => !t.done);
+  const ids = new Set(shown.map((t) => t.id));
+  // Counts are over every sub-task (shown or not): "1/3 done".
+  const all = new Map<string, TaskView[]>();
+  for (const t of tasks) if (t.parentId) all.set(t.parentId, [...(all.get(t.parentId) ?? []), t]);
   const kids = new Map<string, TaskView[]>();
-  for (const t of tasks) {
+  for (const t of shown) {
     const p = t.parentId && ids.has(t.parentId) ? t.parentId : '';
     kids.set(p, [...(kids.get(p) ?? []), t]);
+  }
+  let keep: Set<string> | null = null;
+  let hits: Set<string> | null = null;
+  if (match) {
+    keep = new Set();
+    hits = new Set(shown.filter(match).map((t) => t.id));
+    const byId = new Map(shown.map((t) => [t.id, t]));
+    for (const id of hits) for (let cur = byId.get(id); cur && !keep.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined) keep.add(cur.id);
   }
   const cmp = compareBy(sort);
   const sorted = (list: TaskView[]) => [...list].sort((a, b) => Number(!!a.done) - Number(!!b.done) || cmp(a, b));
   const out: Row[] = [];
   const walk = (parent: string, depth: number, seen: Set<string>) => {
     for (const t of sorted(kids.get(parent) ?? [])) {
-      if ((t.done && !showDone) || seen.has(t.id)) continue;
-      const children = kids.get(t.id) ?? [];
-      out.push({ task: t, depth: Math.min(depth, maxDepth), open: children.filter((c) => !c.done).length, kids: children.length });
-      if (!t.collapsed) walk(t.id, depth + 1, new Set([...seen, t.id]));
+      if (seen.has(t.id) || (keep && !keep.has(t.id))) continue;
+      const children = all.get(t.id) ?? [];
+      out.push({ task: t, depth: Math.min(depth, maxDepth), open: children.filter((c) => !c.done).length, kids: children.length, ...(hits && !hits.has(t.id) ? { context: true } : {}) });
+      if (!t.collapsed || keep) walk(t.id, depth + 1, new Set([...seen, t.id]));
     }
   };
   walk('', 0, new Set());
   return out;
+}
+
+/** Tasks hidden under collapsed parents (the parents themselves shown): what "Expand all" reveals. */
+export function foldedUnder(tasks: TaskView[], showDone: boolean): { count: number; parents: string[] } {
+  const shown = showDone ? tasks : tasks.filter((t) => !t.done);
+  const byId = new Map(shown.map((t) => [t.id, t]));
+  const parents = new Set<string>();
+  let count = 0;
+  for (const t of shown) {
+    // The outermost collapsed ancestor is what hides it.
+    let hidden: string | null = null;
+    const seen = new Set<string>();
+    for (let p = t.parentId ? byId.get(t.parentId) : undefined; p && !seen.has(p.id); p = p.parentId ? byId.get(p.parentId) : undefined) {
+      seen.add(p.id);
+      if (p.collapsed) hidden = p.id;
+    }
+    if (hidden) {
+      count++;
+      parents.add(hidden);
+    }
+  }
+  return { count, parents: [...parents] };
 }
 
 export interface ListLayout {
@@ -273,7 +311,7 @@ export interface ListLayout {
   sections: { section: Section; rows: Row[]; open: number }[];
 }
 
-export function listLayout(snap: Snapshot, listId: string, showDone: boolean, sort: SortKey = 'manual'): ListLayout {
+export function listLayout(snap: Snapshot, listId: string, showDone: boolean, sort: SortKey = 'manual', match?: (t: TaskView) => boolean): ListLayout {
   const inList = snap.tasks.filter((t) => t.listId === listId);
   const sections = snap.sections.filter((s) => s.listId === listId).sort((a, b) => a.order - b.order);
   const known = new Set(sections.map((s) => s.id));
@@ -283,10 +321,11 @@ export function listLayout(snap: Snapshot, listId: string, showDone: boolean, so
       showDone,
       MAX_DEPTH,
       sort,
+      match,
     ),
     sections: sections.map((section) => {
       const ts = inList.filter((t) => t.sectionId === section.id);
-      return { section, rows: treeRows(ts, showDone, MAX_DEPTH, sort), open: ts.filter((t) => !t.done).length };
+      return { section, rows: treeRows(ts, showDone, MAX_DEPTH, sort, match), open: ts.filter((t) => !t.done).length };
     }),
   };
 }
@@ -298,10 +337,10 @@ export function navOrder(lists: TaskList[], projectList?: string | null): TaskLi
 }
 
 /** "All tasks": every list with tasks to show, in the left pane's order, each laid out as a list (sections flattened). */
-export function allLayout(snap: Snapshot, showDone: boolean, sort: SortKey = 'manual'): { list: TaskList; rows: Row[]; open: number }[] {
+export function allLayout(snap: Snapshot, showDone: boolean, sort: SortKey = 'manual', match?: (t: TaskView) => boolean): { list: TaskList; rows: Row[]; open: number }[] {
   return navOrder(snap.lists, snap.projectList)
     .map((list) => {
-      const l = listLayout(snap, list.id, showDone, sort);
+      const l = listLayout(snap, list.id, showDone, sort, match);
       return { list, rows: [...l.rows, ...l.sections.flatMap((s) => s.rows)], open: openCount(snap.tasks, (t) => t.listId === list.id) };
     })
     .filter((g) => g.rows.length > 0);
@@ -399,6 +438,7 @@ export function outdentTarget(tasks: Task[], t: Task): MoveTarget | null {
 export type KeyAction =
   | 'quickAdd'
   | 'search'
+  | 'filter'
   | 'down'
   | 'up'
   | 'edit'
@@ -433,6 +473,8 @@ export function keyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean
       return 'quickAdd';
     case '/':
       return 'search';
+    case 'f':
+      return 'filter';
     case 'j':
     case 'ArrowDown':
       return 'down';
@@ -466,6 +508,67 @@ export function keyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean
     default:
       return null;
   }
+}
+
+/** Board shortcuts (Trello-like) that differ from the list's; anything else falls back to `keyAction`. */
+export type BoardKeyAction = 'up' | 'down' | 'left' | 'right' | 'open' | 'newCard' | 'quickEdit' | 'labels' | 'due' | 'complete' | 'toggleSelect' | 'moveLeft' | 'moveRight';
+
+/** The board shortcut for a key press (outside text fields), or null (then the list's `keyAction` applies). */
+export function boardKeyAction(e: { key: string; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean }): BoardKeyAction | null {
+  if (e.altKey || e.ctrlKey || e.metaKey) return null;
+  switch (e.key) {
+    case 'ArrowUp':
+    case 'k':
+      return 'up';
+    case 'ArrowDown':
+    case 'j':
+      return 'down';
+    case 'ArrowLeft':
+    case 'h':
+      return 'left';
+    case 'ArrowRight':
+      return 'right';
+    case 'Enter':
+      return 'open';
+    case 'n':
+      return 'newCard';
+    case 'e':
+      return 'quickEdit';
+    case 'l':
+      return 'labels';
+    case 'd':
+      return 'due';
+    case 'c':
+      return 'complete';
+    case ' ':
+      return 'toggleSelect';
+    case '<':
+    case ',':
+      return e.key === '<' || e.shiftKey ? 'moveLeft' : null;
+    case '>':
+    case '.':
+      return e.key === '>' || e.shiftKey ? 'moveRight' : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Keyboard movement on a board: `columns` are the card ids of each (visible) column. Up/down move
+ * within the column (stopping at the ends); left/right go to the nearest non-empty column, to the
+ * card at the same position (or its last). With no cursor: the first card.
+ */
+export function boardNav(columns: string[][], cursor: string | null, dir: 'up' | 'down' | 'left' | 'right'): string | null {
+  const first = columns.find((c) => c.length)?.[0] ?? null;
+  const ci = cursor ? columns.findIndex((c) => c.includes(cursor)) : -1;
+  if (ci < 0) return first;
+  const col = columns[ci];
+  const i = col.indexOf(cursor!);
+  if (dir === 'up') return col[Math.max(0, i - 1)];
+  if (dir === 'down') return col[Math.min(col.length - 1, i + 1)];
+  const step = dir === 'left' ? -1 : 1;
+  for (let j = ci + step; j >= 0 && j < columns.length; j += step) if (columns[j].length) return columns[j][Math.min(i, columns[j].length - 1)];
+  return cursor;
 }
 
 /** Next cursor position in `order` (wraps at neither end). */
@@ -525,9 +628,61 @@ export function suggest(names: string[], partial: string, limit = 6): string[] {
 export const COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray'] as const;
 export type ColorName = (typeof COLORS)[number];
 
-/** CSS colour for a palette name (themed tokens, see todos.css). */
+/** `#rgb` / `#rrggbb`. */
+export const isHexColor = (c?: string | null): c is string => !!c && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(c);
+
+/** CSS colour for a palette name (themed tokens, see todos.css) or a `#hex` colour. */
 export function colorVar(c?: string | null): string | undefined {
+  if (isHexColor(c)) return c;
   return c && (COLORS as readonly string[]).includes(c) ? `var(--td-${c})` : undefined;
+}
+
+/** Colours labels get by default (mirrors `LABEL_PALETTE` in Rust). */
+export const LABEL_PALETTE: readonly ColorName[] = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+
+/**
+ * A label's default colour — FNV-1a of its lower-case name's UTF-8 bytes picks one of
+ * `LABEL_PALETTE` — exactly as Rust's `default_label_color`, so new labels look the same before
+ * and after they're saved.
+ */
+export function defaultLabelColor(name: string): ColorName {
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(name.trim().replace(/^@+/, '').toLowerCase())) {
+    h ^= b;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return LABEL_PALETTE[h % LABEL_PALETTE.length];
+}
+
+/** The colour a label shows in (its own, else its name's default): a palette name or `#hex`. */
+export function labelColor(name: string, labels?: Label[] | null): string {
+  const l = labels?.find((x) => x.name === name) ?? labels?.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  return l?.color && (isHexColor(l.color) || (COLORS as readonly string[]).includes(l.color)) ? l.color : defaultLabelColor(name);
+}
+
+/**
+ * Task-list items (`- [ ]` / `- [x]`, any bullet or `1.`) in Markdown, outside code blocks: the
+ * description's checklist on board cards ("2/5").
+ */
+export function markdownChecklist(md?: string | null): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
+  let fence: string | null = null;
+  for (const line of (md ?? '').split(/\r?\n/)) {
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = null;
+      continue;
+    }
+    if (fence) continue;
+    const m = /^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\](?:\s|$)/.exec(line);
+    if (m) {
+      total++;
+      if (m[1] !== ' ') done++;
+    }
+  }
+  return { done, total };
 }
 
 export const PRIORITIES: { value: Priority; label: string }[] = [

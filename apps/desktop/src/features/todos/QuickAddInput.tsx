@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { AtSign, CalendarClock, Flag, Hash, Repeat, Rows3, Target, X } from 'lucide-react';
 import { todosApi, type QuickAdd, type QuickToken } from '@/lib/api/todos';
 import { useTodos } from '@/store/todos';
-import { dayLabel, segments, sigilAt, suggest, timeLabel, todayYmd } from './lib';
+import { colorVar, dayLabel, labelColor, segments, sigilAt, suggest, timeLabel, todayYmd } from './lib';
 
 export interface QuickAddInputHandle {
   focus(): void;
@@ -128,7 +128,7 @@ export const QuickAddInput = forwardRef<QuickAddInputHandle, Props>(function Qui
           <span>
             {segs.map((s, i) =>
               s.token ? (
-                <mark key={i} className={clsx('td-tok', s.token.kind)}>
+                <mark key={i} className={clsx('td-tok', s.token.kind)} style={s.token.kind === 'label' ? { ['--c' as string]: colorVar(labelColor(s.token.value, snap?.labels)) } : undefined}>
                   {s.text}
                 </mark>
               ) : (
@@ -203,7 +203,12 @@ export const QuickAddInput = forwardRef<QuickAddInputHandle, Props>(function Qui
             .map((t) => {
               const c = chip(t, parsed, lists, sections, today);
               return (
-                <span key={`${t.kind}${t.start}`} className={clsx('td-chip', t.kind, t.new && 'new')} title={`“${t.text}”`}>
+                <span
+                  key={`${t.kind}${t.start}`}
+                  className={clsx('td-chip', t.kind, t.new && 'new')}
+                  style={t.kind === 'label' ? { ['--c' as string]: colorVar(labelColor(t.value, snap?.labels)) } : undefined}
+                  title={`“${t.text}”`}
+                >
                   {c.icon}
                   {c.text}
                   <button onMouseDown={(e) => e.preventDefault()} onClick={() => onIgnore([...ignore, t.text])} title={`Keep “${t.text}” as text`} aria-label="Keep as text">

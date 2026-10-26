@@ -121,6 +121,7 @@ pub(crate) fn from_v1(dir: &Path) -> Option<(TodoData, Vec<PathBuf>)> {
                 collapsed: false,
                 status: None,
                 status_order: 0,
+                cover: None,
             });
         }
         converted.push(path);

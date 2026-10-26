@@ -28,6 +28,12 @@ interface TodoState {
   view: ViewRef | null;
   /** Task shown in the detail panel. */
   openId: string | null;
+  /**
+   * Snapshots carry every completed task, not only the last week's (turned on from "Load older
+   * completed"; for this session).
+   */
+  allDone: boolean;
+  setAllDone(on: boolean): Promise<void>;
   load(root: string | null): Promise<void>;
   refresh(): Promise<void>;
   /** Applies an op; `message` + `undo` show a toast with an Undo button. */
@@ -78,12 +84,18 @@ export const useTodos = create<TodoState>((set, get) => {
     badge: 0,
     view: storedView(),
     openId: null,
+    allDone: false,
+    async setAllDone(on) {
+      if (on === get().allDone) return;
+      set({ allDone: on });
+      await get().refresh();
+    },
     async load(root) {
       const my = ++seq;
       const changed = root !== get().root;
       if (changed) set({ root });
       try {
-        const snap = await todosApi.snapshot(root);
+        const snap = await todosApi.snapshot(root, get().allDone);
         if (my === seq) setSnap(snap, changed);
       } catch (e) {
         if (my === seq) toast.error('Could not load to-dos', errorMessage(e));
@@ -93,7 +105,7 @@ export const useTodos = create<TodoState>((set, get) => {
     async apply(op, message, undo) {
       seq++;
       try {
-        const r = await todosApi.apply(get().root, op);
+        const r = await todosApi.apply(get().root, op, get().allDone);
         // The write is the newest state: it wins over any load still in flight (seq).
         setSnap(r.snapshot);
         if (message) toast.success(message, undefined, undo ? { label: 'Undo', run: () => void runUndo(undo) } : undefined);
@@ -202,7 +214,7 @@ function attached(r: TodoAttachResult | null) {
 /** Attaches files picked in the native dialog. */
 export async function pickAttachments(taskId: string) {
   try {
-    attached(await todosApi.attachPick(useTodos.getState().root, taskId));
+    attached(await todosApi.attachPick(useTodos.getState().root, taskId, useTodos.getState().allDone));
   } catch (e) {
     toast.error('Could not attach files', errorMessage(e));
   }
@@ -217,7 +229,7 @@ export async function attachFiles(taskId: string, files: File[]) {
       continue;
     }
     try {
-      attached(await todosApi.attachBytes(root, taskId, f.name, f.type, new Uint8Array(await f.arrayBuffer())));
+      attached(await todosApi.attachBytes(root, taskId, f.name, f.type, new Uint8Array(await f.arrayBuffer()), useTodos.getState().allDone));
     } catch (e) {
       toast.error(`Could not attach ${f.name || 'the file'}`, errorMessage(e));
     }

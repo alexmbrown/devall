@@ -113,24 +113,26 @@ pub struct TodoApplyResult {
     pub snapshot: Snapshot,
 }
 
-/// Everything the to-do page shows (lists, sections, labels, evaluated filters, tasks).
+/// Everything the to-do page shows (lists, sections, labels, evaluated filters, tasks). `allDone`:
+/// every completed task, not only the last week's ("Load older completed" — the page then passes
+/// it to every call that returns a snapshot).
 #[tauri::command]
-pub fn todos_snapshot(state: State<'_, NotesState>, root: Option<String>) -> R<Snapshot> {
+pub fn todos_snapshot(state: State<'_, NotesState>, root: Option<String>, all_done: Option<bool>) -> R<Snapshot> {
     let project = project_ref(root.as_deref())?;
     let _g = state.lock.lock().unwrap_or_else(|p| p.into_inner());
     let data = TodoStore::read(&state.data_dir).map_err(e)?;
-    Ok(data.snapshot(project.as_ref(), &Now::local()))
+    Ok(data.snapshot_opts(project.as_ref(), &Now::local(), all_done.unwrap_or(false)))
 }
 
-/// Applies one change and returns the new snapshot.
+/// Applies one change and returns the new snapshot (`allDone` as for `todos_snapshot`).
 #[tauri::command]
-pub fn todos_apply(state: State<'_, NotesState>, root: Option<String>, op: TodoOp) -> R<TodoApplyResult> {
+pub fn todos_apply(state: State<'_, NotesState>, root: Option<String>, op: TodoOp, all_done: Option<bool>) -> R<TodoApplyResult> {
     let project = project_ref(root.as_deref())?;
     let _g = state.lock.lock().unwrap_or_else(|p| p.into_inner());
     let mut store = TodoStore::open(&state.data_dir).map_err(e)?;
     let now = Now::local();
     let applied = store.apply(op, project.as_ref(), &now).map_err(e)?;
-    Ok(TodoApplyResult { applied, snapshot: store.data.snapshot(project.as_ref(), &now) })
+    Ok(TodoApplyResult { applied, snapshot: store.data.snapshot_opts(project.as_ref(), &now, all_done.unwrap_or(false)) })
 }
 
 /// Live quick-add parsing for the chips under the input (nothing is written).
@@ -179,7 +181,7 @@ pub struct TodoAttachResult {
 /// Attaches files to a task: the native file dialog is opened here, so the UI never hands over
 /// paths; copies go to `<app data>/todos/attachments/<task id>/`. `None` when cancelled.
 #[tauri::command]
-pub async fn todos_attachment_pick(app: AppHandle, state: State<'_, NotesState>, root: Option<String>, task_id: String) -> R<Option<TodoAttachResult>> {
+pub async fn todos_attachment_pick(app: AppHandle, state: State<'_, NotesState>, root: Option<String>, task_id: String, all_done: Option<bool>) -> R<Option<TodoAttachResult>> {
     let project = project_ref(root.as_deref())?;
     let mut dialog = app.dialog().file().set_title("Attach files");
     if let Some(w) = app.get_webview_window("main") {
@@ -208,7 +210,7 @@ pub async fn todos_attachment_pick(app: AppHandle, state: State<'_, NotesState>,
             Err(err) => errors.push(err.to_string()),
         }
     }
-    Ok(Some(TodoAttachResult { added, errors, snapshot: store.data.snapshot(project.as_ref(), &now) }))
+    Ok(Some(TodoAttachResult { added, errors, snapshot: store.data.snapshot_opts(project.as_ref(), &now, all_done.unwrap_or(false)) }))
 }
 
 /// The task's attachments right now (for unique file names), or an error when the task is gone.
@@ -225,6 +227,8 @@ struct UploadMeta {
     task_id: String,
     name: String,
     mime: Option<String>,
+    #[serde(default)]
+    all_done: bool,
 }
 
 /// Attaches dropped or pasted bytes (the raw request body) to a task; the name is sanitized and
@@ -241,7 +245,7 @@ pub async fn todos_attachment_upload(state: State<'_, NotesState>, request: Requ
     let _g = state.lock.lock().unwrap_or_else(|p| p.into_inner());
     let mut store = TodoStore::open(&state.data_dir).map_err(e)?;
     let a = store.record_attachment(&meta.task_id, a, project.as_ref(), &now).map_err(e)?;
-    Ok(TodoAttachResult { added: vec![a], errors: Vec::new(), snapshot: store.data.snapshot(project.as_ref(), &now) })
+    Ok(TodoAttachResult { added: vec![a], errors: Vec::new(), snapshot: store.data.snapshot_opts(project.as_ref(), &now, meta.all_done) })
 }
 
 /// The validated file of an attachment (never a path from the UI).

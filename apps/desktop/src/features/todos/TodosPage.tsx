@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Columns3, Eye, EyeOff, Filter, FoldHorizontal, FolderKanban, Hash, Inbox, Keyboard, List, ListChecks, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, SquareKanban, Trash2, UnfoldHorizontal, X } from 'lucide-react';
+import { ArrowRightLeft, AtSign, BellRing, CalendarDays, CalendarRange, Check, CheckCircle2, Columns3, Eye, EyeOff, Filter, FoldHorizontal, FolderKanban, Hash, Inbox, Keyboard, List, ListChecks, ListTree, MoreHorizontal, PaintBucket, Pencil, Plus, Search, SlidersHorizontal, SquareKanban, Tag, Trash2, UnfoldHorizontal, X } from 'lucide-react';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Segmented, Spinner } from '@/components/ui/misc';
 import { confirmDialog } from '@/components/ui/dialogs';
@@ -10,17 +10,19 @@ import { useViewLabel } from '@/store/nav';
 import { TODO_DETAIL, usePrefs } from '@/store/prefs';
 import { addTask, completeTasks, deleteTasks, moveTasks, setStatus, updateTasks, useTodos } from '@/store/todos';
 import { useWorkspace } from '@/store/workspace';
-import { BoardView } from './Board';
+import { BoardView, handleBoardKey } from './Board';
 import { canBoard, GROUP_LABELS, groupChoices, viewDefaults } from './boardModel';
 import { DuePicker } from './DuePicker';
+import { FilterBar, HiddenNotices } from './FilterBar';
+import { isFilterActive } from './filterModel';
 import { openQuickAdd } from './QuickAddDialog';
 import { TaskDetail } from './TaskDetail';
 import { TodoNav } from './TodoNav';
 import { openTodoDialog, TodoDialogs } from './dialogs';
 import { LabelPicker, MovePicker, priorityItems, statusItems } from './pickers';
 import { usePopover } from './Popover';
-import { addDays, colorVar, indentTarget, keyAction, moveCursor, openCount, outdentTarget, SORTS, viewKey, type ViewRef } from './lib';
-import { DONE_DAYS, targets, useBoardPrefs, useOptions, useTodoUi, useViewOptions } from './ui';
+import { addDays, COLORS, colorVar, indentTarget, keyAction, labelColor, moveCursor, openCount, outdentTarget, SORTS, viewKey, type ViewRef } from './lib';
+import { DONE_DAYS, doneDaysLabel, targets, useBoardPrefs, useOptions, useTaskFilter, useTodoUi, useViewOptions } from './ui';
 import { AllTasksView, CompletedView, FilterResults, LabelView, ListView, SearchResults, TodayView, UpcomingView } from './views';
 import './todos.css';
 
@@ -45,12 +47,24 @@ function ViewControls({ view, sortable, completable }: { view: ViewRef; sortable
     { label: 'List', icon: <List />, hint: check(!board), onSelect: () => setOpts(view, { layout: 'list' }) },
     { label: 'Board', icon: <SquareKanban />, hint: check(board), onSelect: () => setOpts(view, { layout: 'board' }) },
     ...(board ? [{ separator: true }, { heading: 'Group by' }, ...groupChoices(view).map((g) => ({ label: GROUP_LABELS[g], hint: check(opts.groupBy === g), onSelect: () => setOpts(view, { groupBy: g }) }))] : []),
+    ...(board
+      ? [
+          { separator: true },
+          { heading: 'Sub-tasks' },
+          { label: 'As their own cards', icon: <ListTree />, hint: check(opts.subtasks === 'cards'), onSelect: () => setOpts(view, { subtasks: 'cards' }) },
+          { label: 'Inside the parent card', hint: check(opts.subtasks === 'nested'), onSelect: () => setOpts(view, { subtasks: 'nested' }) },
+          { separator: true },
+          { heading: 'Board colour' },
+          { label: 'None', icon: <span className="td-swatch" />, hint: check(!opts.accent), onSelect: () => setOpts(view, { accent: null }) },
+          ...COLORS.filter((c) => c !== 'gray').map((c) => ({ label: c[0].toUpperCase() + c.slice(1), icon: <PaintBucket style={{ color: colorVar(c) }} />, hint: check(opts.accent === c), onSelect: () => setOpts(view, { accent: c }) })),
+        ]
+      : []),
     { separator: true },
     { label: 'Edit columns…', icon: <Columns3 />, onSelect: () => openTodoDialog({ kind: 'columns' }) },
     ...(statusBoard
       ? [
           { heading: 'Done column' },
-          ...DONE_DAYS.map((d) => ({ label: d === 1 ? 'Completed today' : `Completed in the last ${d} days`, hint: check(doneDays === d), onSelect: () => setBoard({ doneDays: d }) })),
+          ...DONE_DAYS.map((d) => ({ label: doneDaysLabel(d), hint: check(doneDays === d), onSelect: () => setBoard({ doneDays: d }) })),
           { label: doneCollapsed ? 'Expand done column' : 'Collapse done column', icon: doneCollapsed ? <UnfoldHorizontal /> : <FoldHorizontal />, onSelect: () => setBoard({ doneCollapsed: !doneCollapsed }) },
         ]
       : []),
@@ -120,16 +134,16 @@ function Header({ view, snap }: { view: ViewRef; snap: Snapshot }) {
   } else if (view.kind === 'all') {
     icon = <ListChecks />;
     title = 'All tasks';
-    sub = `${openCount(snap.tasks, () => true)} open in ${snap.lists.length} list${snap.lists.length === 1 ? '' : 's'}`;
+    const done = snap.tasks.length - openCount(snap.tasks, () => true) + Object.values(snap.olderDone ?? {}).reduce((a, n) => a + n, 0);
+    sub = `${openCount(snap.tasks, () => true)} open${done ? ` · ${done} completed` : ''} in ${snap.lists.length} list${snap.lists.length === 1 ? '' : 's'}`;
   } else if (view.kind === 'upcoming') {
     icon = <CalendarRange />;
     title = 'Upcoming';
     sub = `${openCount(snap.tasks, (t) => !!t.due && (t.dueLocal ?? t.due.date) >= snap.today && (t.dueLocal ?? t.due.date) <= addDays(snap.today, 6))} in the next 7 days`;
   } else if (view.kind === 'label') {
-    const l = snap.labels.find((x) => x.name === view.name);
-    icon = <AtSign style={{ color: colorVar(l?.color) }} />;
+    icon = <Tag style={{ color: colorVar(labelColor(view.name, snap.labels)) }} />;
     title = view.name;
-    menu.push({ label: 'Edit label…', icon: <Pencil />, onSelect: () => openTodoDialog({ kind: 'label', name: view.name }) });
+    menu.push({ label: 'Edit label…', icon: <Pencil />, onSelect: () => openTodoDialog({ kind: 'label', name: view.name }) }, { label: 'Merge into…', icon: <AtSign />, onSelect: () => openTodoDialog({ kind: 'mergeLabel', name: view.name }) });
   } else if (view.kind === 'filter') {
     const f = snap.filters.find((x) => x.id === view.id);
     icon = <Filter style={{ color: colorVar(f?.color) }} />;
@@ -264,13 +278,13 @@ function Content({ view }: { view: ViewRef }) {
     case 'all':
       return <AllTasksView view={view} />;
     case 'today':
-      return <TodayView />;
+      return <TodayView view={view} />;
     case 'upcoming':
-      return <UpcomingView />;
+      return <UpcomingView view={view} />;
     case 'label':
-      return <LabelView name={view.name} />;
+      return <LabelView name={view.name} view={view} />;
     case 'filter':
-      return <FilterResults id={view.id} />;
+      return <FilterResults id={view.id} view={view} />;
     case 'completed':
       return <CompletedView />;
   }
@@ -353,6 +367,8 @@ export default function TodosPage() {
       openTodoDialog({ kind: 'help' });
       return;
     }
+    // A board has its own keys (Trello-like); the rest are the list's.
+    if (useTodoUi.getState().grid && handleBoardKey(e)) return;
     const a = keyAction(e);
     const st = useTodos.getState();
     const ui = useTodoUi.getState();
@@ -368,6 +384,12 @@ export default function TodosPage() {
       case 'search':
         document.getElementById('td-search')?.focus();
         break;
+      case 'filter': {
+        const el = document.getElementById('td-filter') as HTMLInputElement | null;
+        el?.focus();
+        el?.select();
+        break;
+      }
       case 'down':
       case 'up': {
         const next = moveCursor(ui.order, ui.cursor, a === 'down' ? 1 : -1);
@@ -416,12 +438,15 @@ export default function TodosPage() {
       case 'selectAll':
         ui.set({ sel: ui.order });
         break;
-      case 'escape':
+      case 'escape': {
+        const f = useTaskFilter.getState();
         if (ui.sel.length) ui.set({ sel: [] });
         else if (ui.editing) ui.set({ editing: null });
         else if (st.openId) st.open(null);
-        else ui.set({ cursor: null });
+        else if (ui.cursor) ui.set({ cursor: null });
+        else if (isFilterActive(f.byView[viewKey(st.view)])) f.clear(st.view);
         break;
+      }
     }
   };
 
@@ -433,6 +458,8 @@ export default function TodosPage() {
     );
   }
   const board = !search.trim() && opts.layout === 'board' && canBoard(view);
+  // The Completed log and search results aren't filtered.
+  const filterable = !search.trim() && view.kind !== 'completed';
   // Dock the detail panel when there's room next to it, else float it over the list.
   const dockMax = width - DOCK_REST;
   const overlay = !!width && dockMax < Math.min(detailPref, TODO_DETAIL.default);
@@ -454,6 +481,8 @@ export default function TodosPage() {
       <TodoNav />
       <div className="pane fill td-main">
         <Header view={view} snap={snap} />
+        {filterable && <FilterBar key={vKey} view={view} board={board} />}
+        <HiddenNotices view={view} />
         <div className={board ? 'td-body board' : 'td-body'}>{search.trim() ? <SearchResults q={search} /> : board ? <BoardView view={view} /> : <Content view={view} />}</div>
         <BulkBar />
       </div>

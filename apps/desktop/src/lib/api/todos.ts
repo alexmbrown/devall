@@ -40,6 +40,12 @@ export interface Comment {
   at: number;
 }
 
+/** A board card's cover: one of the task's image attachments, or a colour (palette name or `#hex`). */
+export interface Cover {
+  attachmentId?: string;
+  color?: string;
+}
+
 /** A file attached to a task: a copy in `<app data>/todos/attachments/<task id>/<name>`. */
 export interface Attachment {
   id: string;
@@ -81,6 +87,8 @@ export interface Task {
   status?: string;
   /** Position in its board column (manual order across lists). */
   statusOrder?: number;
+  /** Board card cover. */
+  cover?: Cover;
 }
 
 export interface TaskView extends Task {
@@ -111,6 +119,7 @@ export interface Section {
 
 export interface Label {
   name: string;
+  /** Palette name or `#rrggbb`; missing = the name's default colour (`defaultLabelColor`). */
   color?: string;
 }
 
@@ -161,11 +170,13 @@ export interface Snapshot {
   labels: Label[];
   filters: FilterView[];
   settings: TodoSettings;
-  /** Open tasks, completed ones of the last 7 days and done sub-tasks of open tasks. */
+  /** Open tasks, completed ones of the last 7 days and done sub-tasks of open tasks — every completed task when loaded with `allDone`. */
   tasks: TaskView[];
   /** The open project's list id. */
   projectList?: string | null;
   completedCount: number;
+  /** Completed tasks left out of `tasks` (older than a week), per list id; empty with `allDone`. */
+  olderDone: Record<string, number>;
   today: string;
 }
 
@@ -187,6 +198,8 @@ export interface NewTask {
   links?: string[];
   /** Board column id (the done column = the first column). */
   status?: string;
+  /** First among its siblings and at the top of its board column. */
+  atTop?: boolean;
 }
 
 export interface TaskPatch {
@@ -208,6 +221,8 @@ export interface TaskPatch {
   collapsed?: boolean;
   /** Board column id or name (the done column completes, leaving it reopens). */
   status?: string;
+  /** An image attachment of the task or a colour; `null` removes the cover. */
+  cover?: Cover | null;
 }
 
 export type TodoOp =
@@ -232,6 +247,8 @@ export type TodoOp =
   | { type: 'deleteSection'; id: string }
   | { type: 'reorderSections'; ids: string[] }
   | { type: 'saveLabel'; name: string; newName?: string; color?: string | null }
+  /** Tasks with `name` get `into` instead; `name` is removed. */
+  | { type: 'mergeLabel'; name: string; into: string }
   | { type: 'deleteLabel'; name: string }
   | { type: 'saveFilter'; id?: string; name: string; query: string; color?: string | null }
   | { type: 'deleteFilter'; id: string }
@@ -297,22 +314,22 @@ export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 /** JSON safe for an HTTP header value (non-ASCII as `\u` escapes, which JSON parsers accept). */
 const asciiJson = (v: unknown) => JSON.stringify(v).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
-/** `root`: the open project (its list is in scope), or null. */
+/** `root`: the open project (its list is in scope), or null. `allDone`: snapshots with every completed task (not only the last week's). */
 export const todosApi = {
-  snapshot: (root: string | null) => invoke<Snapshot>('todos_snapshot', { root }),
+  snapshot: (root: string | null, allDone = false) => invoke<Snapshot>('todos_snapshot', { root, allDone }),
   /** Tasks by id, however old (the snapshot leaves out tasks completed more than a week ago). */
   get: (ids: string[]) => invoke<TaskView[]>('todos_get', { ids }),
-  apply: (root: string | null, op: TodoOp) => invoke<TodoApplyResult>('todos_apply', { root, op }),
+  apply: (root: string | null, op: TodoOp, allDone = false) => invoke<TodoApplyResult>('todos_apply', { root, op, allDone }),
   parse: (root: string | null, text: string, listId?: string | null, ignore?: string[]) => invoke<QuickAdd>('todos_parse', { root, text, listId, ignore }),
   parseDate: (text: string, dateOnly?: boolean) => invoke<Due | null>('todos_parse_date', { text, dateOnly }),
   filter: (query: string) => invoke<FilterGroup[]>('todos_filter', { query }),
   completed: (listId?: string | null, before?: number, limit?: number) => invoke<CompletedEntry[]>('todos_completed', { listId, before, limit }),
   notifyTest: () => invoke<void>('todos_notify_test'),
   /** Native file dialog (opened in Rust) → copies attached to the task; `null` when cancelled. */
-  attachPick: (root: string | null, taskId: string) => invoke<TodoAttachResult | null>('todos_attachment_pick', { root, taskId }),
+  attachPick: (root: string | null, taskId: string, allDone = false) => invoke<TodoAttachResult | null>('todos_attachment_pick', { root, taskId, allDone }),
   /** Dropped or pasted bytes as an attachment. */
-  attachBytes: (root: string | null, taskId: string, name: string, mime: string, bytes: Uint8Array) =>
-    invoke<TodoAttachResult>('todos_attachment_upload', bytes, { headers: { 'x-meta': asciiJson({ root, taskId, name, mime: mime || undefined }) } }),
+  attachBytes: (root: string | null, taskId: string, name: string, mime: string, bytes: Uint8Array, allDone = false) =>
+    invoke<TodoAttachResult>('todos_attachment_upload', bytes, { headers: { 'x-meta': asciiJson({ root, taskId, name, mime: mime || undefined, allDone }) } }),
   /** The attachment's bytes (image previews). */
   attachmentBytes: (taskId: string, attachmentId: string) => invoke<ArrayBuffer>('todos_attachment_read', { taskId, attachmentId }),
   /** Opens with the default app; `false` = a program, revealed in the file manager instead. */

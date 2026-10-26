@@ -64,7 +64,7 @@ async fn fixture() -> Fixture {
     p.save_note(&n, "# Payments\n\nRotate the token tok-live-998877 quarterly. Stripe key sk_live_abcdefghijklmnop1234.\n").unwrap();
     let mut todos = devall_core::todos::TodoStore::open(data.path()).unwrap();
     todos.add_text(Some(&devall_core::todos::ProjectRef::of(&p)), "Add idempotency keys to orders p1 @orders").unwrap();
-    todos.add_text(None, "Private errand in the Inbox").unwrap();
+    todos.add_text(None, "Private errand in the Inbox @personal").unwrap();
     std::fs::create_dir_all(dir.path().join("mocks/mappings")).unwrap();
     std::fs::write(
         dir.path().join("mocks/mappings/orders.json"),
@@ -242,6 +242,11 @@ async fn legacy_initialize_handshake_and_tools() {
     let statuses: Vec<&str> = todos["structuredContent"]["statuses"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(statuses, ["To do", "In progress", "Done"]);
     assert!(!t.contains("Private errand"), "other lists stay private");
+    // Label colours: the labels these tasks use (a new label's default colour), none from other lists.
+    let labels = todos["structuredContent"]["labels"].as_array().unwrap();
+    assert!(labels.iter().any(|l| l["name"] == "orders" && l["color"] == devall_core::todos::default_label_color("orders")), "{labels:?}");
+    assert!(labels.iter().all(|l| l["color"].as_str().is_some_and(|c| !c.is_empty())));
+    assert!(!labels.iter().any(|l| l["name"] == "personal"), "labels of other lists stay private");
     let p1 = c.call("list_todos", json!({ "filter": "p1 & @orders" }), None).await;
     assert_eq!(p1["structuredContent"]["items"].as_array().map(Vec::len), Some(1));
     let none = c.call("list_todos", json!({ "filter": "p2" }), None).await;

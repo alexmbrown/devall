@@ -34,6 +34,7 @@ fn task(id: &str, content: &str) -> Task {
         collapsed: false,
         status: None,
         status_order: 0,
+        cover: None,
     }
 }
 
@@ -61,10 +62,13 @@ fn tasks() -> Vec<Task> {
     e.priority = Priority::P2;
     e.deadline = Some(d(2026, 10, 30));
     e.list_id = "side".into();
+    e.comments = vec![crate::todos::model::Comment { id: "c1".into(), text: "Moved the INVOICE call".into(), at: 0 }];
+    e.links = vec!["devall:note/standup.md".into()];
     let mut f = task("f", "Subtask");
     f.parent_id = Some("a".into());
     f.due = Some(Due::on(d(2027, 1, 15)));
     f.created_at = 1_700_000_000_000;
+    f.attachments = vec![crate::todos::model::Attachment { id: "x".into(), name: "a.png".into(), mime: "image/png".into(), size: 1, added_at: 0 }];
     vec![a, b, c, e, f]
 }
 
@@ -77,7 +81,8 @@ fn run(q: &str) -> Vec<Vec<String>> {
     let created = |t: &Task| chrono::DateTime::from_timestamp_millis(t.created_at).unwrap().date_naive();
     let settings = TodoSettings::default();
     let status_name = |t: &Task| settings.status_of(t).map(|c| c.name.clone());
-    let cx = EvalCtx { today: d(2026, 10, 23), list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name };
+    let has_children = |t: &Task| ts.iter().any(|x| x.parent_id.as_deref() == Some(t.id.as_str()));
+    let cx = EvalCtx { today: d(2026, 10, 23), list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name, has_children: &has_children };
     query.groups.iter().map(|(_, e)| ts.iter().filter(|t| e.matches(t, &cx)).map(|t| t.id.clone()).collect()).collect()
 }
 
@@ -100,7 +105,15 @@ fn terms() {
     assert_eq!(one("jan 15"), ["f"]);
     assert_eq!(one("no date"), ["c"]);
     assert_eq!(one("!no date"), ["a", "b", "e", "f"]);
-    assert_eq!(one("search: invoice"), ["a", "c"]);
+    // Title, description and comments.
+    assert_eq!(one("search: invoice"), ["a", "c", "e"]);
+    assert_eq!(one("has: attachments"), ["f"]);
+    assert_eq!(one("has: links | has: comments"), ["e"]);
+    assert_eq!(one("has: subtasks"), ["a"]);
+    assert_eq!(one("has: description"), ["c"]);
+    assert_eq!(one("has: deadline"), ["e"]);
+    assert_eq!(one("!has: date"), ["c"]);
+    assert!(parse("has: wings", &ctx()).unwrap_err().contains("has: wings"));
     assert_eq!(one("@review*"), ["b"]);
     assert_eq!(one("@*me"), ["b"]);
     assert_eq!(one("(p1 | p2) & 7 days"), ["a", "e"]);

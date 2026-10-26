@@ -751,3 +751,115 @@ fn empty_base_creates_a_fresh_store_on_first_save() {
     assert_eq!((t.list_id.as_str(), t.priority), (INBOX, Priority::P2));
     assert!(st.path().exists());
 }
+
+#[test]
+fn label_colours_rename_and_merge() {
+    let mut s = store();
+    // New labels get their name's default colour (stable, mirrored by the UI).
+    let a = add(&mut s, "A @bug @api", INBOX);
+    let colour = |s: &TodoData, n: &str| s.labels.iter().find(|l| l.name == n).and_then(|l| l.color.clone());
+    assert_eq!((colour(&s, "bug").as_deref(), colour(&s, "api").as_deref()), (Some(default_label_color("bug")), Some(default_label_color("api"))));
+    // Palette names and hex colours (lower-cased); anything else is dropped (= the default).
+    apply(&mut s, json!({"type": "saveLabel", "name": "bug", "color": "#FF8800"}));
+    assert_eq!(colour(&s, "bug").as_deref(), Some("#ff8800"));
+    apply(&mut s, json!({"type": "saveLabel", "name": "bug", "color": "#abc"}));
+    assert_eq!(colour(&s, "bug").as_deref(), Some("#abc"));
+    apply(&mut s, json!({"type": "saveLabel", "name": "bug", "color": "url(x)"}));
+    assert_eq!(colour(&s, "bug"), None);
+    assert_eq!(s.labels.iter().find(|l| l.name == "bug").unwrap().color_or_default(), default_label_color("bug"));
+    // Renaming (with a new colour); renaming onto another label is refused (merge instead).
+    apply(&mut s, json!({"type": "saveLabel", "name": "api", "newName": "backend", "color": "teal"}));
+    assert_eq!((s.task(&a).unwrap().labels.clone(), colour(&s, "backend").as_deref()), (vec!["bug".to_string(), "backend".to_string()], Some("teal")));
+    let clash: TodoOp = serde_json::from_value(json!({"type": "saveLabel", "name": "backend", "newName": "BUG"})).unwrap();
+    assert!(s.apply(clash, None, &now()).is_err());
+    let b = add(&mut s, "B @backend", INBOX);
+    let c = add(&mut s, "C @defect @bug", INBOX);
+    let n = apply(&mut s, json!({"type": "mergeLabel", "name": "@Defect", "into": "BUG"})).count;
+    assert_eq!(n, 1);
+    assert_eq!(s.task(&c).unwrap().labels, ["bug"], "merged without duplicates");
+    assert!(!s.labels.iter().any(|l| l.name == "defect"));
+    apply(&mut s, json!({"type": "mergeLabel", "name": "backend", "into": "bug"}));
+    assert_eq!((s.task(&a).unwrap().labels.clone(), s.task(&b).unwrap().labels.clone()), (vec!["bug".to_string()], vec!["bug".to_string()]));
+    for bad in [json!({"type": "mergeLabel", "name": "bug", "into": "bug"}), json!({"type": "mergeLabel", "name": "nope", "into": "bug"})] {
+        assert!(s.apply(serde_json::from_value(bad).unwrap(), None, &now()).is_err());
+    }
+}
+
+#[test]
+fn covers_and_cards_added_at_the_top() {
+    let mut s = store();
+    let id = add(&mut s, "Card", INBOX);
+    let img = Attachment { id: "IMG".into(), name: "shot.png".into(), mime: "image/png".into(), size: 3, added_at: 0 };
+    let pdf = Attachment { id: "PDF".into(), name: "spec.pdf".into(), mime: "application/pdf".into(), size: 3, added_at: 0 };
+    for a in [img, pdf] {
+        s.apply(TodoOp::AddAttachment { id: id.clone(), attachment: a }, None, &now()).unwrap();
+    }
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"cover": {"attachmentId": "IMG"}}}));
+    assert_eq!(s.task(&id).unwrap().cover, Some(Cover { attachment_id: Some("IMG".into()), color: None }));
+    // Only the task's own images; colours are normalised.
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"cover": {"attachmentId": "PDF"}}}));
+    assert_eq!(s.task(&id).unwrap().cover, None);
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"cover": {"color": "Blue"}}}));
+    assert_eq!(s.task(&id).unwrap().cover, Some(Cover { attachment_id: None, color: Some("blue".into()) }));
+    let json = serde_json::to_value(s.task(&id).unwrap()).unwrap();
+    assert_eq!(json["cover"], json!({"color": "blue"}));
+    // Other patches keep it; `null` removes it; removing the image clears an image cover.
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"priority": 2}}));
+    assert!(s.task(&id).unwrap().cover.is_some());
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"cover": null}}));
+    assert_eq!(s.task(&id).unwrap().cover, None);
+    apply(&mut s, json!({"type": "update", "ids": [id], "patch": {"cover": {"attachmentId": "IMG"}}}));
+    apply(&mut s, json!({"type": "removeAttachment", "id": id, "attachmentId": "IMG"}));
+    assert_eq!(s.task(&id).unwrap().cover, None);
+
+    // "Add card" at the top of a column: first in the column and among its siblings.
+    let b = add(&mut s, "B", INBOX);
+    apply(&mut s, json!({"type": "setStatus", "ids": [b], "status": "in-progress"}));
+    let top = apply(&mut s, json!({"type": "add", "task": {"text": "Top", "listId": INBOX, "status": "in-progress", "atTop": true}})).created.unwrap();
+    assert_eq!(column(&s, "in-progress"), ["Top", "B"]);
+    assert_eq!(column(&s, "todo"), ["Card"]);
+    let first = s.ordered(INBOX, false).first().map(|(_, t)| t.id.clone());
+    assert_eq!(first.as_deref(), Some(top.as_str()));
+    let bottom = apply(&mut s, json!({"type": "add", "task": {"text": "Bottom", "listId": INBOX, "status": "in-progress"}})).created.unwrap();
+    assert_eq!(column(&s, "in-progress"), ["Top", "B", "Bottom"]);
+    let _ = bottom;
+}
+
+#[test]
+fn snapshot_leaves_out_old_completions_unless_asked() {
+    let mut s = store();
+    let open = add(&mut s, "Open", INBOX);
+    let recent = add(&mut s, "Recent", INBOX);
+    let old = add(&mut s, "Old", "01PROJECT");
+    let old2 = add(&mut s, "Old too", "01PROJECT");
+    let older_inbox = add(&mut s, "Old inbox", INBOX);
+    apply(&mut s, json!({"type": "complete", "ids": [recent], "done": true}));
+    s.apply(TodoOp::Complete { ids: vec![old.clone(), old2.clone(), older_inbox.clone()], done: true }, None, &later(-30)).unwrap();
+    let ids = |snap: &Snapshot| snap.tasks.iter().map(|t| t.task.id.clone()).collect::<Vec<_>>();
+    let snap = s.snapshot_in(Some(&project()), &now(), &Paris);
+    assert_eq!(ids(&snap), [open.clone(), recent.clone()]);
+    assert_eq!(snap.older_done, BTreeMap::from([("01PROJECT".to_string(), 2), (INBOX.to_string(), 1)]));
+    assert_eq!(serde_json::to_value(&snap).unwrap()["olderDone"], json!({"01PROJECT": 2, "inbox": 1}));
+    // Asked for (All tasks → "Load older completed"): every completed task, nothing left out.
+    let all = s.snapshot_with(Some(&project()), &now(), &Paris, true);
+    assert_eq!(all.tasks.len(), 5);
+    assert!(all.older_done.is_empty());
+    assert_eq!(all.completed_count, snap.completed_count);
+}
+
+#[test]
+fn tasks_of_unknown_lists_land_in_the_inbox() {
+    let mut s = store();
+    let id = add(&mut s, "Stray", INBOX);
+    let sec = apply(&mut s, json!({"type": "saveSection", "listId": INBOX, "name": "S"})).created.unwrap();
+    let t = s.tasks.iter_mut().find(|t| t.id == id).unwrap();
+    t.list_id = "GONE".into();
+    t.section_id = Some(sec);
+    // The snapshot (and the next save) show it in the Inbox rather than nowhere.
+    let snap = s.snapshot_in(Some(&project()), &now(), &Paris);
+    let v = snap.tasks.iter().find(|t| t.task.id == id).unwrap();
+    assert_eq!((v.task.list_id.as_str(), v.task.section_id.as_deref()), (INBOX, None));
+    assert!(s.ensure_lists(None));
+    assert_eq!(s.task(&id).unwrap().list_id, INBOX);
+    assert!(!s.ensure_lists(None));
+}

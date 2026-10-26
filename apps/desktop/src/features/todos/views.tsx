@@ -7,8 +7,9 @@ import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
 import { todosApi, type CompletedEntry, type Section, type TaskList, type TaskView } from '@/lib/api/todos';
 import { completeTasks, moveTasks, updateTasks, useTodos } from '@/store/todos';
 import { AddTask, InlineText, TaskRow, type RowDrop } from './TaskRow';
-import { addDays, allLayout, byDue, colorVar, dayHeading, dayLabel, halfOf, listLayout, navOrder, parseYmd, reorderIds, searchTasks, startOfWeek, todayGroups, upcomingDays, weekDays, ymd, type Row, type ViewRef } from './lib';
-import { beginDrag, endDrag, useOptions, useTodoUi, type DragItem } from './ui';
+import { filterCtx, isFilterActive, listStats, matchesFilter, olderDoneIn, type ViewStats } from './filterModel';
+import { addDays, allLayout, attention, byDue, colorVar, dayHeading, dayLabel, halfOf, listLayout, navOrder, parseYmd, reorderIds, searchTasks, startOfWeek, todayGroups, upcomingDays, weekDays, ymd, type Row, type ViewRef } from './lib';
+import { beginDrag, endDrag, useOptions, useTodoUi, useViewFilter, type DragItem } from './ui';
 
 /** Publishes the view's row order (for j/k and Shift-click). */
 export function useOrder(ids: string[]) {
@@ -16,6 +17,34 @@ export function useOrder(ids: string[]) {
   useEffect(() => {
     useTodoUi.getState().set({ order: key ? key.split(',') : [] });
   }, [key]);
+}
+
+/** Publishes what the view shows and hides (the filter bar's count, the notices); cleared when it goes. */
+export function useViewStats(stats: ViewStats | null) {
+  const key = JSON.stringify(stats);
+  useEffect(() => {
+    useTodoUi.getState().set({ stats: key === 'null' ? null : (JSON.parse(key) as ViewStats) });
+  }, [key]);
+  useEffect(() => () => useTodoUi.getState().set({ stats: null }), []);
+}
+
+/** The view's filter as a predicate (undefined when no filter is set), memoised on the snapshot. */
+export function useFilterMatch(view: ViewRef): ((t: TaskView) => boolean) | undefined {
+  const snap = useTodos((s) => s.snap)!;
+  const filter = useViewFilter(view);
+  return useMemo(() => {
+    if (!isFilterActive(filter)) return undefined;
+    const cx = filterCtx(snap, filter);
+    return (t: TaskView) => matchesFilter(t, filter, cx);
+  }, [snap, filter]);
+}
+
+/** A flat view's tasks after the filter, with its stats published. */
+function useFiltered(view: ViewRef, tasks: TaskView[]): TaskView[] {
+  const match = useFilterMatch(view);
+  const shown = useMemo(() => (match ? tasks.filter(match) : tasks), [tasks, match]);
+  useViewStats({ shown: shown.length, total: tasks.length, unit: 'tasks', hidden: [] });
+  return shown;
 }
 
 const flat = (tasks: TaskView[]): Row[] => tasks.map((task) => ({ task, depth: 0, open: 0, kids: 0 }));
@@ -250,8 +279,12 @@ export function ListView({ listId, view }: { listId: string; view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
   const showDone = useTodoUi((s) => s.showDone);
   const { sort } = useOptions(view);
-  const layout = useMemo(() => listLayout(snap, listId, showDone, sort), [snap, listId, showDone, sort]);
-  useOrder([...layout.rows, ...layout.sections.flatMap((s) => (s.section.collapsed ? [] : s.rows))].map((r) => r.task.id));
+  const match = useFilterMatch(view);
+  const layout = useMemo(() => listLayout(snap, listId, showDone, sort, match), [snap, listId, showDone, sort, match]);
+  // A filter opens collapsed sections that have matches.
+  useOrder([...layout.rows, ...layout.sections.flatMap((s) => (s.section.collapsed && !match ? [] : s.rows))].map((r) => r.task.id));
+  const inList = useMemo(() => snap.tasks.filter((t) => t.listId === listId), [snap, listId]);
+  useViewStats(listStats(inList, showDone, match, olderDoneIn(snap, view)));
   // Sorted by an attribute: positions don't apply, so rows aren't drop targets (headers still are).
   const drop: RowDrop | undefined = sort === 'manual' ? 'tree' : undefined;
   const empty = !layout.rows.length && !layout.sections.length;
@@ -260,7 +293,7 @@ export function ListView({ listId, view }: { listId: string; view: ViewRef }) {
     <div className="td-col">
       <Rows rows={layout.rows} drop={drop} />
       <AddTask slot={`list:${listId}:`} defaults={{ listId }} onDropTasks={moveToSlot(listId, null, name)} />
-      {empty && !showDone && (
+      {empty && !showDone && !match && (
         <div className="td-empty">
           <Empty icon={<CheckCircle2 />} title="All clear">
             Add a task above — quick add understands <code className="code-inline">tomorrow 5pm</code>, <code className="code-inline">every mon</code>, <code className="code-inline">@label</code>, <code className="code-inline">p1</code> and{' '}
@@ -268,9 +301,10 @@ export function ListView({ listId, view }: { listId: string; view: ViewRef }) {
           </Empty>
         </div>
       )}
-      {layout.sections.map((s) => (
-        <SectionBlock key={s.section.id} section={s.section} rows={s.rows} open={s.open} listId={listId} drop={drop} />
-      ))}
+      {match && !layout.rows.length && layout.sections.every((s) => !s.rows.length) && <div className="td-hint">No tasks match the filter.</div>}
+      {layout.sections.map((s) =>
+        match && !s.rows.length ? null : <SectionBlock key={s.section.id} section={match ? { ...s.section, collapsed: false } : s.section} rows={s.rows} open={s.open} listId={listId} drop={drop} />,
+      )}
       <div className="td-after-sections">
         <AddSection listId={listId} />
       </div>
@@ -302,8 +336,11 @@ export function AllTasksView({ view }: { view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
   const showDone = useTodoUi((s) => s.showDone);
   const { sort } = useOptions(view);
-  const groups = useMemo(() => allLayout(snap, showDone, sort), [snap, showDone, sort]);
+  const match = useFilterMatch(view);
+  const groups = useMemo(() => allLayout(snap, showDone, sort, match), [snap, showDone, sort, match]);
   useOrder(groups.flatMap((g) => g.rows.map((r) => r.task.id)));
+  // Every task of every list: completed ones (and older ones not loaded) and folded sub-tasks are counted and offered.
+  useViewStats(listStats(snap.tasks, showDone, match, olderDoneIn(snap, view)));
   const drop: RowDrop | undefined = sort === 'manual' ? 'tree' : undefined;
   return (
     <div className="td-col">
@@ -311,7 +348,8 @@ export function AllTasksView({ view }: { view: ViewRef }) {
         <ListGroup key={g.list.id} list={g.list} rows={g.rows} open={g.open} drop={drop} />
       ))}
       <AddTask slot="all" defaults={{ listId: snap.projectList ?? 'inbox' }} />
-      {!groups.length && (
+      {!groups.length && match && <div className="td-hint">No tasks match the filter.</div>}
+      {!groups.length && !match && (
         <div className="td-empty">
           <Empty icon={<CheckCircle2 />} title={showDone ? 'No tasks yet' : 'No open tasks'}>
             Everything is done — or add a task with <kbd className="kbd">Q</kbd>.
@@ -342,10 +380,11 @@ const toDay = (date: string, today: string): RowDrop => ({
   },
 });
 
-export function TodayView() {
+export function TodayView({ view }: { view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
   const today = snap.today;
-  const g = useMemo(() => todayGroups(snap.tasks, today), [snap, today]);
+  const tasks = useFiltered(view, useMemo(() => attention(snap.tasks, today), [snap, today]));
+  const g = useMemo(() => todayGroups(tasks, today), [tasks, today]);
   const [showOverdue, setShowOverdue] = useState(true);
   useOrder([...(showOverdue ? g.overdue : []), ...g.today].map((t) => t.id));
   const dropToday = useDropZone((ids) => void updateTasks(ids, { dueDate: today }, 'Moved to today'));
@@ -427,14 +466,15 @@ function WeekDay({ d, today, count }: { d: string; today: string; count: number 
   );
 }
 
-export function UpcomingView() {
+export function UpcomingView({ view }: { view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
   const today = snap.today;
   const [start, setStart] = useState(() => startOfWeek(today));
   const [days, setDays] = useState(28);
   const end = addDays(start, 6);
   const need = Math.max(days, Math.min(366, 1 + Math.round((parseYmd(end).getTime() - parseYmd(today).getTime()) / 86_400_000)));
-  const data = useMemo(() => upcomingDays(snap.tasks, today, need), [snap, today, need]);
+  const dated = useFiltered(view, useMemo(() => snap.tasks.filter((t) => !t.done && (t.dueLocal ?? t.due?.date)), [snap]));
+  const data = useMemo(() => upcomingDays(dated, today, need), [dated, today, need]);
   const counts = useMemo(() => new Map(data.days.map((d) => [d.date, d.tasks.length])), [data]);
   useOrder([...data.overdue, ...data.days.flatMap((d) => d.tasks)].map((t) => t.id));
   useEffect(() => {
@@ -461,9 +501,9 @@ export function UpcomingView() {
   );
 }
 
-export function LabelView({ name }: { name: string }) {
+export function LabelView({ name, view }: { name: string; view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
-  const tasks = useMemo(() => snap.tasks.filter((t) => !t.done && t.labels?.includes(name)).sort(byDue), [snap, name]);
+  const tasks = useFiltered(view, useMemo(() => snap.tasks.filter((t) => !t.done && t.labels?.includes(name)).sort(byDue), [snap, name]));
   useOrder(tasks.map((t) => t.id));
   return (
     <div className="td-col">
@@ -474,11 +514,15 @@ export function LabelView({ name }: { name: string }) {
   );
 }
 
-export function FilterResults({ id }: { id: string }) {
+export function FilterResults({ id, view }: { id: string; view: ViewRef }) {
   const snap = useTodos((s) => s.snap)!;
   const f = snap.filters.find((x) => x.id === id);
   const byId = useMemo(() => new Map(snap.tasks.map((t) => [t.id, t])), [snap]);
-  const groups = useMemo(() => (f?.groups ?? []).map((g) => ({ title: g.title, tasks: g.ids.map((i) => byId.get(i)).filter((t): t is TaskView => !!t) })), [f, byId]);
+  const all = useMemo(() => (f?.groups ?? []).map((g) => ({ title: g.title, tasks: g.ids.map((i) => byId.get(i)).filter((t): t is TaskView => !!t) })), [f, byId]);
+  const match = useFilterMatch(view);
+  const groups = useMemo(() => (match ? all.map((g) => ({ ...g, tasks: g.tasks.filter(match) })) : all), [all, match]);
+  const count = (gs: typeof all) => new Set(gs.flatMap((g) => g.tasks.map((t) => t.id))).size;
+  useViewStats({ shown: count(groups), total: count(all), unit: 'tasks', hidden: [] });
   useOrder(groups.flatMap((g) => g.tasks.map((t) => t.id)));
   if (!f) return null;
   if (f.error) return <div className="callout danger td-callout">{f.error}</div>;
@@ -501,12 +545,16 @@ export function FilterResults({ id }: { id: string }) {
 
 export function SearchResults({ q }: { q: string }) {
   const snap = useTodos((s) => s.snap)!;
+  const allDone = useTodos((s) => s.allDone);
   const tasks = useMemo(() => searchTasks(snap.tasks, q).sort((a, b) => Number(!!a.done) - Number(!!b.done) || byDue(a, b)), [snap, q]);
   useOrder(tasks.map((t) => t.id));
+  // Search covers the snapshot: older completed tasks only once loaded.
+  const older = allDone ? 0 : Object.values(snap.olderDone ?? {}).reduce((a, n) => a + n, 0);
+  useViewStats({ shown: tasks.length, total: tasks.length, unit: 'tasks', hidden: [{ kind: 'older', count: older }] });
   return (
     <div className="td-col">
       <Rows rows={flat(tasks)} context="list" />
-      {!tasks.length && <div className="td-hint">No tasks match “{q}”. Completed tasks older than a week are in Completed.</div>}
+      {!tasks.length && <div className="td-hint">No tasks match “{q}”.</div>}
     </div>
   );
 }
@@ -524,6 +572,7 @@ export function CompletedView() {
     void load();
   }, [load, snap.completedCount]);
   useOrder([]);
+  useViewStats(null);
   if (!entries) return <Spinner />;
   const days = new Map<string, CompletedEntry[]>();
   for (const e of entries) {

@@ -4,12 +4,16 @@ import {
   boardColumns,
   boardDrop,
   boardTasks,
+  cardChecklist,
   childCounts,
   columnCounts,
   columnDefaults,
   columnOrder,
   columnsError,
+  columnKeyOf,
+  foldSubtasks,
   groupChoices,
+  inDoneWindow,
   insertColumn,
   moveColumn,
   statusChip,
@@ -54,6 +58,7 @@ function snapshot(tasks: TaskView[]): Snapshot {
     tasks,
     projectList: 'P',
     completedCount: 0,
+    olderDone: {},
     today: TODAY,
   };
 }
@@ -78,9 +83,11 @@ describe('board columns', () => {
     expect(groupChoices({ kind: 'list', id: 'L' })).toEqual(['status', 'section', 'priority', 'due']);
     expect(groupChoices({ kind: 'all' })).toEqual(['status', 'list', 'priority', 'due']);
     expect(groupChoices({ kind: 'upcoming' })[1]).toBe('due');
-    expect(resolveOptions({ kind: 'list', id: 'L' })).toEqual({ layout: 'list', groupBy: 'status', sort: 'manual' });
-    expect(resolveOptions({ kind: 'all' }, { layout: 'board', groupBy: 'list' })).toEqual({ layout: 'board', groupBy: 'list', sort: 'manual' });
-    expect(resolveOptions({ kind: 'today' }, { layout: 'board', groupBy: 'section' })).toEqual({ layout: 'board', groupBy: 'status', sort: 'manual' });
+    expect(resolveOptions({ kind: 'list', id: 'L' })).toEqual({ layout: 'list', groupBy: 'status', sort: 'manual', subtasks: 'nested', accent: null });
+    // All tasks gives every task a card (sub-tasks too) unless told otherwise.
+    expect(resolveOptions({ kind: 'all' }, { layout: 'board', groupBy: 'list' })).toEqual({ layout: 'board', groupBy: 'list', sort: 'manual', subtasks: 'cards', accent: null });
+    expect(resolveOptions({ kind: 'all' }, { subtasks: 'nested', accent: 'blue' })).toMatchObject({ subtasks: 'nested', accent: 'blue' });
+    expect(resolveOptions({ kind: 'today' }, { layout: 'board', groupBy: 'section' })).toEqual({ layout: 'board', groupBy: 'status', sort: 'manual', subtasks: 'nested', accent: null });
     expect(resolveOptions({ kind: 'completed' }, { layout: 'board' }).layout).toBe('list');
   });
 
@@ -118,7 +125,9 @@ describe('board columns', () => {
     expect(cards(byDue, 'due:overdue')).toEqual(['c']);
     expect(cards(byDue, 'due:2026-10-25')).toEqual(['b']);
     expect(cards(byDue, 'due:later')).toEqual(['i']);
-    expect(cards(byDue, 'due:')).toEqual(['d']);
+    // a1 has no date while its parent is due today: a card of its own (folded into a card in
+    // another column, it would be on the board nowhere).
+    expect(cards(byDue, 'due:')).toEqual(['a1', 'd']);
     expect(byDue[0]).toMatchObject({ target: { kind: 'none' }, tone: 'overdue' });
   });
 
@@ -251,6 +260,40 @@ describe('status columns', () => {
     expect(boardTasks(snap, { kind: 'filter', id: 'F' }, 'status', false, 7).every((t) => !t.done)).toBe(true);
     // Other groupings keep the "show completed" rule.
     expect(boardTasks(snap, { kind: 'list', id: 'L' }, 'section', false, 7).some((t) => t.done)).toBe(false);
+  });
+
+  it('gives a sub-task in another column than its parent a card of its own', () => {
+    // Positions in the column as Rust assigns them (each new task at the end of its column).
+    const parent = task({ id: 'P1', order: 10, statusOrder: 1 });
+    const same = task({ id: 'S1', parentId: 'P1', order: 0, statusOrder: 2 });
+    const moved = task({ id: 'S2', parentId: 'P1', order: 1, status: 'in-progress' });
+    const s = snapshot([parent, same, moved]);
+    const keyOf = columnKeyOf(s, 'status', { today: TODAY });
+    expect(foldSubtasks([parent, same, moved], keyOf, 'nested')).toEqual({ cards: [parent, moved], folded: [same] });
+    expect(foldSubtasks([parent, same, moved], keyOf, 'cards')).toEqual({ cards: [parent, same, moved], folded: [] });
+    const board = boardColumns(s, [parent, same, moved], 'status', { sort: 'manual', today: TODAY });
+    expect(cards(board, 'status:todo')).toEqual(['P1']);
+    expect(cards(board, 'status:in-progress')).toEqual(['S2']);
+    expect(cards(boardColumns(s, [parent, same, moved], 'status', { sort: 'manual', today: TODAY, subtasks: 'cards' }), 'status:todo')).toEqual(['P1', 'S1']);
+    // Column keys per grouping.
+    expect(columnKeyOf(s, 'section', { listId: 'L', today: TODAY })(task({ sectionId: 'gone' }))).toBe('section:');
+    expect(columnKeyOf(s, 'section', { listId: 'L', today: TODAY })(task({ listId: 'P' }))).toBeNull();
+    expect(columnKeyOf(s, 'due', { today: TODAY })(task({ due: { date: '2026-11-30' } }))).toBe('due:later');
+    expect(columnKeyOf(s, 'priority', { today: TODAY })(task({ priority: 2 }))).toBe('p2');
+  });
+
+  it('counts a card’s checklist: sub-tasks and description task lists', () => {
+    expect(cardChecklist({ description: '- [x] a\n- [ ] b' }, { open: 1, all: 3 })).toEqual({ done: 3, total: 5 });
+    expect(cardChecklist({}, undefined)).toEqual({ done: 0, total: 0 });
+  });
+
+  it('keeps completions in the done column’s window (0: all)', () => {
+    expect(inDoneWindow({ completedAt: at(0) }, TODAY, 1)).toBe(true);
+    expect(inDoneWindow({ completedAt: at(-1) }, TODAY, 1)).toBe(false);
+    expect(inDoneWindow({ completedAt: at(-6) }, TODAY, 7)).toBe(true);
+    expect(inDoneWindow({ completedAt: at(-8) }, TODAY, 7)).toBe(false);
+    expect(inDoneWindow({ completedAt: at(-400) }, TODAY, 0)).toBe(true);
+    expect(cards(cols({ kind: 'list', id: 'L' }, 0), 'status:done')).toEqual(['x', 'y', 'old']);
   });
 
   it('orders a column by its manual position first', () => {

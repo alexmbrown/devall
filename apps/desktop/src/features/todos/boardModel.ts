@@ -6,7 +6,7 @@
  * in `boardModel.test.ts`.
  */
 import type { NewTask, Priority, Section, Snapshot, StatusColumn, Task, TaskList, TaskPatch, TaskView } from '@/lib/api/todos';
-import { addDays, attention, byDue, compareBy, dayHeading, dropTarget, dueDay, navOrder, ymd, type MoveTarget, type SortKey, type ViewRef } from './lib';
+import { addDays, attention, byDue, compareBy, dayHeading, dropTarget, dueDay, markdownChecklist, navOrder, ymd, type MoveTarget, type SortKey, type ViewRef } from './lib';
 
 export type Layout = 'list' | 'board';
 export type GroupBy = 'status' | 'section' | 'list' | 'priority' | 'due';
@@ -133,11 +133,16 @@ export interface BoardColumn {
   tone?: 'overdue';
 }
 
+/** Sub-tasks on a board: their own cards, or inside the parent's card when in the parent's column. */
+export type SubtaskMode = 'cards' | 'nested';
+
 export interface BoardCtx {
   /** The list a list/Inbox view shows (section columns). */
   listId?: string;
   sort: SortKey;
   today: string;
+  /** Default `nested`. */
+  subtasks?: SubtaskMode;
 }
 
 /** The tasks a view shows (before grouping): completed ones only in list-like views with `showDone`. */
@@ -185,22 +190,85 @@ function doneInView(snap: Snapshot, view: ViewRef, t: TaskView): boolean {
   }
 }
 
+/** Completed tasks of the view that a status board's done column can show (any age). */
+export function doneTasksInView(snap: Snapshot, view: ViewRef): TaskView[] {
+  return snap.tasks.filter((t) => t.done && doneInView(snap, view, t));
+}
+
+/** Whether a completed task is inside the done column's window (`doneDays` 0 = every completed task). */
+export function inDoneWindow(t: Pick<Task, 'completedAt'>, today: string, doneDays: number): boolean {
+  if (doneDays <= 0) return true;
+  return !!t.completedAt && ymd(new Date(t.completedAt)) >= addDays(today, -(Math.max(1, doneDays) - 1));
+}
+
 /**
  * The tasks a board shows (before grouping). Status boards show the view's open tasks plus those
- * completed in the last `doneDays` days (the done column, whatever "show completed" says); other
- * groupings show completed tasks only with `showDone`.
+ * completed in the last `doneDays` days (0: all; the done column, whatever "show completed" says);
+ * other groupings show completed tasks only with `showDone`.
  */
 export function boardTasks(snap: Snapshot, view: ViewRef, groupBy: GroupBy, showDone: boolean, doneDays: number): TaskView[] {
   if (groupBy !== 'status') return viewTasks(snap, view, showDone);
-  const since = addDays(snap.today, -(Math.max(1, doneDays) - 1));
-  const recent = (t: TaskView) => !!t.completedAt && ymd(new Date(t.completedAt)) >= since;
-  return [...viewTasks(snap, view, false), ...snap.tasks.filter((t) => t.done && recent(t) && doneInView(snap, view, t))];
+  return [...viewTasks(snap, view, false), ...doneTasksInView(snap, view).filter((t) => inDoneWindow(t, snap.today, doneDays))];
 }
 
 /** Drops tasks whose parent is shown too: they appear as a count on the parent's card. */
 export function topLevel(tasks: TaskView[]): TaskView[] {
   const ids = new Set(tasks.map((t) => t.id));
   return tasks.filter((t) => !t.parentId || !ids.has(t.parentId));
+}
+
+/**
+ * The column key a task's card belongs to under `groupBy` (see `BoardColumn.key`), or null when the
+ * board has no column for it (another list's task on a section board).
+ */
+export function columnKeyOf(snap: Pick<Snapshot, 'sections' | 'settings'>, groupBy: GroupBy, ctx: Pick<BoardCtx, 'listId' | 'today'>): (t: TaskView) => string | null {
+  switch (groupBy) {
+    case 'status':
+      return (t) => {
+        const c = statusOf(t, snap.settings.columns);
+        return c ? `status:${c.id}` : null;
+      };
+    case 'section': {
+      const listId = ctx.listId ?? 'inbox';
+      const known = new Set(snap.sections.filter((s) => s.listId === listId).map((s) => s.id));
+      return (t) => (t.listId !== listId ? null : `section:${t.sectionId && known.has(t.sectionId) ? t.sectionId : ''}`);
+    }
+    case 'list':
+      return (t) => `list:${t.listId}`;
+    case 'priority':
+      return (t) => `p${t.priority}`;
+    case 'due': {
+      const last = addDays(ctx.today, 6);
+      return (t) => {
+        const d = dueDay(t);
+        return !d ? 'due:' : d < ctx.today ? 'due:overdue' : d > last ? 'due:later' : `due:${d}`;
+      };
+    }
+  }
+}
+
+/**
+ * Which tasks get a card. `cards`: every task. `nested`: a sub-task whose parent has a card in the
+ * same column shows inside it (the checklist count) — `folded` — instead of on its own; sub-tasks in
+ * another column than their parent always get a card (they'd be invisible otherwise).
+ */
+export function foldSubtasks(tasks: TaskView[], keyOf: (t: TaskView) => string | null, mode: SubtaskMode): { cards: TaskView[]; folded: TaskView[] } {
+  if (mode === 'cards') return { cards: tasks, folded: [] };
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const cards: TaskView[] = [];
+  const folded: TaskView[] = [];
+  for (const t of tasks) {
+    const parent = t.parentId ? byId.get(t.parentId) : undefined;
+    if (parent && keyOf(parent) === keyOf(t)) folded.push(t);
+    else cards.push(t);
+  }
+  return { cards, folded };
+}
+
+/** A card's checklist: its sub-tasks plus the task list in its description (`- [ ]`), as "done/total". */
+export function cardChecklist(t: Pick<Task, 'description'>, kids?: { open: number; all: number }): { done: number; total: number } {
+  const md = markdownChecklist(t.description);
+  return { done: md.done + (kids ? kids.all - kids.open : 0), total: md.total + (kids?.all ?? 0) };
 }
 
 /** Open / all sub-tasks per parent id. */
@@ -224,7 +292,7 @@ const doneLast = (cmp: (a: TaskView, b: TaskView) => number) => (a: TaskView, b:
  * only appear when they have cards.
  */
 export function boardColumns(snap: Snapshot, tasks: TaskView[], groupBy: GroupBy, ctx: BoardCtx): BoardColumn[] {
-  const cards = topLevel(tasks);
+  const { cards } = foldSubtasks(tasks, columnKeyOf(snap, groupBy, ctx), ctx.subtasks ?? 'nested');
   const manual = ctx.sort === 'manual';
   const cmp = doneLast(compareBy(ctx.sort));
   switch (groupBy) {

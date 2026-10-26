@@ -5,10 +5,14 @@ import {
   allLayout,
   appDocument,
   attention,
+  boardKeyAction,
+  boardNav,
   byDue,
   classifyLink,
   colorVar,
   compareBy,
+  defaultLabelColor,
+  foldedUnder,
   halfOf,
   isAbsolutePath,
   joinPath,
@@ -22,8 +26,10 @@ import {
   dueInfo,
   indentTarget,
   keyAction,
+  labelColor,
   linkLabel,
   listLayout,
+  markdownChecklist,
   monthGrid,
   moveCursor,
   outdentTarget,
@@ -153,6 +159,27 @@ describe('views', () => {
     expect(treeRows(t, true).map((r) => r.task.id)).toContain('a2');
     expect(treeRows(t, false, 1).map((r) => r.depth)).toEqual([0, 1, 1, 0, 0, 0]);
     expect(subtree(t, 'a')).toEqual(['a', 'a1', 'a2', 'a1x']);
+    // What the collapsed task hides.
+    expect(foldedUnder(t, false)).toEqual({ count: 1, parents: ['b'] });
+    expect(foldedUnder(t, true)).toEqual({ count: 1, parents: ['b'] });
+  });
+
+  it('never hides an open sub-task behind a hidden completed parent', () => {
+    const t = [task({ id: 'p', order: 0, done: true }), task({ id: 'k', parentId: 'p', order: 0 }), task({ id: 'q', order: 1 })];
+    expect(treeRows(t, false).map((r) => `${r.depth}:${r.task.id}`)).toEqual(['0:k', '0:q']);
+    expect(treeRows(t, true).map((r) => `${r.depth}:${r.task.id}`)).toEqual(['0:q', '0:p', '1:k']);
+  });
+
+  it('filters the tree: matches with their parents, collapsed ones opened', () => {
+    const t = [task({ id: 'a', order: 0, collapsed: true }), task({ id: 'a1', parentId: 'a', order: 0, content: 'needle' }), task({ id: 'b', order: 1, content: 'needle too' }), task({ id: 'c', order: 2 })];
+    const rows = treeRows(t, false, 4, 'manual', (x) => x.content.startsWith('needle'));
+    expect(rows.map((r) => [r.task.id, !!r.context])).toEqual([
+      ['a', true],
+      ['a1', false],
+      ['b', false],
+    ]);
+    // The parent's counts stay those of all its sub-tasks.
+    expect(rows[0]).toMatchObject({ open: 1, kids: 1 });
   });
 
   it('lays out a list with sections', () => {
@@ -286,6 +313,42 @@ describe('keyboard and selection', () => {
     expect(keyAction({ key: 'x' })).toBeNull();
     expect(keyAction({ key: 'q', altKey: true })).toBeNull();
     expect(keyAction({ key: 's', ctrlKey: true })).toBeNull();
+    expect(keyAction({ key: 'f' })).toBe('filter');
+  });
+
+  it('maps board keys (Trello-like), leaving the rest to the list keys', () => {
+    expect(boardKeyAction({ key: 'ArrowLeft' })).toBe('left');
+    expect(boardKeyAction({ key: 'ArrowRight' })).toBe('right');
+    expect(boardKeyAction({ key: 'j' })).toBe('down');
+    expect(boardKeyAction({ key: 'Enter' })).toBe('open');
+    expect(boardKeyAction({ key: 'n' })).toBe('newCard');
+    expect(boardKeyAction({ key: 'e' })).toBe('quickEdit');
+    expect(boardKeyAction({ key: 'l' })).toBe('labels');
+    expect(boardKeyAction({ key: 'd' })).toBe('due');
+    expect(boardKeyAction({ key: 'c' })).toBe('complete');
+    expect(boardKeyAction({ key: ' ' })).toBe('toggleSelect');
+    expect(boardKeyAction({ key: '<', shiftKey: true })).toBe('moveLeft');
+    expect(boardKeyAction({ key: '>', shiftKey: true })).toBe('moveRight');
+    expect(boardKeyAction({ key: ',' })).toBeNull();
+    for (const key of ['q', 'f', '1', 't', 'Delete', 'Escape', '/']) expect(boardKeyAction({ key })).toBeNull();
+    expect(boardKeyAction({ key: 'Enter', ctrlKey: true })).toBeNull();
+  });
+
+  it('moves the cursor across board columns', () => {
+    const cols = [['a', 'b', 'c'], [], ['d'], ['e', 'f']];
+    expect(boardNav(cols, null, 'down')).toBe('a');
+    expect(boardNav([[], []], null, 'down')).toBeNull();
+    expect(boardNav(cols, 'a', 'down')).toBe('b');
+    expect(boardNav(cols, 'c', 'down')).toBe('c');
+    expect(boardNav(cols, 'a', 'up')).toBe('a');
+    // Right skips the empty column, to the same position (or the last card).
+    expect(boardNav(cols, 'c', 'right')).toBe('d');
+    expect(boardNav(cols, 'd', 'right')).toBe('e');
+    expect(boardNav(cols, 'b', 'left')).toBe('b');
+    expect(boardNav(cols, 'f', 'left')).toBe('d');
+    expect(boardNav(cols, 'f', 'right')).toBe('f');
+    // A cursor that left the board starts over.
+    expect(boardNav(cols, 'gone', 'right')).toBe('a');
   });
 
   it('moves the cursor and selects ranges', () => {
@@ -344,9 +407,47 @@ describe('misc', () => {
     expect(colorVar('red')).toBe('var(--td-red)');
     expect(colorVar('chartreuse')).toBeUndefined();
     expect(colorVar(null)).toBeUndefined();
+    expect(colorVar('#FF8800')).toBe('#FF8800');
+    expect(colorVar('#abc')).toBe('#abc');
+    expect(colorVar('#abcd')).toBeUndefined();
     expect(linkLabel('http/users/list.req.yaml')).toBe('users/list');
     expect(linkLabel('notes/design/auth.md')).toBe('design/auth');
     expect(linkLabel('https://example.com/x')).toBe('example.com/x');
+  });
+});
+
+describe('label colours', () => {
+  it('gives labels the same default colour as Rust (`default_label_color`)', () => {
+    for (const [name, color] of [
+      ['bug', 'blue'],
+      ['api', 'pink'],
+      ['waiting-on', 'yellow'],
+      ['urgent', 'red'],
+      ['verify', 'teal'],
+      ['Bug', 'blue'],
+      ['@bug', 'blue'],
+      ['', 'blue'],
+    ])
+      expect(defaultLabelColor(name)).toBe(color);
+  });
+
+  it('uses a label’s own colour, else its default', () => {
+    const labels = [{ name: 'bug', color: 'red' }, { name: 'api' }, { name: 'hex', color: '#ff8800' }, { name: 'odd', color: 'url(x)' }];
+    expect(labelColor('bug', labels)).toBe('red');
+    expect(labelColor('BUG', labels)).toBe('red');
+    expect(labelColor('api', labels)).toBe('pink');
+    expect(labelColor('hex', labels)).toBe('#ff8800');
+    expect(labelColor('odd', labels)).toBe(defaultLabelColor('odd'));
+    // New labels (quick-add preview): the default.
+    expect(labelColor('new-one', labels)).toBe(defaultLabelColor('new-one'));
+    expect(labelColor('x', null)).toBe(defaultLabelColor('x'));
+  });
+
+  it('counts task-list items in Markdown (card checklists)', () => {
+    expect(markdownChecklist('')).toEqual({ done: 0, total: 0 });
+    expect(markdownChecklist(undefined)).toEqual({ done: 0, total: 0 });
+    const md = ['Steps:', '- [ ] one', '- [x] two', '  * [X] nested', '1. [ ] numbered', '+ [ ]', '- [] not one', 'text [ ] no', '```', '- [ ] in code', '```', '~~~md', '- [x] tilde code', '~~~', '- [x] after'].join('\r\n');
+    expect(markdownChecklist(md)).toEqual({ done: 3, total: 6 });
   });
 });
 

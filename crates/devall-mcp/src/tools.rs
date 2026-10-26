@@ -182,7 +182,11 @@ pub fn list_todos(ctx: &Ctx, include_done: bool, filter: Option<&str>) -> Result
         "Personal to-do list for this project (stored outside the repo; change it with add_todo, update_todo, complete_todo, comment_todo). Priorities: p1 = most urgent, p4 = none. `status` is the task's board column (see `statuses`, in board order; completed tasks are in the done column); move a task with update_todo { status }."
     };
     let statuses: Vec<Value> = data.settings.columns.iter().map(|c| json!({ "name": c.name, "done": c.done, "wipLimit": c.wip_limit })).collect();
-    Ok(ctx.clean_value(json!({ "items": items, "statuses": statuses, "markdown": md, "note": note })))
+    // The labels these tasks use, with their colour (a palette name such as "blue", or "#rrggbb");
+    // labels used only in the user's other lists stay private.
+    let used: std::collections::HashSet<&str> = rows.iter().flat_map(|(_, t)| t.labels.iter().map(String::as_str)).collect();
+    let labels: Vec<Value> = data.labels.iter().filter(|l| used.contains(l.name.as_str())).map(|l| json!({ "name": l.name, "color": l.color_or_default() })).collect();
+    Ok(ctx.clean_value(json!({ "items": items, "statuses": statuses, "labels": labels, "markdown": md, "note": note })))
 }
 
 /// The name of the board column a task is in.

@@ -2,7 +2,7 @@
 //! through [`TodoOp`]s applied to [`TodoData`] (pure, testable); [`TodoStore`] adds the file and the
 //! one-time migration from v1.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, NaiveTime, TimeZone};
@@ -19,8 +19,9 @@ use crate::fsutil::atomic_write;
 
 /// The store's file name inside `<app data>/todos/`.
 pub const FILE: &str = "todos.json";
-/// Completed tasks older than this aren't part of a [`Snapshot`] (see [`TodoData::completed`]).
-const SNAPSHOT_DONE_DAYS: i64 = 7;
+/// Completed tasks older than this aren't part of a [`Snapshot`] unless asked for (see
+/// [`TodoData::snapshot_with`], [`TodoData::completed`]).
+pub const SNAPSHOT_DONE_DAYS: i64 = 7;
 const MAX_HISTORY: usize = 200;
 
 /// The /dev/all project whose list is in scope (the open project).
@@ -93,6 +94,10 @@ pub struct NewTask {
     pub links: Vec<String>,
     /// Board column (id or name); default and the done column: the first column.
     pub status: Option<String>,
+    /// First among its siblings and at the top of its board column (a board's "Add card" at the
+    /// top of a column) instead of last.
+    #[serde(default)]
+    pub at_top: bool,
 }
 
 impl NewTask {
@@ -113,6 +118,7 @@ impl NewTask {
             labels: Vec::new(),
             links: Vec::new(),
             status: None,
+            at_top: false,
         }
     }
 
@@ -149,6 +155,9 @@ pub struct TaskPatch {
     pub collapsed: Option<bool>,
     /// Board column by id or name (case-insensitive), as [`TodoOp::SetStatus`] without a position.
     pub status: Option<String>,
+    /// The card cover: one of the task's image attachments or a colour; `null` removes it.
+    #[serde(default, deserialize_with = "tri")]
+    pub cover: Option<Option<Cover>>,
 }
 
 /// Every change to the store.
@@ -203,7 +212,11 @@ pub enum TodoOp {
     SaveSection { id: Option<String>, list_id: String, name: String, collapsed: Option<bool> },
     DeleteSection { id: String },
     ReorderSections { ids: Vec<String> },
+    /// Creates or changes a label: `new_name` renames it on every task, `color` is a palette name or
+    /// `#rrggbb` (`None` = the name's default colour).
     SaveLabel { name: String, new_name: Option<String>, color: Option<String> },
+    /// Merges label `name` into `into` (both existing): tasks with `name` get `into`, `name` is removed.
+    MergeLabel { name: String, into: String },
     DeleteLabel { name: String },
     SaveFilter { id: Option<String>, name: String, query: String, color: Option<String> },
     DeleteFilter { id: String },
@@ -280,6 +293,9 @@ pub struct Snapshot {
     pub project_list: Option<String>,
     /// All completed tasks plus recurring completions (for the Completed view's badge).
     pub completed_count: usize,
+    /// Completed tasks left out of `tasks` (older than the window), per list id; empty when the
+    /// snapshot has every completed task.
+    pub older_done: BTreeMap<String, usize>,
     pub today: String,
 }
 
@@ -313,8 +329,13 @@ fn default_filters() -> Vec<SavedFilter> {
     ]
 }
 
+/// A colour as stored: a palette name (`blue`) or a hex colour (`#rgb` / `#rrggbb`), lower case;
+/// anything else is dropped.
 fn norm_color(c: Option<String>) -> Option<String> {
-    c.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty() && c.len() <= 16 && c.chars().all(|x| x.is_ascii_alphanumeric() || x == '-'))
+    let c = c?.trim().to_lowercase();
+    let hex = c.strip_prefix('#').is_some_and(|h| (h.len() == 3 || h.len() == 6) && h.chars().all(|x| x.is_ascii_hexdigit()));
+    let name = !c.is_empty() && c.len() <= 16 && c.chars().all(|x| x.is_ascii_alphanumeric() || x == '-');
+    (hex || name).then_some(c)
 }
 
 fn ymd_text(d: NaiveDate) -> String {
@@ -360,6 +381,14 @@ impl TodoData {
                     changed = true;
                 }
             }
+        }
+        // Tasks of a list that doesn't exist (a hand-edited file) would show in no list: the Inbox
+        // takes them.
+        let known: HashSet<String> = self.lists.iter().map(|l| l.id.clone()).collect();
+        for t in self.tasks.iter_mut().filter(|t| !known.contains(&t.list_id)) {
+            t.list_id = INBOX.into();
+            t.section_id = None;
+            changed = true;
         }
         changed
     }
@@ -464,7 +493,8 @@ impl TodoData {
         out
     }
 
-    /// Canonical names for `names`, creating labels that don't exist yet.
+    /// Canonical names for `names`, creating labels that don't exist yet (with their name's default
+    /// colour, see [`default_label_color`]).
     fn ensure_labels(&mut self, names: &[String]) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for n in names {
@@ -475,7 +505,7 @@ impl TodoData {
             let canon = match self.labels.iter().find(|l| l.name.eq_ignore_ascii_case(n) || l.name.to_lowercase() == n.to_lowercase()) {
                 Some(l) => l.name.clone(),
                 None => {
-                    self.labels.push(Label { name: n.to_string(), color: None });
+                    self.labels.push(Label { name: n.to_string(), color: Some(default_label_color(n).to_string()) });
                     n.to_string()
                 }
             };
@@ -613,13 +643,22 @@ impl TodoData {
             collapsed: false,
             status,
             status_order: 0,
+            cover: None,
         };
         self.tasks.push(task);
-        self.append_to_column(std::slice::from_ref(&id));
-        if let Some(after) = input.after_id.as_deref()
+        let me = std::slice::from_ref(&id);
+        if input.at_top {
+            // First in its slot and in its board column.
+            self.place(&list_id, section_id.as_deref(), parent_id.as_deref(), me, Some(0));
+            let col = self.task(&id).and_then(|t| self.settings.status_of(t)).map(|c| c.id.clone());
+            let top = self.tasks.iter().filter(|t| !t.done && t.id != id && self.settings.status_of(t).map(|c| &c.id) == col.as_ref()).map(|t| t.status_order).min().unwrap_or(1);
+            self.task_mut(&id)?.status_order = top - 1;
+        } else {
+            self.append_to_column(me);
+        }
+        if let Some(after) = input.after_id.as_deref().filter(|_| !input.at_top)
             && self.task(after).is_some_and(|a| a.list_id == list_id && a.section_id == section_id && a.parent_id == parent_id)
         {
-            let me = std::slice::from_ref(&id);
             let index = self.open_siblings(&list_id, section_id.as_deref(), parent_id.as_deref(), me).iter().position(|s| s == after).map(|i| i + 1);
             self.place(&list_id, section_id.as_deref(), parent_id.as_deref(), me, index);
         }
@@ -731,6 +770,14 @@ impl TodoData {
             }
             if let Some(c) = patch.collapsed {
                 t.collapsed = c;
+            }
+            if let Some(cover) = &patch.cover {
+                t.cover = match cover {
+                    // An image the task has (else no cover), or a valid colour.
+                    Some(Cover { attachment_id: Some(a), .. }) => t.attachments.iter().any(|x| x.id == *a && x.is_image()).then(|| Cover { attachment_id: Some(a.clone()), color: None }),
+                    Some(Cover { color, .. }) => norm_color(color.clone()).map(|c| Cover { attachment_id: None, color: Some(c) }),
+                    None => None,
+                };
             }
             t.updated_at = now.ms;
         }
@@ -1094,6 +1141,9 @@ impl TodoData {
                 if out.count > 0 {
                     t.updated_at = now.ms;
                 }
+                if t.cover.as_ref().and_then(|c| c.attachment_id.as_deref()) == Some(attachment_id.as_str()) {
+                    t.cover = None;
+                }
             }
             TodoOp::SaveList { id, name, color } => {
                 let name = name.trim().to_string();
@@ -1204,6 +1254,31 @@ impl TodoData {
                     }
                 }
             }
+            TodoOp::MergeLabel { name, into } => {
+                let find = |n: &str| {
+                    let n = n.trim().trim_start_matches('@');
+                    self.labels.iter().find(|l| l.name.eq_ignore_ascii_case(n) || l.name.to_lowercase() == n.to_lowercase()).map(|l| l.name.clone())
+                };
+                let from = find(&name).ok_or_else(|| not_found("label", &name))?;
+                let to = find(&into).ok_or_else(|| not_found("label", &into))?;
+                if from == to {
+                    return Err(Error::Invalid("a label can't be merged into itself".into()));
+                }
+                for t in &mut self.tasks {
+                    if !t.labels.contains(&from) {
+                        continue;
+                    }
+                    let mut next: Vec<String> = Vec::new();
+                    for l in t.labels.drain(..).map(|l| if l == from { to.clone() } else { l }) {
+                        if !next.contains(&l) {
+                            next.push(l);
+                        }
+                    }
+                    t.labels = next;
+                    out.count += 1;
+                }
+                self.labels.retain(|l| l.name != from);
+            }
             TodoOp::DeleteLabel { name } => {
                 self.labels.retain(|l| !l.name.eq_ignore_ascii_case(&name));
                 for t in &mut self.tasks {
@@ -1285,7 +1360,9 @@ impl TodoData {
         let due_date = |t: &Task| t.due.as_ref().map(|d| dates::local_due_date(d, local));
         let created = |t: &Task| chrono::DateTime::from_timestamp_millis(t.created_at).map(|d| d.with_timezone(local).date_naive()).unwrap_or(now.ctx.today);
         let status_name = |t: &Task| self.settings.status_of(t).map(|c| c.name.clone());
-        let cx = EvalCtx { today: now.ctx.today, list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name };
+        let parents: HashSet<&str> = self.tasks.iter().filter_map(|t| t.parent_id.as_deref()).collect();
+        let has_children = |t: &Task| parents.contains(t.id.as_str());
+        let cx = EvalCtx { today: now.ctx.today, list_name: &list_name, section_name: &section_name, due_date: &due_date, created: &created, status_name: &status_name, has_children: &has_children };
         let list_order: HashMap<&str, i64> = self.lists.iter().map(|l| (l.id.as_str(), l.order)).collect();
         let open: Vec<&Task> = self.tasks.iter().filter(|t| !t.done && lists.is_none_or(|ls| ls.contains(&t.list_id))).collect();
         Ok(q.groups
@@ -1301,16 +1378,31 @@ impl TodoData {
             .collect())
     }
 
+    /// The snapshot with the usual window of completed tasks (see [`Self::snapshot_with`]).
     pub fn snapshot_in<Tz: TimeZone>(&self, project: Option<&ProjectRef>, now: &Now, local: &Tz) -> Snapshot {
+        self.snapshot_with(project, now, local, false)
+    }
+
+    /// Everything the UI shows. Completed tasks are included when they were completed in the last
+    /// [`SNAPSHOT_DONE_DAYS`] days or are sub-tasks of open tasks — or all of them with `all_done`
+    /// (loaded on demand: "Show older completed"); `older_done` counts the ones left out per list.
+    pub fn snapshot_with<Tz: TimeZone>(&self, project: Option<&ProjectRef>, now: &Now, local: &Tz, all_done: bool) -> Snapshot {
         let mut data = self.clone();
         data.ensure_lists(project);
         data.ensure_columns();
         let open: HashSet<&str> = data.tasks.iter().filter(|t| !t.done).map(|t| t.id.as_str()).collect();
         let cutoff = now.ms - SNAPSHOT_DONE_DAYS * 86_400_000;
+        let mut older_done: BTreeMap<String, usize> = BTreeMap::new();
         let tasks = data
             .tasks
             .iter()
-            .filter(|t| !t.done || t.completed_at.unwrap_or(0) >= cutoff || t.parent_id.as_deref().is_some_and(|p| open.contains(p)))
+            .filter(|t| {
+                let shown = all_done || !t.done || t.completed_at.unwrap_or(0) >= cutoff || t.parent_id.as_deref().is_some_and(|p| open.contains(p));
+                if !shown {
+                    *older_done.entry(t.list_id.clone()).or_default() += 1;
+                }
+                shown
+            })
             .map(|t| data.view(t, local))
             .collect();
         let mut filters: Vec<FilterView> = data
@@ -1338,12 +1430,18 @@ impl TodoData {
             tasks,
             project_list: project.map(|p| p.id.clone()),
             completed_count,
+            older_done,
             today: ymd_text(now.ctx.today),
         }
     }
 
     pub fn snapshot(&self, project: Option<&ProjectRef>, now: &Now) -> Snapshot {
         self.snapshot_in(project, now, &chrono::Local)
+    }
+
+    /// [`Self::snapshot`], with every completed task when `all_done`.
+    pub fn snapshot_opts(&self, project: Option<&ProjectRef>, now: &Now, all_done: bool) -> Snapshot {
+        self.snapshot_with(project, now, &chrono::Local, all_done)
     }
 
     pub fn run_filter(&self, query: &str, lists: Option<&[String]>, now: &Now) -> std::result::Result<Vec<FilterGroup>, String> {

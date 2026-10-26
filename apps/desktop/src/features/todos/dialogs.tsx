@@ -9,12 +9,13 @@ import { errorMessage } from '@/lib/ipc';
 import { todosApi, type StatusColumn, type TodoSettings } from '@/lib/api/todos';
 import { saveColumns, useTodos } from '@/store/todos';
 import { columnCounts, columnsError, doneColumn, firstColumn } from './boardModel';
-import { COLORS, colorVar } from './lib';
-import { ColorPicker, StatusDot } from './pickers';
+import { COLORS, colorVar, labelColor } from './lib';
+import { ColorPicker, LabelChip, StatusDot } from './pickers';
 
 type DialogSpec =
   | { kind: 'list'; id?: string }
   | { kind: 'label'; name?: string }
+  | { kind: 'mergeLabel'; name: string }
   | { kind: 'filter'; id?: string; query?: string }
   | { kind: 'settings' }
   | { kind: 'help' }
@@ -74,19 +75,35 @@ function ListDialog({ id }: { id?: string }) {
   );
 }
 
+/** After a label is renamed or merged away: a view showing it follows. */
+function followLabel(from: string, to: string) {
+  const v = useTodos.getState().view;
+  if (v?.kind === 'label' && v.name === from) useTodos.getState().setView({ kind: 'label', name: to });
+}
+
 function LabelDialog({ name: initial }: { name?: string }) {
-  const label = useTodos((s) => s.snap?.labels.find((l) => l.name === initial));
+  const labels = useTodos((s) => s.snap?.labels);
+  const label = labels?.find((l) => l.name === initial);
   const [name, setName] = useState(initial ?? '');
   const [color, setColor] = useState<string | null>(label?.color ?? null);
   const clean = name.trim().replace(/^@/, '');
   const valid = clean && !/\s/.test(clean);
+  // Renaming onto another label: offer to merge them.
+  const other = initial ? labels?.find((l) => l.name.toLowerCase() === clean.toLowerCase() && l.name !== initial) : undefined;
   const save = async () => {
     if (!valid) return;
+    if (other && initial) {
+      const r = await useTodos.getState().apply({ type: 'mergeLabel', name: initial, into: other.name }, `Merged @${initial} into @${other.name}`);
+      if (r) {
+        close();
+        followLabel(initial, other.name);
+      }
+      return;
+    }
     const r = await useTodos.getState().apply(initial ? { type: 'saveLabel', name: initial, newName: clean, color } : { type: 'saveLabel', name: clean, color });
     if (r) {
       close();
-      const v = useTodos.getState().view;
-      if (initial && v?.kind === 'label' && v.name === initial) useTodos.getState().setView({ kind: 'label', name: clean });
+      if (initial) followLabel(initial, clean);
     }
   };
   return (
@@ -100,18 +117,85 @@ function LabelDialog({ name: initial }: { name?: string }) {
             Cancel
           </button>
           <button className="btn btn-primary" onClick={() => void save()} disabled={!valid}>
-            {initial ? 'Save' : 'Create label'}
+            {other ? `Merge into @${other.name}` : initial ? 'Save' : 'Create label'}
           </button>
         </>
       }
     >
       <div className="col">
-        <Field label="Name" error={clean && !valid ? 'One word (use - or _)' : undefined} hint="Type @name in quick add to label a task.">
+        <Field
+          label="Name"
+          error={clean && !valid ? 'One word (use - or _)' : undefined}
+          hint={other ? `@${other.name} exists: saving merges @${initial} into it (its tasks get @${other.name}).` : 'Type @name in quick add to label a task.'}
+        >
           <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} placeholder="e.g. waiting-on" />
         </Field>
-        <Field label="Colour">
-          <ColorPicker value={color} onChange={setColor} />
-        </Field>
+        {!other && (
+          <Field label="Colour" hint="Without a colour of its own, a label takes one from its name.">
+            <ColorPicker value={color} onChange={setColor} custom auto={labelColor(clean || 'label', [])} noneLabel="Default colour (from the name)" />
+          </Field>
+        )}
+        {clean && valid && !other && (
+          <div className="row-sm">
+            <span className="subtle xs">Preview</span>
+            <LabelChip name={clean} color={color ?? labelColor(clean, [])} />
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Merges a label into another: its tasks get the other label, and it goes away. */
+function MergeLabelDialog({ name }: { name: string }) {
+  const labels = useTodos((s) => s.snap?.labels ?? []);
+  const tasks = useTodos((s) => s.snap?.tasks ?? []);
+  const others = labels.filter((l) => l.name !== name);
+  const [into, setInto] = useState(others[0]?.name ?? '');
+  const n = tasks.filter((t) => t.labels?.includes(name)).length;
+  const save = async () => {
+    if (!into) return;
+    const r = await useTodos.getState().apply({ type: 'mergeLabel', name, into }, `Merged @${name} into @${into}`);
+    if (r) {
+      close();
+      followLabel(name, into);
+    }
+  };
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Merge @${name}`}
+      footer={
+        <>
+          <button className="btn" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={() => void save()} disabled={!into}>
+            Merge
+          </button>
+        </>
+      }
+    >
+      <div className="col">
+        {others.length ? (
+          <Field label="Into" hint={`${n} loaded task${n === 1 ? '' : 's'} with @${name} get the label you pick; @${name} is removed.`}>
+            <select className="select" value={into} onChange={(e) => setInto(e.target.value)} autoFocus>
+              {others.map((l) => (
+                <option key={l.name} value={l.name}>
+                  @{l.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <p className="small muted">There's no other label to merge into.</p>
+        )}
+        {into && (
+          <div className="row-sm">
+            <LabelChip name={name} color={labelColor(name, labels)} /> → <LabelChip name={into} color={labelColor(into, labels)} />
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -126,6 +210,7 @@ export const FILTER_SYNTAX: [string, string][] = [
   ['no date', 'also no labels, no deadline, recurring, subtask'],
   ['search: invoice', 'title or description contains'],
   ['status: in progress', 'board column; !status: to do excludes one'],
+  ['has: attachments', 'also links, comments, subtasks, description, deadline'],
   ['@review*  /back*', 'wildcards; /section'],
   ['overdue, today', 'comma: separate groups'],
 ];
@@ -475,6 +560,7 @@ function DeleteColumnDialog({ id }: { id: string }) {
 const SHORTCUTS: [string, string][] = [
   ['Q', 'Quick add'],
   ['/', 'Search'],
+  ['F', 'Filter this view (Esc clears)'],
   ['J / K or ↓ / ↑', 'Move the selection'],
   ['Enter or E', 'Edit the task'],
   ['O or Shift+Enter', 'Open details'],
@@ -486,6 +572,17 @@ const SHORTCUTS: [string, string][] = [
   [`${MOD}+A`, 'Select all'],
   [`${MOD}/Shift + click`, 'Multi-select'],
   ['Esc', 'Clear selection / close'],
+];
+
+const BOARD_SHORTCUTS: [string, string][] = [
+  ['← → ↑ ↓ (J / K)', 'Move between cards'],
+  ['Enter', 'Open the card'],
+  ['N', 'New card in the column'],
+  ['E', 'Quick edit'],
+  ['L / D', 'Labels / due date'],
+  ['C', 'Complete'],
+  ['Space', 'Select (drag selected cards together)'],
+  ['< / >', 'Move to the previous / next column'],
 ];
 
 const SYNTAX: [string, string][] = [
@@ -507,6 +604,14 @@ function HelpDialog() {
           {SHORTCUTS.map(([k, d]) => (
             <FragmentKbd key={k} k={k} d={d} />
           ))}
+        </div>
+        <div>
+          <div className="td-section-title">On a board</div>
+          <div className="td-kbd-list">
+            {BOARD_SHORTCUTS.map(([k, d]) => (
+              <FragmentKbd key={k} k={k} d={d} />
+            ))}
+          </div>
         </div>
         <div>
           <div className="td-section-title">Quick add syntax</div>
@@ -553,6 +658,8 @@ export function TodoDialogs() {
       return <ListDialog key={spec.id ?? 'new'} id={spec.id} />;
     case 'label':
       return <LabelDialog key={spec.name ?? 'new'} name={spec.name} />;
+    case 'mergeLabel':
+      return <MergeLabelDialog key={spec.name} name={spec.name} />;
     case 'filter':
       return <FilterDialog key={spec.id ?? 'new'} id={spec.id} query={spec.query} />;
     case 'settings':

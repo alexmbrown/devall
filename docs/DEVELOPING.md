@@ -270,9 +270,33 @@ advance and return to the first column; out of it = reopen; `before`/`after` = p
 `TaskPatch.status` does the same without a position; `TodoOp::SaveColumns` replaces the column list
 (tasks of removed columns go to `reassign[id]`, default the first column; `SaveSettings` never touches
 columns). Filters take `status: <name>` (`!status: …` excludes); MCP `list_todos` returns each task's
-`status` (column name) and `statuses`, `update_todo` takes `status` by name. Per-view layout, grouping
-and sort, and the done column's window/collapse are per-device UI state in `localStorage`
-(`devall.todos.viewOptions.v2`, `devall.todos.board`).
+`status` (column name) and `statuses`, `update_todo` takes `status` by name. Per-view layout, grouping,
+sort, sub-tasks on boards (own cards — the default in All tasks — or inside the parent's card; a
+sub-task in another column than its parent always gets a card) and board colour, and the done
+column's window (1/3/7 days or all)/collapsed columns/label names on cards are per-device UI state in
+`localStorage` (`devall.todos.viewOptions.v2`, `devall.todos.board`).
+
+**Labels, covers, the snapshot.** Labels have a colour (`Label.color`: palette name or `#rrggbb`); new
+labels get their name's default colour (`model::default_label_color`, FNV-1a → palette, mirrored by
+`defaultLabelColor` in `features/todos/lib.ts` — keep them in sync), labels without one show it too
+(`Label::color_or_default`, MCP `list_todos` → `labels: [{ name, color }]` for the labels its tasks use).
+`TodoOp::SaveLabel` renames/recolours, `TodoOp::MergeLabel { name, into }` merges. A task's `cover`
+(`{ attachmentId }` — one of its images — or `{ color }`) is set with `TaskPatch.cover`; `NewTask.atTop`
+adds a task first in its slot and column (a board's "add a card at the top"). The snapshot carries open
+tasks, the last week's completions and done sub-tasks of open tasks; `olderDone` counts the completed
+tasks it leaves out per list, and `todos_snapshot`/`todos_apply`/attachment commands take `allDone` to
+carry all of them (the UI turns it on, for the session, from "Show"/"Load"/"All completed").
+
+**Filter bar.** Every to-do view but Completed has one (`FilterBar.tsx`, pure model `filterModel.ts`):
+text (title, description, comments, labels) plus facets — labels (any/all), priority, due (overdue /
+today / next 7 days / no date / has a deadline), status, list, "has" (attachments, links, sub-tasks,
+comments, description), a saved filter — matched in the UI; non-matching rows/cards hide (board
+columns stay as drop targets), "n of m" with Clear, `F` focuses it, Esc clears; per view for the session
+(`sessionStorage` `devall.todos.filter.v1`, so a forgotten filter never outlives a restart). "Save as
+filter" turns it into the filter language (`filterToQuery`; the Rust filter has `has: …` for that).
+Under the bar, notices say what a view leaves out — completed tasks, older ones not loaded, sub-tasks
+under collapsed tasks or inside cards, completions outside the done column's window — each with the
+one click that shows them (`Hidden` in `filterModel.ts`, published by the views as `useTodoUi.stats`).
 
 New file types: one entity per file, YAML (WireMock mappings stay JSON for compatibility), stable key
 order, `version: 1`, no timestamps/UI state, written with `devall_core::fsutil::{write_yaml, atomic_write}`.
