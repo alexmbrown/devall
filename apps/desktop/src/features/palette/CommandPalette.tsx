@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import clsx from 'clsx';
-import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, GitBranch, Layers, Link2, PanelLeft, Plus, Rows2, Search, Server, Split, Sun, Binary, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ClipboardPaste, Columns2, FileCheck2, FileDown, FileUp, FolderKanban, FolderOpen, FolderPlus, GitBranch, Layers, Link2, PanelLeft, Plus, Rows2, Search, Server, Split, Sun, Binary, Sparkles, X } from 'lucide-react';
 import { useImportExport } from '@/features/import';
 import { useOpenApi } from '@/features/openapi';
+import { createProjectFolder, openProjectFolder, samePath, shortPath, useRecentProjects } from '@/features/projects/recent';
 import { openReposDialog, openSwitchBranch } from '@/features/git/dialogs';
 import { useGitActions } from '@/features/git/gitActions';
 import { MOCK_PALETTE_ACTIONS } from '@/features/mocks';
@@ -29,9 +30,11 @@ import { viewsToClose } from '@/lib/workbench/model';
 import { usePrefs } from '@/store/prefs';
 import { useWorkspace } from '@/store/workspace';
 
-export const usePalette = create<{ open: boolean; setOpen(v: boolean): void }>((set) => ({
+/** `setOpen(true, query)` opens the palette with `query` already typed (e.g. "recent " for projects). */
+export const usePalette = create<{ open: boolean; query: string; setOpen(v: boolean, query?: string): void }>((set) => ({
   open: false,
-  setOpen: (open) => set({ open }),
+  query: '',
+  setOpen: (open, query = '') => set({ open, query }),
 }));
 
 interface Cmd {
@@ -69,7 +72,8 @@ export function CommandPalette() {
 let opsCache: OpInfo[] | null = null;
 
 function PaletteInner({ close }: { close(): void }) {
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(() => usePalette.getState().query);
+  const recent = useRecentProjects((s) => s.list);
   // "Search project…" mode: meaning-based search over notes, requests, mocks, environments.
   const [semantic, setSemantic] = useState(false);
   const [found, setFound] = useState<SearchResult | null>(null);
@@ -172,8 +176,14 @@ function PaletteInner({ close }: { close(): void }) {
     for (const a of MOCK_PALETTE_ACTIONS) out.push({ id: `mock-${a.id}`, group: 'Mock server', label: a.label, text: `${a.label} ${a.keywords}`, icon: <Server />, run: a.run });
     for (const m of SECTIONS) out.push({ id: `go-${m.id}`, group: 'Go to', label: m.title ?? m.label, text: `go ${m.title ?? m.label} ${m.label} ${m.id}`, icon: <ArrowRight />, run: () => go(m.id) });
     for (const o of ops) out.push({ id: `op-${o.id}`, group: 'Utilities', label: o.name, text: `util ${o.name} ${o.id} ${o.category}`, icon: <Binary />, hint: o.category, run: () => go('utilities', o.id) });
+    // Switching projects (Ctrl/Cmd+O opens the palette filtered to these).
+    for (const r of recent.filter((x) => !samePath(x.path, project?.root))) {
+      out.push({ id: `project:${r.path}`, group: 'Projects', label: r.name, text: `recent project switch open ${r.name} ${r.path}`, icon: <FolderKanban />, hint: shortPath(r.path), run: () => void ws.openProject(r.path) });
+    }
+    out.push({ id: 'project-open', group: 'Projects', label: 'Open project folder…', text: 'recent project open folder switch', icon: <FolderOpen />, run: () => void openProjectFolder() });
+    out.push({ id: 'project-new', group: 'Projects', label: 'New project…', text: 'recent project new create init folder', icon: <FolderPlus />, run: () => void createProjectFolder() });
     return out;
-  }, [project, go, ops]);
+  }, [project, go, ops, recent]);
 
   // Typing `?` first switches to project search.
   const query = semantic ? q : q.startsWith('?') ? q.slice(1) : q;

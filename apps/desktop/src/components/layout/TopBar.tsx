@@ -1,8 +1,9 @@
 import clsx from 'clsx';
-import { ArrowRightLeft, Check, ChevronDown, Command, Cookie, FolderKanban, FolderOpen, GitBranch, Layers, Monitor, Moon, NotebookPen, PanelLeft, Play, RefreshCw, Settings2, Sun, X } from 'lucide-react';
+import { ArrowRightLeft, Check, ChevronDown, Command, Cookie, FolderKanban, FolderOpen, FolderPlus, GitBranch, Layers, Monitor, Moon, NotebookPen, PanelLeft, Play, RefreshCw, Settings2, Sun, X } from 'lucide-react';
 import { WINDOW_CHROME, useWindowState } from '@/lib/windowChrome';
 import { WindowControls } from './WindowControls';
 import { useMoveToProject } from '@/features/projects/MoveToProject';
+import { createProjectFolder, openProjectFolder, samePath, shortPath, useRecentProjects } from '@/features/projects/recent';
 import { openReposDialog } from '@/features/git/dialogs';
 import { useRunner } from '@/features/http/RunnerModal';
 import { useSessionModal } from '@/features/http/SessionModal';
@@ -15,6 +16,9 @@ import { usePrefs, type Theme } from '@/store/prefs';
 import { useNav } from '@/store/nav';
 import { useWorkspace } from '@/store/workspace';
 
+/** Recent projects listed in the project switcher (the rest are on the Projects page). */
+const RECENT_IN_MENU = 8;
+
 export function TopBar() {
   const project = useWorkspace((s) => s.project);
   const refresh = useWorkspace((s) => s.refresh);
@@ -25,21 +29,38 @@ export function TopBar() {
   const theme = usePrefs((s) => s.theme);
   const setPref = usePrefs((s) => s.set);
   const go = useNav((s) => s.go);
+  const recent = useRecentProjects((s) => s.list);
   const openPalette = usePalette((s) => s.setOpen);
   const env = project?.environments.find((e) => e.id === envId);
   const win = useWindowState();
 
+  // Switching is the common case: recent projects come first, one click each.
+  const others = recent.filter((r) => !samePath(r.path, project?.root)).slice(0, RECENT_IN_MENU);
   const projectItems = (): MenuItemDef[] => [
-    { heading: project?.isScratch ? 'Scratch pad' : 'Project' },
+    { heading: 'Switch project' },
+    ...others.map((r) => ({
+      label: (
+        <span className="row-sm switcher-recent">
+          <span className="truncate">{r.name}</span>
+          <span className="xs subtle mono truncate">{shortPath(r.path)}</span>
+        </span>
+      ),
+      icon: <FolderKanban />,
+      onSelect: () => void useWorkspace.getState().openProject(r.path),
+    })),
+    ...(others.length ? [] : [{ label: <span className="subtle">No other recent projects</span>, disabled: true }]),
+    { label: 'Open folder…', icon: <FolderOpen />, hint: `${MOD}+O`, onSelect: () => void openProjectFolder() },
+    { label: 'New project…', icon: <FolderPlus />, onSelect: () => void createProjectFolder() },
+    ...(!project?.isScratch ? [{ label: 'Scratch pad', icon: <NotebookPen />, onSelect: () => openScratch() }] : []),
+    { label: 'All projects…', icon: <FolderKanban />, onSelect: () => go('projects') },
+    { separator: true },
+    { heading: project?.isScratch ? 'Scratch pad' : 'This project' },
     { label: <span className="mono xs truncate">{project?.root}</span>, disabled: true },
     { label: 'Reload from disk', icon: <RefreshCw />, onSelect: refresh },
     { label: 'Run all requests…', icon: <Play />, onSelect: () => useRunner.getState().open('') },
     { label: 'Cookies & captured variables…', icon: <Cookie />, onSelect: () => useSessionModal.getState().setOpen(true) },
     { label: project?.isScratch ? 'Move to project…' : 'Copy to another project…', icon: <ArrowRightLeft />, onSelect: () => useMoveToProject.getState().show() },
     ...(!project?.isScratch ? [{ label: 'Repositories…', icon: <GitBranch />, onSelect: openReposDialog }] : []),
-    { separator: true },
-    { label: 'Open or create project…', icon: <FolderOpen />, onSelect: () => go('projects') },
-    ...(!project?.isScratch ? [{ label: 'Switch to scratch pad', icon: <NotebookPen />, onSelect: () => openScratch() }] : []),
     { label: 'Close project', icon: <X />, onSelect: closeProject },
   ];
 

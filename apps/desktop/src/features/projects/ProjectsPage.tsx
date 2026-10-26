@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { FolderOpen, FolderPlus, NotebookPen, X, GitBranch, Settings2 } from 'lucide-react';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { RelTime } from '@/components/ui/misc';
 import { toast } from '@/components/ui/toast';
 import { openReposDialog } from '@/features/git/dialogs';
-import { openOrCreateProject } from './NewProjectDialog';
+import { createProjectFolder, openProjectFolder } from './recent';
 import { api, errorMessage } from '@/lib/ipc';
 import type { RecentProject } from '@/lib/types';
 import { useWorkspace } from '@/store/workspace';
@@ -18,15 +17,8 @@ export default function ProjectsPage() {
 
   // A folder without devall.yaml offers to become a project — a multi-repo one when it holds
   // several git repositories.
-  const openFolder = async () => {
-    const dir = await openDialog({ directory: true, title: 'Open a /dev/all project (folder with devall.yaml)' });
-    if (typeof dir === 'string') await openOrCreateProject(dir, true);
-  };
-
-  const create = async () => {
-    const dir = await openDialog({ directory: true, title: 'Choose a folder for the new project (your service’s git repo, or a folder holding several repos)' });
-    if (typeof dir === 'string') await openOrCreateProject(dir, false);
-  };
+  const openFolder = openProjectFolder;
+  const create = createProjectFolder;
 
   return (
     <div className="page">

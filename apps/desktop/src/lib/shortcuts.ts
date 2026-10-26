@@ -74,6 +74,12 @@ export function useGlobalShortcuts() {
         usePalette.getState().setOpen(!usePalette.getState().open);
         return;
       }
+      // Ctrl/Cmd+O: switch project — the palette filtered to recent projects (+ open/new folder).
+      if (mod && !e.altKey && !e.shiftKey && key === 'o') {
+        e.preventDefault();
+        usePalette.getState().setOpen(true, 'recent ');
+        return;
+      }
       if (mod && key === 'n' && useWorkspace.getState().project) {
         e.preventDefault();
         useWorkspace.getState().newRequest('');

@@ -180,6 +180,9 @@
 
 /* The logo (components/Logo.tsx): the <D/A> tile in the accent colour with readable text, or the
    original grey; then "Dev" bold, "All" thin. */
+/* Project switcher rows: the name keeps its room, the path after it shrinks first. */
+.switcher-recent { min-width: 0; }
+.switcher-recent > :first-child { flex-shrink: 0; max-width: 75%; }
 .logo { display: inline-flex; align-items: center; user-select: none; line-height: 1; color: var(--text); --logo-panel: #4a4849; --logo-text: #ffffff; }
 .logo.accent { --logo-panel: var(--accent); --logo-text: var(--accent-text); }
 .logo svg { display: block; flex-shrink: 0; }
