@@ -280,9 +280,8 @@
 .td-tag { max-width: 100%; min-width: 0; }
 .td-section-title { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); min-height: 22px; }
 .td-section-title .count { color: var(--text-subtle); font-weight: 500; }
-.td-desc-view { font-size: var(--fs-sm); cursor: text; min-height: 24px; border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 calc(var(--space-3) * -1); min-width: 0; }
-.td-desc-view:hover { background: var(--bg-hover); }
-.td-desc-view.placeholder { color: var(--text-subtle); }
+/* The description: a borderless Markdown field (components/markdown) aligned with the text around it. */
+.td-desc-field { margin: 0 calc(var(--space-4) * -1); }
 /* Markdown in the panel wraps everything (code blocks and tables included). */
 .td-detail .markdown { max-width: 100%; overflow-wrap: anywhere; }
 .td-detail .markdown pre, .td-detail .markdown code { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -309,10 +308,6 @@
 .td-link-label.td-link-chip:hover { text-decoration: none; }
 .td-link-chip .dl-chip { max-width: 100%; }
 /* Markdown fields with a "Link to…" button in the corner. */
-.td-field { position: relative; min-width: 0; }
-.td-field > .textarea { width: 100%; padding-right: 28px; }
-.td-field > .td-field-link { position: absolute; top: 4px; right: 4px; opacity: 0.55; }
-.td-field > .td-field-link:hover, .td-field:focus-within > .td-field-link { opacity: 1; }
 .td-link .icon-btn, .td-file .icon-btn { flex-shrink: 0; opacity: 0.55; }
 .td-link:hover .icon-btn, .td-file:hover .icon-btn, .td-link .icon-btn[aria-expanded='true'], .td-file .icon-btn[aria-expanded='true'] { opacity: 1; }
 .td-file-size { flex-shrink: 0; font-variant-numeric: tabular-nums; }

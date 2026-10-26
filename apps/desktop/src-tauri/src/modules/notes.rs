@@ -3,7 +3,7 @@
 //!
 //! Registration: `mod notes;` in modules/mod.rs, `.manage(notes::NotesState::new(app_data_dir))`,
 //! `notes::start_reminders(app.handle())` in setup (needs `tauri_plugin_notification::init()`), and
-//! the `notes_*` (incl. `notes_links`), `todos_*` (incl. `todos_get`), `context_docs` commands in
+//! the `notes_*` (incl. `notes_links`, `notes_asset`), `todos_*` (incl. `todos_get`), `context_docs` commands in
 //! `generate_handler!`.
 
 use std::collections::HashMap;
@@ -50,6 +50,12 @@ pub fn notes_tree(root: String) -> R<NoteNode> {
 #[tauri::command]
 pub fn notes_read(root: String, path: String) -> R<String> {
     open(&root)?.read_note(&path).map_err(|e| e.to_string())
+}
+
+/// An image shown in a note (path relative to `notes/`), as raw bytes.
+#[tauri::command]
+pub async fn notes_asset(root: String, path: String) -> R<Response> {
+    Ok(Response::new(open(&root)?.read_note_asset(&path).map_err(|e| e.to_string())?))
 }
 
 #[tauri::command]

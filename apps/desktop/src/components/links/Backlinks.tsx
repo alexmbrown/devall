@@ -1,11 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
-import { ArrowUpLeft, NotebookText } from 'lucide-react';
+import clsx from 'clsx';
+import { ArrowUpLeft, ChevronRight, NotebookText } from 'lucide-react';
 import { Menu } from '@/components/ui/Menu';
 import { toDevallLink } from '@/features/notes/links';
 import { notesApi, type NoteLinks } from '@/lib/api/notes';
 import { buildBacklinkIndex, type Backlink } from '@/lib/links/backlinks';
 import { canonicalLink, formatLink } from '@/lib/links/syntax';
+import { usePrefs } from '@/store/prefs';
 import { useTodos } from '@/store/todos';
 import { useFsVersion, useWorkspace } from '@/store/workspace';
 import { TodoIcon } from './kindIcons';
@@ -79,33 +81,47 @@ function BacklinkIcon({ b }: { b: Backlink }) {
   return b.kind === 'note' ? <NotebookText /> : <TodoIcon done={b.done} />;
 }
 
-/** "Linked from" as a section (task detail, notes): nothing when no item links here. */
+/**
+ * "Linked from" as a section (task detail, notes): nothing when no item links here. Collapsed to its
+ * header (with the count) unless opened; open/closed is remembered (`prefs.backlinksOpen`).
+ */
 export function BacklinksSection({ link, className }: { link: string; className?: string }) {
   const items = useBacklinks(link);
   const follow = useFollowLink();
+  const open = usePrefs((s) => s.backlinksOpen);
+  const setPref = usePrefs((s) => s.set);
   if (!items.length) return null;
+  const n = items.length;
   return (
-    <div className={className ? `dl-backlinks ${className}` : 'dl-backlinks'}>
-      <div className="dl-backlinks-title">
-        <ArrowUpLeft size={13} /> Linked from <span className="count">{items.length}</span>
-      </div>
-      <div className="dl-backlinks-list">
-        {items.map((b) => (
-          <button
-            key={`${b.kind}:${b.id}`}
-            className={b.done ? 'dl-backlink done' : 'dl-backlink'}
-            onClick={(e) => follow(b.link, e)}
-            onAuxClick={(e) => e.button === 1 && follow(b.link, e)}
-            onMouseDown={(e) => e.button === 1 && e.preventDefault()}
-            title={`${b.kind === 'note' ? `notes/${b.id}` : 'Personal to-do'}\n${OPEN_HINT}`}
-          >
-            <span className="dl-icon">
-              <BacklinkIcon b={b} />
-            </span>
-            <span className="truncate">{b.title}</span>
-          </button>
-        ))}
-      </div>
+    <div className={clsx('dl-backlinks', open && 'open', className)}>
+      <button
+        className="dl-backlinks-title"
+        aria-expanded={open}
+        onClick={() => setPref('backlinksOpen', !open)}
+        title={open ? 'Hide the list' : `Show the ${n === 1 ? 'note or to-do' : `${n} notes and to-dos`} linking here`}
+      >
+        <ChevronRight size={13} className="dl-chev" />
+        <ArrowUpLeft size={13} /> Linked from <span className="count">{n}</span>
+      </button>
+      {open && (
+        <div className="dl-backlinks-list">
+          {items.map((b) => (
+            <button
+              key={`${b.kind}:${b.id}`}
+              className={b.done ? 'dl-backlink done' : 'dl-backlink'}
+              onClick={(e) => follow(b.link, e)}
+              onAuxClick={(e) => e.button === 1 && follow(b.link, e)}
+              onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+              title={`${b.kind === 'note' ? `notes/${b.id}` : 'Personal to-do'}\n${OPEN_HINT}`}
+            >
+              <span className="dl-icon">
+                <BacklinkIcon b={b} />
+              </span>
+              <span className="truncate">{b.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

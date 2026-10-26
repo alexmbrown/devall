@@ -16,6 +16,7 @@ import { Composer } from './Composer';
 import { MessageLog } from './MessageLog';
 import { EditorFrame, KindBadge, LoadState, ProtoHead, StatusPill, confirmProtected, num, useEditorKeys, useProtoFile, useSticky } from './shared';
 import { beginConnect, connectFailed, eventSink, liveKey, useLive, useLiveState } from './store';
+import { DocsField } from '@/features/http/DocsField';
 
 type Sub = 'message' | 'metadata' | 'schema' | 'settings' | 'docs';
 
@@ -353,7 +354,7 @@ export function GrpcEditor({ root, path }: { root: string; path: string }) {
       )}
       {sub === 'docs' && (
         <Field label="Notes (Markdown, saved with the file)">
-          <textarea className="textarea" style={{ minHeight: 240 }} value={draft.docs ?? ''} onChange={(e) => set((d) => ({ ...d, docs: e.target.value || undefined }))} />
+          <DocsField value={draft.docs} onChange={(docs) => set((d) => ({ ...d, docs }))} />
         </Field>
       )}
     </EditorFrame>

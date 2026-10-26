@@ -43,6 +43,8 @@ interface PrefsState {
   accentColor: string | null;
   /** The top-bar logo in the accent colour, or the original grey artwork. */
   logoStyle: LogoStyle;
+  /** "Linked from" under notes and in to-do details shows its list (collapsed by default: just the count). */
+  backlinksOpen: boolean;
   set<K extends keyof Omit<PrefsState, 'set'>>(key: K, value: PrefsState[K]): void;
 }
 
@@ -66,6 +68,7 @@ export const usePrefs = create<PrefsState>()(
       sidebar: defaultSidebar(),
       accentColor: null,
       logoStyle: 'accent',
+      backlinksOpen: false,
       set: (key, value) => set({ [key]: value } as Partial<PrefsState>),
     }),
     {

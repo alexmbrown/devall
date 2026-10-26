@@ -149,6 +149,7 @@ pub fn run() {
             send::run_to_junit,
             modules::notes::notes_tree,
             modules::notes::notes_read,
+            modules::notes::notes_asset,
             modules::notes::notes_save,
             modules::notes::notes_create,
             modules::notes::notes_create_notebook,

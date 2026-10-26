@@ -16,7 +16,7 @@ import './notebooks.css';
  * blocks of one note share a kernel. The first run of a block asks for consent (trust is per
  * block and per code version, stored outside the project).
  */
-export function RunnableCodeBlock({ root, notePath, block }: { root: string; notePath: string; block: CodeBlockInfo }) {
+export function RunnableCodeBlock({ root, notePath, block, controlsOnly }: { root: string; notePath: string; block: CodeBlockInfo; controlsOnly?: boolean }) {
   const language = normalizeLanguage(block.language) as RunLanguage;
   // Keyed by content: blocks move when the note is edited.
   const key = runKey(root, notePath, `block:${shortHash(`${language}\n${block.code}`)}`);
@@ -67,9 +67,9 @@ export function RunnableCodeBlock({ root, notePath, block }: { root: string; not
   };
 
   return (
-    <div className="nb-block" onClick={(e) => e.stopPropagation()}>
+    <div className={controlsOnly ? 'nb-block controls-only' : 'nb-block'} onClick={(e) => e.stopPropagation()}>
       <div className="nb-block-bar">
-        <span className="nb-lang">{LANGUAGE_LABELS[language]}</span>
+        {!controlsOnly && <span className="nb-lang">{LANGUAGE_LABELS[language]}</span>}
         {run?.interpreter && <span className="subtle xs truncate">{run.interpreter}</span>}
         <span className="spacer" />
         {run && <RunBadge run={run} />}
@@ -78,7 +78,7 @@ export function RunnableCodeBlock({ root, notePath, block }: { root: string; not
             <Eraser />
           </button>
         )}
-        <CopyButton text={block.code} title="Copy code" />
+        {!controlsOnly && <CopyButton text={block.code} title="Copy code" />}
         {running ? (
           <button className="btn btn-sm" onClick={() => notebooksApi.interrupt(run!.runId)} title="Stop (interrupt)">
             <Square /> Stop
@@ -89,9 +89,11 @@ export function RunnableCodeBlock({ root, notePath, block }: { root: string; not
           </button>
         )}
       </div>
-      <pre className="nb-block-code">
-        <code>{block.code}</code>
-      </pre>
+      {!controlsOnly && (
+        <pre className="nb-block-code">
+          <code>{block.code}</code>
+        </pre>
+      )}
       {asking && (
         <div className="nb-trust inline">
           <ShieldAlert />
@@ -133,6 +135,17 @@ export function RunnableCodeBlock({ root, notePath, block }: { root: string; not
 export function useRunnableCodeBlocks(root: string, notePath: string) {
   return useCallback(
     (block: CodeBlockInfo) => (block.code.trim() && normalizeLanguage(block.language) ? <RunnableCodeBlock key={`${block.index}`} root={root} notePath={notePath} block={block} /> : null),
+    [root, notePath],
+  );
+}
+
+/**
+ * `codeBlockExtras` for the Markdown editor: the ▶ Run bar and output under a runnable code block
+ * (the editor shows the code itself).
+ */
+export function useRunnableCodeExtras(root: string, notePath: string) {
+  return useCallback(
+    (block: { language: string; code: string }) => (block.code.trim() && normalizeLanguage(block.language) ? <RunnableCodeBlock root={root} notePath={notePath} block={{ ...block, index: 0 }} controlsOnly /> : null),
     [root, notePath],
   );
 }

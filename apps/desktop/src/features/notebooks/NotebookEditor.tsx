@@ -24,7 +24,7 @@ import {
   Type,
 } from 'lucide-react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
-import { Markdown } from '@/components/Markdown';
+import { MarkdownEditor } from '@/components/markdown/MarkdownEditor';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Callout, Spinner } from '@/components/ui/misc';
 import { confirmDialog, promptDialog } from '@/components/ui/dialogs';
@@ -412,7 +412,6 @@ export function NotebookEditor({ root, path, onSaved }: { root: string; path: st
         return [...cs.slice(0, pos), c, ...cs.slice(pos)];
       });
       setSelected(c.id);
-      if (type === 'markdown') setEditing(c.id, true);
     },
     remove: async (id) => {
       const c = cellsRef.current.find((x) => x.id === id);
@@ -495,7 +494,6 @@ export function NotebookEditor({ root, path, onSaved }: { root: string; path: st
     const c = newCell(type, type === 'code' ? defaultLanguage() : null);
     mutateCells((cs) => [...cs, c]);
     setSelected(c.id);
-    if (type === 'markdown') setEditing(c.id, true);
   };
 
   /** `metadata.devall.cwd`: project-relative, or `repo:<name>[/sub]` (one of the project's repositories). */
@@ -754,7 +752,12 @@ const CellView = memo(function CellView({ root, path, cell, top, index, last, se
           { label: 'Convert to Markdown', icon: <Type />, onSelect: () => actions.convert(cell.id, 'markdown') },
           { label: 'Clear output', icon: <Eraser />, onSelect: () => actions.clear(cell.id) },
         ]
-      : [{ label: 'Convert to code', icon: <Code />, onSelect: () => actions.convert(cell.id, 'code') }]),
+      : [
+          ...(cell.type === 'markdown'
+            ? [{ label: editing ? 'Edit as rich text' : 'Edit Markdown source', icon: editing ? <Type /> : <Code />, onSelect: () => actions.setEditing(cell.id, !editing) }]
+            : []),
+          { label: 'Convert to code', icon: <Code />, onSelect: () => actions.convert(cell.id, 'code') },
+        ]),
     { separator: true },
     { label: 'Delete cell', icon: <Trash2 />, danger: true, onSelect: () => actions.remove(cell.id) },
   ];
@@ -892,17 +895,23 @@ const CellView = memo(function CellView({ root, path, cell, top, index, last, se
                   <span className="subtle xs">Shift+Enter or Esc</span>
                 </div>
               </div>
+            ) : cell.type === 'markdown' ? (
+              // Markdown cells are edited in place; "Edit source" in the cell menu shows the Markdown.
+              <div className="nb-md">
+                <MarkdownEditor
+                  variant="field"
+                  value={cell.source}
+                  onChange={(v) => actions.update(cell.id, (c) => ({ ...c, source: v }))}
+                  onProjectLink={actions.openLink}
+                  onSave={actions.save}
+                  autoFocus={selected && !cell.source}
+                  placeholder="Markdown — type / for blocks, [[ to link"
+                  ariaLabel={`Markdown cell ${index + 1}`}
+                />
+              </div>
             ) : (
               <div className="nb-md" onDoubleClick={() => actions.setEditing(cell.id, true)} title="Double-click to edit">
-                {cell.source.trim() ? (
-                  cell.type === 'markdown' ? (
-                    <Markdown source={cell.source} onProjectLink={actions.openLink} />
-                  ) : (
-                    <pre className="nb-stream">{cell.source}</pre>
-                  )
-                ) : (
-                  <span className="subtle small">Empty {cell.type === 'markdown' ? 'Markdown' : 'raw'} cell — double-click to edit</span>
-                )}
+                {cell.source.trim() ? <pre className="nb-stream">{cell.source}</pre> : <span className="subtle small">Empty raw cell — double-click to edit</span>}
               </div>
             )}
           </>

@@ -1,0 +1,121 @@
+/* The WYSIWYG Markdown editor (components/markdown). Content styles come from `.markdown` (devall.css) so
+   the editor looks like the rendered preview; these add the editing affordances. */
+
+.md-editor-wrap { position: relative; min-width: 0; }
+.md-editor-host { min-width: 0; }
+
+/* ProseMirror essentials (prosemirror-view/style/prosemirror.css, gapcursor, tables), themed. */
+.md-editor { position: relative; outline: none; word-wrap: break-word; white-space: pre-wrap; white-space: break-spaces; font-variant-ligatures: none; font-feature-settings: 'liga' 0; caret-color: var(--text); }
+.md-editor pre { white-space: pre-wrap; }
+.md-editor li { position: relative; }
+.ProseMirror-hideselection *::selection { background: transparent; }
+.ProseMirror-hideselection { caret-color: transparent; }
+.ProseMirror [draggable][contenteditable='false'] { user-select: text; }
+.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); }
+li.ProseMirror-selectednode { outline: none; }
+li.ProseMirror-selectednode::after { content: ''; position: absolute; inset: -2px -2px -2px -32px; border: 2px solid var(--accent); border-radius: var(--radius-sm); pointer-events: none; }
+img.ProseMirror-separator { display: inline !important; border: none !important; margin: 0 !important; }
+.ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; }
+.ProseMirror-gapcursor::after { content: ''; display: block; position: absolute; top: -2px; width: 20px; border-top: 1px solid var(--text); animation: md-gapcursor 1.1s steps(2, start) infinite; }
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+@keyframes md-gapcursor { to { visibility: hidden; } }
+.md-dropcursor { background: var(--accent); }
+.md-editor .selectedCell::after { content: ''; position: absolute; inset: 0; background: var(--accent-subtle); pointer-events: none; z-index: 2; }
+.md-editor th, .md-editor td { position: relative; min-width: 48px; vertical-align: top; }
+
+/* Variants: a document fills its pane and scrolls; a field grows with its content. */
+.md-document { flex: 1; min-height: 0; overflow: auto; }
+.md-document .md-editor { max-width: 860px; min-height: 100%; padding: var(--space-6) var(--space-7) 30vh; box-sizing: border-box; }
+.md-field .md-editor, .md-editor.md-field { font-size: var(--fs-sm); max-width: none; }
+.md-editor.md-field > :last-child { margin-bottom: 0; }
+.md-editor.md-field > :first-child { margin-top: 0; }
+
+.md-placeholder::before { content: attr(data-placeholder); position: absolute; color: var(--text-subtle); pointer-events: none; }
+
+/* Inline bits. */
+.md-editor a.md-link { cursor: text; }
+.md-editor .md-sb { white-space: normal; }
+.md-editor .md-html-inline { color: var(--text-subtle); font-size: 0.8em; border-style: dashed; }
+.md-editor .md-entity { border-bottom: 1px dotted var(--border-strong); }
+.md-chip-host { display: inline; cursor: pointer; }
+.md-chip-host .dl-chip { vertical-align: baseline; }
+.md-image { display: inline-block; max-width: 100%; vertical-align: bottom; }
+.md-image img { max-width: 100%; border-radius: var(--radius-sm); }
+.md-image-missing { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 1px 6px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 0.9em; }
+.md-image-missing svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+/* Lists: tight lists keep their items close, task items get a real checkbox. */
+.md-editor ul.md-tight > li > p, .md-editor ol.md-tight > li > p { margin: 0; }
+.md-editor li > p { margin: 0 0 var(--space-3); }
+.md-editor li > :last-child { margin-bottom: 0; }
+.md-editor li > ul, .md-editor li > ol { margin: 2px 0 0; }
+.md-editor li.md-task { list-style: none; display: flex; align-items: flex-start; gap: 8px; margin-left: -20px; }
+.md-editor li.md-task > .md-task-body { flex: 1; min-width: 0; }
+.md-editor li.md-task > .md-task-body > p { margin: 0; }
+.md-editor li.md-task[data-checked='true'] > .md-task-body > p:first-child { color: var(--text-muted); }
+.md-task-box { flex-shrink: 0; width: 14px; height: 14px; margin-top: calc((1.65em - 14px) / 2); border: 1.5px solid var(--border-strong); border-radius: 3px; background: var(--bg); cursor: pointer; position: relative; transition: background var(--dur), border-color var(--dur); }
+.md-task-box:hover { border-color: var(--accent); }
+li[data-checked='true'] > .md-task-box { background: var(--accent); border-color: var(--accent); }
+li[data-checked='true'] > .md-task-box::after { content: ''; position: absolute; left: 3.5px; top: 0.5px; width: 4px; height: 8px; border: solid var(--accent-text, #fff); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+/* Code blocks: a slim bar (language, copy) above the code, extras (run output) below. */
+.md-code { margin: 0 0 var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-code); overflow: hidden; }
+.md-code > pre { margin: 0; border: 0; border-radius: 0; background: none; padding: var(--space-3) var(--space-5) var(--space-4); }
+.md-code > pre > code { font-family: var(--font-mono); font-size: var(--fs-xs); padding: 0; border: 0; background: none; display: block; min-height: 1.4em; }
+.md-code-bar { display: flex; align-items: center; gap: var(--space-2); height: 26px; padding: 0 var(--space-2) 0 var(--space-4); border-bottom: 1px solid var(--border); background: var(--bg-subtle); user-select: none; }
+.md-code-bar .spacer { flex: 1; }
+.md-code-lang { width: 140px; height: 20px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font: inherit; font-family: var(--font-mono); font-size: var(--fs-2xs); padding: 0 4px; }
+.md-code-lang:hover { border-color: var(--border); }
+.md-code-lang:focus { border-color: var(--accent); outline: none; background: var(--bg); color: var(--text); }
+.md-code-bar .icon-btn { width: 22px; height: 22px; }
+.md-code-bar .icon-btn svg { width: 13px; height: 13px; }
+.md-code-extra { border-top: 1px solid var(--border); background: var(--bg); }
+.md-code-extra[hidden] { display: none; }
+.md-code-extra .nb-block { margin: 0; border: 0; border-radius: 0; }
+
+/* Raw source the editor keeps as written (HTML, link definitions, front matter). */
+.md-raw { margin: 0 0 var(--space-5); border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--bg-subtle); }
+.md-raw > pre { margin: 0; padding: var(--space-2) var(--space-4) var(--space-3); border: 0; background: none; }
+.md-raw > pre > code { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); padding: 0; border: 0; background: none; display: block; min-height: 1.4em; }
+.md-raw-label { padding: var(--space-2) var(--space-4) 0; font-size: var(--fs-2xs); color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.04em; user-select: none; }
+
+.md-hr { padding: var(--space-3) 0; margin: var(--space-3) 0; }
+.md-hr > hr { margin: 0; }
+.md-table-wrap { overflow-x: auto; margin: 0 0 var(--space-5); }
+.md-table-wrap > table { margin: 0; }
+
+/* Floating bars: selection formatting, link bubble, table tools, slash menu. */
+.md-float { position: fixed; z-index: 150; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); animation: fade 80ms ease-out; max-width: calc(100vw - 16px); }
+.md-float-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-muted); cursor: pointer; }
+.md-float-btn:hover { background: var(--bg-hover); color: var(--text); }
+.md-float-btn.on { background: var(--accent-subtle); color: var(--accent-fg); }
+.md-float-btn.danger:hover { color: var(--danger); }
+.md-float-btn svg { width: 14px; height: 14px; }
+.md-float-btn:focus-visible, .md-float-link:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
+.md-float-sep { width: 1px; height: 16px; margin: 0 3px; background: var(--border); }
+.md-float-link { display: inline-flex; align-items: center; gap: 5px; max-width: 280px; height: 26px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--accent-fg); font-size: var(--fs-xs); cursor: pointer; }
+.md-float-link:hover { background: var(--bg-hover); }
+.md-float-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+.md-slash { flex-direction: column; align-items: stretch; padding: var(--space-2); width: 240px; }
+.md-slash-list { max-height: 300px; overflow: auto; }
+.md-slash-item { display: flex; align-items: center; gap: var(--space-4); height: 28px; padding: 0 var(--space-4); border-radius: var(--radius-sm); font-size: var(--fs-sm); cursor: pointer; }
+.md-slash-item svg { width: 14px; height: 14px; color: var(--text-subtle); flex-shrink: 0; }
+.md-slash-item.hl { background: var(--bg-hover); }
+.md-slash-hint { color: var(--text-subtle); font-family: var(--font-mono); font-size: var(--fs-2xs); }
+.md-slash-empty { padding: var(--space-3) var(--space-4); color: var(--text-subtle); font-size: var(--fs-xs); }
+
+/* A Markdown field (to-do description and comments, request docs): the editor in a box, with a Link and
+   a Source toggle in its corner. */
+.md-fieldbox { position: relative; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); transition: border-color var(--dur); }
+.md-fieldbox:focus-within { border-color: var(--accent); }
+.md-fieldbox.bare { border-color: transparent; background: transparent; }
+.md-fieldbox.bare:hover { background: var(--bg-hover); }
+.md-fieldbox.bare:focus-within { border-color: var(--accent); background: var(--bg); }
+.md-fieldbox .md-editor-wrap { padding: var(--space-3) 52px var(--space-3) var(--space-4); }
+.md-fieldbox .md-editor { min-height: 1.65em; }
+.md-fieldbox > .md-field-source { display: block; width: 100%; border: 0; background: transparent; padding: var(--space-3) 52px var(--space-3) var(--space-4); font-family: var(--font-mono); font-size: var(--fs-xs); resize: vertical; box-shadow: none; }
+.md-fieldbox > .md-field-source:focus { outline: none; box-shadow: none; }
+.md-field-tools { position: absolute; top: 3px; right: 3px; display: flex; gap: 1px; opacity: 0.5; transition: opacity var(--dur); }
+.md-fieldbox.bare .md-field-tools { opacity: 0; }
+.md-fieldbox:hover .md-field-tools, .md-fieldbox:focus-within .md-field-tools { opacity: 1; }
+.md-field-tools .icon-btn.on { color: var(--accent-fg); background: var(--accent-subtle); }

@@ -129,11 +129,18 @@
 .markdown hr { margin: var(--space-6) 0; }
 
 /* ---------- notes ---------- */
-.note-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
-.note-body.split { grid-template-columns: 1fr 1fr; }
-.note-editor { min-height: 0; border-right: 1px solid var(--border); }
-.note-body.edit .note-editor { border-right: 0; }
-.note-preview { min-height: 0; overflow: auto; padding: var(--space-6) var(--space-7); }
+.note-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.note-body > .md-document { height: 100%; }
+.note-editor { min-height: 0; }
+/* Read-only Markdown: task checkboxes either edit the source (`onToggleTask`) or look inert. */
+.markdown input[type='checkbox'][disabled] { cursor: default; opacity: 0.7; }
+.markdown input[type='checkbox'].md-live { cursor: pointer; }
+/* Until the editor has loaded it shows the Markdown read-only, laid out like the editor. */
+/* `contain: strict`: typing in a long note re-lays out the note, not the page around it (5–10× faster
+   per keystroke in a 5k-line note). The pane sizes it (flex/grid), never its content. */
+.md-document { flex: 1; min-height: 0; overflow: auto; contain: strict; }
+.md-editor-fallback { padding: var(--space-6) var(--space-7); }
+.md-editor-fallback.md-field { padding: 0; font-size: var(--fs-sm); }
 
 /* to-dos: features/todos/todos.css */
 

@@ -4,7 +4,7 @@ import { notebooksApi } from '@/lib/api/notebooks';
 import { notesApi } from '@/lib/api/notes';
 
 export { NotebookEditor, default } from './NotebookEditor';
-export { RunnableCodeBlock, useRunnableCodeBlocks } from './RunnableCodeBlock';
+export { RunnableCodeBlock, useRunnableCodeBlocks, useRunnableCodeExtras } from './RunnableCodeBlock';
 export { OutputList, RunBadge } from './CellOutputs';
 
 /**

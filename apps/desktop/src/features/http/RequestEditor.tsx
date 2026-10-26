@@ -27,6 +27,7 @@ import { responseContext } from './aiContext';
 import { BodyEditor } from './BodyEditor';
 import { COMMON_HEADERS, KeyValueEditor } from './KeyValueEditor';
 import { ResponsePanel } from './ResponsePanel';
+import { DocsField } from './DocsField';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 type Sub = 'params' | 'headers' | 'body' | 'auth' | 'tests' | 'scripts' | 'settings' | 'docs';
@@ -252,7 +253,7 @@ export function RequestEditor({ tab }: { tab: RequestTab }) {
             {sub === 'settings' && <SettingsTab draft={d} set={set} />}
             {sub === 'docs' && (
               <Field label="Notes (Markdown, saved with the request)">
-                <textarea className="textarea" style={{ minHeight: 240 }} value={d.docs ?? ''} onChange={(e) => set((x) => ({ ...x, docs: e.target.value || undefined }))} />
+                <DocsField value={d.docs} onChange={(docs) => set((x) => ({ ...x, docs }))} />
               </Field>
             )}
           </div>

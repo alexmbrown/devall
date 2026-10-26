@@ -36,7 +36,12 @@
 
 /* "Linked from". */
 .dl-backlinks { display: flex; flex-direction: column; gap: var(--space-2); }
-.dl-backlinks-title { display: flex; align-items: center; gap: var(--space-3); font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+/* The header toggles the list (collapsed by default, remembered in prefs). */
+.dl-backlinks-title { display: flex; align-items: center; gap: var(--space-3); align-self: flex-start; padding: 2px var(--space-2) 2px 0; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); cursor: pointer; }
+.dl-backlinks-title:hover { color: var(--text); }
+.dl-backlinks-title:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 1px; }
+.dl-backlinks-title .dl-chev { color: var(--text-subtle); transition: transform var(--dur); }
+.dl-backlinks.open .dl-backlinks-title .dl-chev { transform: rotate(90deg); }
 .dl-backlinks-title .count { color: var(--text-subtle); font-weight: 500; }
 .dl-backlinks-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .dl-backlink { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-subtle); color: var(--text); font-size: var(--fs-xs); cursor: pointer; }
@@ -44,4 +49,5 @@
 .dl-backlink.done .truncate { text-decoration: line-through; color: var(--text-muted); }
 .dl-backlinks-btn svg { width: 13px; height: 13px; }
 /* Under a note: a strip below the editor/preview. */
-.dl-backlinks.note-backlinks { padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--bg-subtle); flex-shrink: 0; max-height: 30%; overflow: auto; }
+.dl-backlinks.note-backlinks { padding: var(--space-2) var(--space-6); border-top: 1px solid var(--border); background: var(--bg-subtle); flex-shrink: 0; max-height: 30%; overflow: auto; }
+.dl-backlinks.note-backlinks.open { padding-bottom: var(--space-3); }

@@ -15,6 +15,9 @@ use crate::project::Project;
 
 pub const NOTES_DIR: &str = "notes";
 pub const NOTE_EXT: &str = ".md";
+/// Image types notes can show (read by the editor through `read_note_asset`).
+pub const NOTE_ASSET_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"];
+pub const NOTE_ASSET_MAX: u64 = 20 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -147,6 +150,21 @@ impl Project {
         }
         let p = self.note_path(&rel)?;
         fs::read_to_string(&p).at(&p)
+    }
+
+    /// An image a note shows (`![x](img/diagram.png)`), relative to `notes/`: only image files inside
+    /// `notes/` (no `..`), at most [`NOTE_ASSET_MAX`] bytes.
+    pub fn read_note_asset(&self, rel: &str) -> Result<Vec<u8>> {
+        let rel = normalize_rel(rel);
+        let ext = rel.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+        if !NOTE_ASSET_EXTS.contains(&ext.as_str()) {
+            return Err(Error::InvalidPath(rel));
+        }
+        let p = self.note_path(&rel)?;
+        if fs::metadata(&p).at(&p)?.len() > NOTE_ASSET_MAX {
+            return Err(Error::Invalid(format!("{rel} is larger than {} MB", NOTE_ASSET_MAX / (1024 * 1024))));
+        }
+        fs::read(&p).at(&p)
     }
 
     /// Saves a note; notebooks are validated as nbformat 4 first.
@@ -321,6 +339,21 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn note_assets_are_images_inside_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::init(dir.path(), "A").unwrap();
+        fs::create_dir_all(p.notes_root().join("img")).unwrap();
+        fs::write(p.notes_root().join("img/diagram.png"), b"\x89PNG").unwrap();
+        fs::write(p.notes_root().join("secret.txt"), b"no").unwrap();
+        fs::write(dir.path().join("outside.png"), b"\x89PNG").unwrap();
+        assert_eq!(p.read_note_asset("img/diagram.png").unwrap(), b"\x89PNG");
+        assert_eq!(p.read_note_asset("img\\diagram.png").unwrap(), b"\x89PNG", "Windows separators");
+        assert!(p.read_note_asset("secret.txt").is_err(), "only images");
+        assert!(p.read_note_asset("../outside.png").is_err(), "never outside notes/");
+        assert!(p.read_note_asset("missing.png").is_err());
+    }
 
     #[test]
     fn notes_crud_search_and_titles() {

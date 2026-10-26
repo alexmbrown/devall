@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { BookOpenCheck, ChevronRight, FilePlus, FolderOpen, FolderPlus, Folder, History, Link2, NotebookText, Pencil, Trash2 } from 'lucide-react';
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { monaco } from '@/components/editor/monaco';
-import { Markdown } from '@/components/Markdown';
+import { MarkdownEditor, type MarkdownEditorHandle } from '@/components/markdown/MarkdownEditor';
 import { BacklinksSection } from '@/components/links/Backlinks';
 import { copyLinkItems } from '@/components/links/LinkChip';
 import { pickLink } from '@/components/links/LinkPicker';
@@ -18,16 +18,18 @@ import { errorMessage } from '@/lib/ipc';
 import { notesApi, type NoteHit, type NoteNode } from '@/lib/api/notes';
 import { notebooksApi } from '@/lib/api/notebooks';
 import { reposApi } from '@/lib/api/git';
-import { NotebookEditor, createNotebook, useRunnableCodeBlocks } from '@/features/notebooks';
+import { NotebookEditor, createNotebook, useRunnableCodeExtras } from '@/features/notebooks';
 import { AiAssistButton } from '@/features/ai';
 import { openStubFile } from '@/features/mocks';
+import { noteImageUrl } from './images';
 import { resolveProjectLink } from './links';
 import { linkShortcutLabel, wikiTrigger } from '@/lib/links/insert';
 import { formatLink, markdownLink } from '@/lib/links/syntax';
-import { useKeepView, useNav } from '@/store/nav';
+import { useKeepView, useNav, useViewState } from '@/store/nav';
 import { useFsVersion, useWorkspace } from '@/store/workspace';
 
-type Mode = 'edit' | 'split' | 'preview';
+/** Notes are edited in place (`rich`, the default) or as Markdown source. */
+type Mode = 'rich' | 'source';
 const SAVE_MS = 700;
 
 /**
@@ -258,10 +260,17 @@ export default function NotesPage() {
   );
 }
 
+/**
+ * A Markdown note: edited in place (WYSIWYG, the default) or as source (Monaco). Autosaves; only
+ * edits are written (opening a note never rewrites it) and untouched parts keep their exact bytes.
+ */
 function NoteEditor({ root, path, onSaved }: { root: string; path: string; onSaved(): void }) {
   const [text, setText] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('devall.noteMode') as Mode) ?? 'split');
+  const [mode, setMode] = useViewState<Mode>(`note-mode|${path}`, 'rich');
   const [saved, setSaved] = useState(true);
+  const rich = useRef<MarkdownEditorHandle>(null);
+  const runnable = useRunnableCodeExtras(root, path);
+  const resolveImage = useCallback((src: string) => noteImageUrl(root, path, src), [root, path]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const latest = useRef('');
   const openLink = useProjectLinkOpener();
@@ -328,10 +337,14 @@ function NoteEditor({ root, path, onSaved }: { root: string; path: string; onSav
   const picking = useRef(false);
   const insertLink = async (range?: monaco.IRange) => {
     if (picking.current) return;
+    if (mode === 'rich' && rich.current) {
+      rich.current.insertLink();
+      return;
+    }
     const ed = editorRef.current;
     const model = ed?.getModel();
     if (!ed || !model) {
-      // Preview only: append it.
+      // No editor yet: append it.
       const picked = await pickLink();
       if (picked) change(`${latest.current.replace(/\s*$/, '')}\n\n${markdownLink(picked.title, picked.link)}\n`);
       return;
@@ -374,9 +387,9 @@ function NoteEditor({ root, path, onSaved }: { root: string; path: string; onSav
   useEffect(() => () => void (editorRef.current = null), []);
 
   if (text === null) return null;
-  const setModeP = (m: Mode) => {
+  const switchMode = (m: Mode) => {
+    rich.current?.flush();
     setMode(m);
-    localStorage.setItem('devall.noteMode', m);
   };
   return (
     <div className="page">
@@ -385,65 +398,39 @@ function NoteEditor({ root, path, onSaved }: { root: string; path: string; onSav
         <span className="subtle xs">{saved ? 'Saved' : 'Saving…'}</span>
         <span className="spacer" />
         <AiAssistButton feature="summarizeNotes" label="Summarize" title="Summarize this note (local AI)" align="right" input={() => ({ paths: [path] })} />
-        <button className="btn btn-sm btn-ghost" onClick={() => void insertLink()} title={`Link to a request, note, to-do, environment… (${linkShortcutLabel(isMac)}, or type [[)`}>
+        <button className="btn btn-sm btn-ghost" onMouseDown={(e) => e.preventDefault()} onClick={() => void insertLink()} title={`Link to a request, note, to-do, environment… (${linkShortcutLabel(isMac)}, or type [[)`}>
           <Link2 /> Link to…
         </button>
         <Segmented
           value={mode}
-          onChange={setModeP}
+          onChange={switchMode}
           options={[
-            { value: 'edit', label: 'Edit' },
-            { value: 'split', label: 'Split' },
-            { value: 'preview', label: 'Preview' },
+            { value: 'rich', label: 'Edit', title: 'Edit the note as it reads (type / for blocks, Markdown shortcuts work)' },
+            { value: 'source', label: 'Source', title: 'Edit the Markdown source' },
           ]}
         />
       </div>
       <div className={clsx('note-body', mode)}>
-        {mode !== 'preview' && (
+        {mode === 'rich' ? (
+          <MarkdownEditor
+            variant="document"
+            handleRef={rich}
+            value={text}
+            onChange={change}
+            onSave={() => void flush()}
+            onProjectLink={(href) => openLink(href, path)}
+            resolveImage={resolveImage}
+            codeBlockExtras={runnable}
+            placeholder="Write here — type / for blocks, [[ to link a request, note or to-do…"
+            ariaLabel={`Note ${path}`}
+          />
+        ) : (
           <div className="note-editor">
             <CodeEditor value={text} onChange={change} language="markdown" onSave={flush} lineNumbers={false} onMount={onEditor} />
-          </div>
-        )}
-        {mode !== 'edit' && (
-          <div className="note-preview">
-            <NotePreview root={root} path={path} text={text} onProjectLink={(href) => openLink(href, path)} />
           </div>
         )}
       </div>
       <BacklinksSection link={formatLink('note', path)} className="note-backlinks" />
     </div>
-  );
-}
-
-/** Splits YAML front matter off a note (tags are shown as chips, not rendered as Markdown). */
-export function splitFrontMatter(text: string): { tags: string[]; body: string } {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
-  if (!m) return { tags: [], body: text };
-  const line = m[1].split(/\r?\n/).find((l) => l.trim().startsWith('tags:')) ?? '';
-  const raw = line.replace(/^\s*tags:\s*/, '').trim();
-  const tags = raw
-    .replace(/^\[|\]$/g, '')
-    .split(',')
-    .map((t) => t.trim().replace(/^['"]|['"]$/g, ''))
-    .filter(Boolean);
-  return { tags, body: text.slice(m[0].length) };
-}
-
-function NotePreview({ root, path, text, onProjectLink }: { root: string; path: string; text: string; onProjectLink(path: string): void }) {
-  const { tags, body } = useMemo(() => splitFrontMatter(text), [text]);
-  const renderCodeBlock = useRunnableCodeBlocks(root, path);
-  return (
-    <>
-      {tags.length > 0 && (
-        <div className="row-sm wrap mb-4">
-          {tags.map((t) => (
-            <span key={t} className="tag">
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-      <Markdown source={body} onProjectLink={onProjectLink} renderCodeBlock={renderCodeBlock} />
-    </>
   );
 }

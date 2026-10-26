@@ -49,7 +49,7 @@ Project folder layout (each module owns one top-level folder):
 | `webhooks/` | webhooks | saved events/fixtures `*.webhook.yaml` |
 | `connections/` | DB/infra | `*.conn.yaml` (Postgres, MySQL, SQLite, SQL Server, Redis, MongoDB; no secrets — passwords are `{{secret.X}}`) |
 | `queries/` | DB clients | saved queries (`*.sql`, `*.redis`, `*.mongo.json`) |
-| `notes/` | notes | shared Markdown notes (`**/*.md`) |
+| `notes/` | notes | shared Markdown notes (`**/*.md`), runnable notebooks (`*.ipynb`) and the images notes show (`notes_asset`) |
 | `utilities/` | utilities | saved regexes with test cases (`regex/*.regex.yaml`) |
 | `.devall/` | legacy | where older versions kept local state; moved to the project data folder on open (still git-ignored for old clones) |
 
@@ -158,11 +158,13 @@ Notes, to-dos (links, descriptions, comments), AI answers and agents link to any
   chip —, live title, struck through when gone, a flag such as "personal to-do — not on this machine"); click opens
   in the current group, Ctrl/Cmd+click or middle-click to the side. `pickLink()` is the "Link to…" picker (fuzzy,
   grouped, `todo:`/`note:`… narrows, `freeform` accepts URLs/paths). Markdown fields insert links with `[[`, a Link
-  button and **Ctrl+Alt+K / ⌘⌥K** (Ctrl/Cmd+K is the palette): Monaco in the note editor, `useTextareaLinks` for
-  textareas. Menus offer `copyLinkItems(link, title)` ("Copy link", "Copy as Markdown link"); the palette has "Copy
-  link to this page" (`route.ts`: `linkForRoute`). "Linked from": `BacklinksSection` (task detail, notes) and
-  `BacklinksButton` (request and environment editors), from `notes_links` (Rust scans every note's link targets) plus
-  the to-do snapshot, both spellings counted (`lib/links/backlinks.ts`).
+  button and **Ctrl+Alt+K / ⌘⌥K** (Ctrl/Cmd+K is the palette): the WYSIWYG `MarkdownEditor` (as a chip at the caret,
+  see "Markdown editing"), Monaco in the notes' Source view, `useTextareaLinks` for textareas. Menus offer
+  `copyLinkItems(link, title)` ("Copy link", "Copy as Markdown link"); the palette has "Copy link to this page"
+  (`route.ts`: `linkForRoute`). "Linked from": `BacklinksSection` (task detail, notes; collapsed to "Linked from N"
+  by default, open/closed remembered in `prefs.backlinksOpen`) and `BacklinksButton` (request and environment
+  editors), from `notes_links` (Rust scans every note's link targets) plus the to-do snapshot, both spellings counted
+  (`lib/links/backlinks.ts`).
 - **Safety:** a `devall:` link only navigates inside the app — never the webview, the browser, a shell or a file write.
   The Markdown sanitizer allows exactly one extra scheme for it.
 - **Personal to-dos** live on each machine: a `devall:todo/…` link in a shared note resolves only where the task
@@ -334,11 +336,79 @@ The design system is ported from `../wiremock-ui`: `src/styles/tokens.css` (all 
 - Callouts are cards: never put one flush against a pane edge. Inside a padded body (`.p-5`, `.col`,
   `.page-body`, modals) they're fine; directly in a pane use `.m-3`, or several in a `.callout-stack`.
 - Editors: `CodeEditor`, `CodeDiff`, `languageFor` (`src/components/editor`). Variable-aware input:
-  `VarInput` + `useVariables(path)`. Name/value tables: `features/http/KeyValueEditor`.
+  `VarInput` + `useVariables(path)`. Name/value tables: `features/http/KeyValueEditor`. Markdown: `MarkdownEditor`
+  / `MarkdownField` (`src/components/markdown`, see below) — never a textarea or an edit/preview switch.
 - State: zustand stores; the open project is `useWorkspace((s) => s.project)` (`root`, `manifest`,
   `environments`); active environment `useWorkspace.getState().activeEnv()`; navigation `useNav` (below).
 - Icons: `lucide-react`. Compact, keyboard-first, both themes, no hard-coded colours (use tokens).
 - Destructive actions confirm; deletes go to the OS trash (`trash` crate), never permanent.
+
+## Markdown editing (`components/markdown`)
+
+Markdown is edited in place (WYSIWYG) everywhere: notes, notebook Markdown cells, to-do descriptions and comments,
+the Docs tab of requests and connections. The source is one toggle away (notes: "Source" = Monaco; fields: the
+`</>` button = a textarea; notebook cells: "Edit Markdown source" in the cell menu), never the default. Read-only
+places (AI answers, posted comments, notebook outputs) keep `components/Markdown.tsx`; its task checkboxes are
+inert unless `onToggleTask` is passed (then apply the click with `toggleTaskInSource(md, index)`).
+
+- **Use:** `<MarkdownEditor value onChange variant="document" | "field" …/>` — `document` fills and scrolls its pane
+  (notes), `field` grows with its content. `<MarkdownField>` is a form field: the editor in a box with a Link button
+  and the Source toggle. Props: `onProjectLink` (relative and `repo:` links), `resolveImage` (relative image →
+  `blob:` URL; notes use `noteImageUrl` → `notes_asset`, images inside `notes/` only — remote images aren't loaded),
+  `codeBlockExtras` (UI under a code block: notes put the ▶ Run bar there, `useRunnableCodeExtras`), `onSubmit`
+  (Ctrl/Cmd+Enter), `onEscape`, `onSave` (Ctrl/Cmd+S), `onBlur`, `handleRef` (`focus`, `insertLink`, `flush`).
+  **`onChange` fires only when the user changed something** (never on load), with the whole document; a `value`
+  other than the last one reported reloads the editor (disk changes, the Source view). The editor is a lazy chunk;
+  until it has loaded the Markdown is shown read-only.
+- **Engine:** ProseMirror (the `prosemirror-*` packages, pinned) with a schema that is exactly Markdown + GFM
+  (`schema.ts`), parsed with `marked` — the parser of the read-only renderer, so both agree — (`parse.ts`) and
+  written back by `serialize.ts`. Milkdown (remark), TipTap's Markdown extension, Lexical's transformers and
+  BlockNote all re-print the whole document in their own style; files in git need the opposite (below), which
+  needs control over the schema and both directions, so the editor uses ProseMirror directly rather than a
+  framework around it.
+- **Round trip** (`codec.test.ts`: docs/, README, example notes and a synthetic file with every construct, LF, CRLF and
+  BOM):
+  1. Opening and saving without edits is byte-identical, and nothing is written unless the user edited.
+  2. Every block keeps its source (`src`, plus the whitespace after it, `gap`; top-level blocks also their original
+     bytes, line endings included). A block equal to what was parsed is written from it; only edited blocks are
+     re-written, and the separator between two blocks that are still neighbours stays as it was. Typing in one
+     block changes only that block's lines.
+  3. A re-written block keeps the file's style where it can be known: bullet character, ordered delimiter and
+     numbering style (`1.` `1.` `1.` stays), `[X]`, `_`/`__`/`~` markers, ATX closing hashes / setext underline, fence
+     character, length and info string, link style (inline / `<angle>` / bare / `[full][ref]` / `[collapsed][]` /
+     `[shortcut]`, destination and title as written), backslash escapes (`escape` mark), entities (`entity` mark),
+     hard-break style, the table delimiter row (while columns and alignments match), inline HTML.
+  4. A re-written block is parsed again and compared with the editor's (`semantic.ts`); when it reads back
+     differently it's written again with `*` markers, then with every special character escaped.
+  5. Toggling a checkbox flips only that `[ ]`/`[x]`.
+  6. HTML blocks, link reference definitions, YAML front matter and anything unknown are raw source blocks, written
+     verbatim (editable as text).
+  Known normalisations, only inside a block the user edited: lazy continuation lines get their `>` / indentation;
+  edited table rows lose column padding (`| a | b |`); an ordered list numbered neither 1-2-3 nor all-the-same is
+  renumbered; leading/trailing spaces of a paragraph go (Markdown ignores them); a list item moved into a list
+  with another bullet takes that bullet. The fresh writer alone (no source) reproduces the corpus except blank-line
+  runs and table padding.
+- **Editing:** `/` opens the block menu (text, headings, lists, task list, quote, code block, table, divider, Link to…,
+  web link); a format bar floats over a selection; a bubble under a link offers open / edit / remove; a bar above a
+  table adds/removes rows and columns and aligns columns. Markdown shortcuts while typing: `# `, `- `/`* `/`+ `,
+  `1. `, `[ ] `/`[x] `, `> `, ` ``` `/` ```lang` + space or Enter, `---`, `**b**`, `__b__`, `*i*`, `_i_`, `` `c` ``,
+  `~~s~~`. Keys: Ctrl/Cmd+B / I / E (code) / Shift+X (strike), Ctrl/Cmd+Alt+0…4 (paragraph, headings), Ctrl/Cmd+
+  Shift+7 / 8 / 9 (numbered, bulleted, task list), Ctrl/Cmd+Enter toggles the task item at the caret (else leaves a
+  code block, else `onSubmit`), Tab / Shift+Tab indent list items and move between table cells, Shift+Enter is a
+  line break, Ctrl/Cmd+Z / Y undo/redo. Paste: Markdown text (or text from a code editor) is parsed as Markdown,
+  web HTML as rich text, a URL over a selection links it; copying puts Markdown on the clipboard as text.
+- **Links:** `devall:` links are `LinkChip`s (node view) and stay plain `[Title](devall:…)` in the file; click opens,
+  Ctrl/Cmd+click or middle-click to the side, Enter on a selected chip opens it, right-click: open, copy, change
+  link, edit text, unlink, delete. `[[` and Ctrl/Cmd+Alt+K open the picker at the caret (a selection becomes the link
+  text). Other links: Ctrl/Cmd+click follows; a plain click puts the caret in the link.
+- **Code blocks:** language box (with suggestions) and Copy above the code; highlighting comes from Monaco's
+  `colorize` (loaded on first use, Monaco's theme colours, cached per language + code).
+- **Performance:** untouched blocks are recognised by node identity, so a keystroke costs the edited block only;
+  `.md-document` has `contain: strict` (a 5k-line note types at plain-`contenteditable` speed); node-view portals
+  render outside the editor's per-transaction re-render.
+- **Adding a construct:** a node or mark in `schema.ts` (blocks get `src`/`gap` through `block()`), parsing in
+  `buildBlock`/`buildInline`, writing in `Writer.fresh`/`Inline`, meaning in `sameMeaning`/`inlineKey`, and a line in
+  the synthetic test document.
 
 ## Pages, views and navigation (the workbench)
 

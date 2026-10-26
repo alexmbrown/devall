@@ -68,23 +68,30 @@ const devallHref = (a: Element | null) => {
  *
  * `renderCodeBlock` (optional) replaces fenced code blocks with React content (e.g. runnable
  * blocks); return `null`/`undefined` to keep the default rendering for a block.
+ *
+ * Task checkboxes are read-only unless `onToggleTask` is given: then a click reports the task's
+ * index (document order) and new state — apply it with `toggleTaskInSource` (only that line changes).
+ * To edit Markdown, use `MarkdownEditor` (components/markdown) instead.
  */
 export function Markdown({
   source,
   onProjectLink,
   className,
   renderCodeBlock,
+  onToggleTask,
 }: {
   source: string;
   onProjectLink?(path: string): void;
   className?: string;
   renderCodeBlock?(block: CodeBlockInfo): ReactNode | null | undefined;
+  onToggleTask?(index: number, checked: boolean): void;
 }) {
   const html = useMemo(() => (renderCodeBlock ? '' : sanitize(marked.parse(source, { async: false }) as string)), [source, renderCodeBlock]);
   const parts = useMemo(() => (renderCodeBlock ? splitAtCodeBlocks(source) : null), [source, renderCodeBlock]);
   const host = useRef<HTMLDivElement>(null);
   const [chips, setChips] = useState<ChipSlot[]>([]);
   const follow = useFollowLink();
+  const toggles = !!onToggleTask;
 
   // After each render of new HTML: find its devall: anchors and give each a chip (portal).
   useLayoutEffect(() => {
@@ -103,9 +110,22 @@ export function Markdown({
       found.push({ el: a, href, label: a.dataset.dlLabel });
     }
     setChips((prev) => (prev.length === found.length && prev.every((c, i) => c.el === found[i].el && c.href === found[i].href) ? prev : found));
-  }, [html, parts]);
+    // Task checkboxes (marked renders them disabled): live when the source can be edited.
+    root.querySelectorAll<HTMLInputElement>('li input[type=checkbox]').forEach((box, i) => {
+      box.dataset.task = String(i);
+      box.disabled = !toggles;
+      box.classList.toggle('md-live', toggles);
+      box.title = toggles ? (box.checked ? 'Done — click to uncheck' : 'Click to check') : 'Read-only';
+    });
+  }, [html, parts, toggles]);
 
   const onClick = (e: React.MouseEvent) => {
+    const box = e.target as HTMLInputElement;
+    if (box.tagName === 'INPUT' && box.type === 'checkbox' && box.dataset.task !== undefined) {
+      if (onToggleTask) onToggleTask(Number(box.dataset.task), box.checked);
+      else e.preventDefault();
+      return;
+    }
     const a = (e.target as HTMLElement).closest('a');
     if (!a) return;
     const href = a.getAttribute('href') ?? '';

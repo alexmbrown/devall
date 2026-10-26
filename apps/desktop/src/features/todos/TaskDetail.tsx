@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import {
   AppWindow,
@@ -41,7 +41,7 @@ import { Markdown } from '@/components/Markdown';
 import { BacklinksSection } from '@/components/links/Backlinks';
 import { copyLinkItems, LinkChip, useFollowLink } from '@/components/links/LinkChip';
 import { pickLink } from '@/components/links/LinkPicker';
-import { useTextareaLinks } from '@/components/links/useTextareaLinks';
+import { MarkdownField } from '@/components/markdown/MarkdownEditor';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Modal } from '@/components/ui/Modal';
 import { copyText, formatBytes, isMac, RelTime, Resizer } from '@/components/ui/misc';
@@ -49,7 +49,6 @@ import { toast } from '@/components/ui/toast';
 import { reposApi } from '@/lib/api/git';
 import { todosApi, type Attachment, type Snapshot, type TaskList, type TaskView } from '@/lib/api/todos';
 import { errorMessage } from '@/lib/ipc';
-import { linkShortcutLabel } from '@/lib/links/insert';
 import { describe } from '@/lib/links/registry';
 import { formatLink, isDevallLink } from '@/lib/links/syntax';
 import { resolveProjectLink } from '@/features/notes/links';
@@ -198,57 +197,56 @@ function Title({ task }: { task: TaskView }) {
   );
 }
 
-/** "Link to…" button next to a Markdown field (the picker inserts `[Title](devall:…)` at the cursor). */
-function LinkButton({ onClick }: { onClick(): void }) {
-  return (
-    <button className="icon-btn sm td-field-link" onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={`Link to a request, note, to-do… (${linkShortcutLabel(isMac)}, or type [[)`} aria-label="Insert link">
-      <Link2 />
-    </button>
-  );
-}
+const blurActive = () => (document.activeElement as HTMLElement | null)?.blur();
 
+/**
+ * The description, edited in place (WYSIWYG; the field's Source toggle shows the Markdown). Saved
+ * shortly after typing stops, on leaving the field and on Ctrl/Cmd+Enter.
+ */
 function Description({ task, links }: { task: TaskView; links: LinkActions }) {
-  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(task.description ?? '');
-  const linker = useTextareaLinks(setText);
+  const latest = useRef(text);
+  const pending = useRef<{ id: string; text: string } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const save = useCallback(() => {
+    clearTimeout(timer.current);
+    const p = pending.current;
+    pending.current = null;
+    if (p) void updateTasks([p.id], { description: p.text });
+  }, []);
+  // Changed elsewhere (an agent, another view): show it — unless typing here is pending. Saved
+  // descriptions come back trimmed; that's not a change.
   useEffect(() => {
-    setText(task.description ?? '');
-    setEditing(false);
+    const d = task.description ?? '';
+    if (!pending.current && d.trimEnd() !== latest.current.trimEnd()) {
+      latest.current = d;
+      setText(d);
+    }
   }, [task.id, task.description]);
-  const save = () => {
-    setEditing(false);
-    if (text.trimEnd() !== (task.description ?? '')) void updateTasks([task.id], { description: text });
+  // Leaving the task (or the panel): save now.
+  useEffect(() => () => save(), [task.id, save]);
+  const change = (v: string) => {
+    latest.current = v;
+    setText(v);
+    pending.current = { id: task.id, text: v };
+    clearTimeout(timer.current);
+    timer.current = setTimeout(save, 800);
   };
-  if (editing)
-    return (
-      <div className="td-field">
-        <textarea
-          ref={linker.ref}
-          className="textarea"
-          autoFocus
-          rows={Math.min(16, Math.max(4, text.split('\n').length + 1))}
-          value={text}
-          placeholder="Description — Markdown: **bold**, `code`, - lists; [[ links to anything"
-          onChange={linker.onChange}
-          // The link picker takes focus for a moment: that's not leaving the field.
-          onBlur={() => !linker.picking.current && save()}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (linker.onKeyDown(e)) return;
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save();
-            if (e.key === 'Escape') {
-              setText(task.description ?? '');
-              setEditing(false);
-            }
-          }}
-        />
-        <LinkButton onClick={() => void linker.insert()} />
-      </div>
-    );
   return (
-    <div className={clsx('td-desc-view', !task.description?.trim() && 'placeholder')} onClick={(e) => !(e.target as HTMLElement).closest('a') && setEditing(true)} title="Click to edit">
-      {task.description?.trim() ? <Markdown source={task.description} onProjectLink={links.fromMarkdown} /> : 'Add a description (Markdown)…'}
-    </div>
+    <MarkdownField
+      key={task.id}
+      bare
+      className="td-desc-field"
+      value={text}
+      onChange={change}
+      onBlur={save}
+      onSubmit={save}
+      // Esc leaves the field (saving); the next Esc closes the panel.
+      onEscape={blurActive}
+      placeholder="Add a description — Markdown: / for blocks, [[ links to anything"
+      onProjectLink={links.fromMarkdown}
+      ariaLabel="Description"
+    />
   );
 }
 
@@ -498,11 +496,15 @@ const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files');
 
 function Comments({ task, links }: { task: TaskView; links: LinkActions }) {
   const [text, setText] = useState('');
-  const linker = useTextareaLinks(setText);
+  // A fresh composer (empty undo history) after each post.
+  const [posted, setPosted] = useState(0);
   const post = async () => {
     if (!text.trim()) return;
     const r = await useTodos.getState().apply({ type: 'addComment', id: task.id, text });
-    if (r) setText('');
+    if (r) {
+      setText('');
+      setPosted((n) => n + 1);
+    }
   };
   return (
     <div className="col-sm">
@@ -517,22 +519,16 @@ function Comments({ task, links }: { task: TaskView; links: LinkActions }) {
           <Markdown source={c.text} onProjectLink={links.fromMarkdown} />
         </div>
       ))}
-      <div className="td-field">
-        <textarea
-          ref={linker.ref}
-          className="textarea"
-          rows={2}
-          placeholder="Comment (Markdown, [[ links to anything) — Ctrl+Enter to post"
-          value={text}
-          onChange={linker.onChange}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (linker.onKeyDown(e)) return;
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void post();
-          }}
-        />
-        <LinkButton onClick={() => void linker.insert()} />
-      </div>
+      <MarkdownField
+        key={`${task.id}:${posted}`}
+        value={text}
+        onChange={setText}
+        onSubmit={() => void post()}
+        onEscape={blurActive}
+        placeholder={`Comment — Markdown, [[ links to anything; ${isMac ? '⌘' : 'Ctrl+'}Enter to post`}
+        onProjectLink={links.fromMarkdown}
+        ariaLabel="New comment"
+      />
       {text.trim() && (
         <button className="btn btn-sm btn-primary" style={{ alignSelf: 'flex-end' }} onClick={() => void post()}>
           Comment
@@ -591,12 +587,12 @@ export function TaskDetail({ overlay, maxWidth }: { overlay: boolean; maxWidth: 
       style={{ width }}
       aria-label="Task details"
       tabIndex={-1}
-      onKeyDown={(e) => e.key === 'Escape' && !(e.target as HTMLElement).closest('input, textarea') && useTodos.getState().open(null)}
+      onKeyDown={(e) => e.key === 'Escape' && !(e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]') && useTodos.getState().open(null)}
       onPaste={(e) => {
         const files = [...e.clipboardData.files];
         if (!files.length) return;
         // Text pasted into a field stays text (copying from an editor can carry an image too).
-        if ((e.target as HTMLElement).closest('input, textarea') && e.clipboardData.types.includes('text/plain')) return;
+        if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]') && e.clipboardData.types.includes('text/plain')) return;
         e.preventDefault();
         void attachFiles(task.id, files.map(pastedName));
       }}
