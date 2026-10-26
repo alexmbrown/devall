@@ -31,12 +31,14 @@ pub fn run() {
     unsafe {
         std::env::set_var("KUBE_RS_UNSTABLE_CREATE_NO_WINDOW", "1")
     };
-    tauri::Builder::default()
+    // Single instance + `devall:` links from the OS come first (release builds; see deep_link.rs).
+    modules::deep_link::plugins(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             build_main_window(app)?;
+            modules::deep_link::setup(app);
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             app.manage(modules::notes::NotesState::new(data_dir.clone()));
@@ -89,6 +91,8 @@ pub fn run() {
             commands::app_info,
             commands::recent_projects,
             commands::forget_recent,
+            commands::recent_project_ids,
+            modules::deep_link::deep_link_take,
             commands::open_project,
             commands::create_project,
             commands::open_scratch,

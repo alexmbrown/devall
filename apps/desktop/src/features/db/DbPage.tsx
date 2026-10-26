@@ -5,6 +5,7 @@ import { AlertTriangle, Database, DatabaseZap, Dices, FolderOpen, History, Lock,
 import { openLocalHistory } from '@/features/history/LocalHistoryDialog';
 import { Menu, useContextMenu } from '@/components/ui/Menu';
 import { copyLinkItems } from '@/components/links/LinkChip';
+import { isHeld } from '@/lib/links/hold';
 import { formatLink } from '@/lib/links/syntax';
 import { Callout, Empty, Kbd, Spinner } from '@/components/ui/misc';
 import { SidePane } from '@/components/layout/SidePane';
@@ -166,7 +167,8 @@ export default function DbPage() {
     }
   };
 
-  const openSaved = async (q: Pick<SavedQueryEntry, 'path' | 'kind'>) => {
+  /** Opens a saved query on its connection, connecting unless `connect: false` (a link from outside the app). */
+  const openSaved = async (q: Pick<SavedQueryEntry, 'path' | 'kind'>, { connect: autoConnect = true } = {}) => {
     if (!root || !conns) return;
     try {
       const full = await dbApi.readQuery(root, q.path);
@@ -177,19 +179,21 @@ export default function DbPage() {
       go('data', conn.path);
       const k = connKey(root, conn.path);
       setOpenReq((r) => ({ ...r, [k]: { path: q.path, text: full.text, nonce: Date.now() } }));
-      if (!useDb.getState().sessions[k]) void connect(conn);
+      if (autoConnect && !useDb.getState().sessions[k]) void connect(conn);
     } catch (e) {
       toast.error('Could not open the query', errorMessage(e));
     }
   };
 
-  // Deep link `query:<path>[|<nonce>]` (e.g. from a note) opens a saved query on its connection.
+  // Deep link `query:<path>[|<nonce>]` (e.g. from a note) opens a saved query on its connection —
+  // without connecting when a link from outside the app opened it (lib/links/hold.ts).
   useEffect(() => {
     if (!root || !conns || !param?.startsWith('query:')) return;
     const path = param.slice('query:'.length).split('|')[0];
+    const held = isHeld('data', param);
     dbApi
       .readQuery(root, path)
-      .then((q) => openSaved({ path, kind: q.kind }))
+      .then((q) => openSaved({ path, kind: q.kind }, { connect: !held }))
       .catch((e) => toast.error('Could not open the query', errorMessage(e)));
     // openSaved changes every render; the param and loaded connections drive this.
     // eslint-disable-next-line react-hooks/exhaustive-deps

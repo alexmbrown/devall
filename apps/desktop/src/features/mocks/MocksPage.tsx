@@ -8,6 +8,7 @@ import { useWorkspace, useFsVersion } from '@/store/workspace';
 import { useNav as useAppNav, useViewLabel } from '@/store/nav';
 import { useNav, parseDeepLink, type Section } from './store/nav';
 import { useMockTarget } from './store/target';
+import { isHeld } from '@/lib/links/hold';
 import { useMappings, useRecordingStatus, useUnmatchedNearMisses, useWm, invalidateTarget } from './lib/queries';
 import { ServerBar } from './server/ServerBar';
 import { ConnectionGate } from './server/ConnectionGate';
@@ -67,8 +68,9 @@ export default function MocksPage() {
   const section = useNav((s) => s.section);
   const appParam = useAppNav((s) => s.param);
 
+  // A link from outside the app only navigates: no auto-start then (lib/links/hold.ts).
   useEffect(() => {
-    void init(root);
+    void init(root, { autoStart: !isHeld('mocks') });
   }, [init, root]);
 
   // Deep links: useNav.getState().go('mocks', 'requests') from the palette or other modules.

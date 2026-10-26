@@ -48,7 +48,7 @@ useFsVersion.subscribe((s, prev) => {
   timer = setTimeout(() => void useNoteLinks.getState().load(root), 400);
 });
 
-let cache: { notes: NoteLinks[] | null; tasks: unknown; projectList: unknown; index: Map<string, Backlink[]> } | null = null;
+let cache: { notes: NoteLinks[] | null; tasks: unknown; projectList: unknown; projectId: string | null; index: Map<string, Backlink[]> } | null = null;
 
 /**
  * The notes and to-dos linking to `link` (any spelling: `devall:` or the older project paths).
@@ -57,6 +57,7 @@ let cache: { notes: NoteLinks[] | null; tasks: unknown; projectList: unknown; in
  */
 export function useBacklinks(link: string | null): Backlink[] {
   const root = useWorkspace((s) => s.project?.root ?? null);
+  const projectId = useWorkspace((s) => s.project?.manifest.id ?? null);
   const loadedFor = useNoteLinks((s) => s.root);
   const notes = useNoteLinks((s) => s.notes);
   const snap = useTodos((s) => s.snap);
@@ -68,13 +69,14 @@ export function useBacklinks(link: string | null): Backlink[] {
     const key = link ? canonicalLink(link) : null;
     if (!key) return [];
     const projectNotes = loadedFor === root ? notes : null;
-    if (!cache || cache.notes !== projectNotes || cache.tasks !== snap?.tasks || cache.projectList !== snap?.projectList) {
+    if (!cache || cache.notes !== projectNotes || cache.tasks !== snap?.tasks || cache.projectList !== snap?.projectList || cache.projectId !== projectId) {
       const lists = new Map(snap?.lists.map((l) => [l.id, l]) ?? []);
       const tasks = (snap?.tasks ?? []).filter((t) => lists.get(t.listId)?.kind !== 'project' || t.listId === snap?.projectList);
-      cache = { notes: projectNotes, tasks: snap?.tasks, projectList: snap?.projectList, index: buildBacklinkIndex(projectNotes ?? [], tasks, toDevallLink, { note: (p) => formatLink('note', p), todo: (id) => formatLink('todo', id) }) };
+      const linkOf = { note: (p: string) => formatLink('note', p), todo: (id: string) => formatLink('todo', id) };
+      cache = { notes: projectNotes, tasks: snap?.tasks, projectList: snap?.projectList, projectId, index: buildBacklinkIndex(projectNotes ?? [], tasks, toDevallLink, linkOf, { project: projectId }) };
     }
     return cache.index.get(key) ?? [];
-  }, [link, notes, loadedFor, root, snap]);
+  }, [link, notes, loadedFor, root, projectId, snap]);
 }
 
 function BacklinkIcon({ b }: { b: Backlink }) {

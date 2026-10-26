@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalLink, escapeMarkdownLabel, formatLink, isDevallLink, LINK_KINDS, markdownLink, pageLink, parseLink, parsePageId } from './syntax';
+import { canonicalLink, escapeMarkdownLabel, formatLink, isDevallLink, LINK_KINDS, markdownLink, pageLink, parseLink, parsePageId, projectParam, validProjectId, withProject } from './syntax';
 
 describe('link syntax', () => {
   it('formats readable links, encoding only what Markdown needs (same as devall_core::links)', () => {
@@ -41,6 +41,35 @@ describe('link syntax', () => {
     expect(canonicalLink('devall:note/My Note.md')).toBe('devall:note/My%20Note.md');
     expect(canonicalLink('devall:note/My%20Note.md')).toBe('devall:note/My%20Note.md');
     expect(canonicalLink('notes/x.md')).toBeNull();
+  });
+
+  it('reads the project qualifier, never as part of the id (same as devall_core::links)', () => {
+    expect(parseLink('devall:note/design/auth.md?project=01JC8Z6Q3W7Y2V5T9R4N0M1K8H#pkce')).toEqual({ kind: 'note', id: 'design/auth.md', anchor: 'pkce', project: '01JC8Z6Q3W7Y2V5T9R4N0M1K8H' });
+    expect(parseLink('DEVALL:Request/a%3Fb.req.yaml?x=1&project=detached%3Ademo')).toEqual({ kind: 'request', id: 'a?b.req.yaml', project: 'detached:demo' });
+    expect(parseLink('devall:variables?project=P1')).toEqual({ kind: 'variables', id: '', project: 'P1' });
+    // `?` inside an id is always encoded, so the first raw `?` starts the query.
+    expect(formatLink('query', 'top?.sql')).toBe('devall:query/top%3F.sql');
+    expect(parseLink('devall:query/top%3F.sql?project=P')?.id).toBe('top?.sql');
+    // After the anchor it's part of the anchor; malformed qualifiers are dropped.
+    expect(parseLink('devall:note/a.md#x?project=P')?.project).toBeUndefined();
+    expect(parseLink('devall:note/a.md?project=')?.project).toBeUndefined();
+    expect(parseLink('devall:note/a.md?project=a%20b')?.project).toBeUndefined();
+    expect(parseLink(`devall:note/a.md?project=${'x'.repeat(129)}`)?.project).toBeUndefined();
+    expect(parseLink('devall:note/a.md?projectx=P')?.project).toBeUndefined();
+    expect(projectParam('devall:note/a.md?a=1&project=a%20b')).toBe('a b');
+    expect(projectParam('devall:note/a.md')).toBeUndefined();
+    expect(validProjectId('01JC8Z')).toBe(true);
+    expect(validProjectId('a\u0007b')).toBe(false);
+  });
+
+  it('adds a qualifier and drops it for the canonical form', () => {
+    expect(withProject('DEVALL:Note/My Note.md#top', '01JC8Z')).toBe('devall:note/My%20Note.md?project=01JC8Z#top');
+    expect(withProject('devall:note/a.md?project=OLD', 'NEW')).toBe('devall:note/a.md?project=NEW');
+    expect(withProject('devall:env/staging', 'detached:demo x')).toBe('devall:env/staging?project=detached:demo%20x');
+    expect(withProject('notes/a.md', 'P')).toBe('notes/a.md');
+    expect(canonicalLink('devall:note/My%20Note.md?project=01JC8Z#top')).toBe('devall:note/My%20Note.md');
+    expect(canonicalLink(withProject('devall:request/a b.req.yaml', 'P'))).toBe(canonicalLink('devall:request/a b.req.yaml'));
+    expect(parseLink(withProject('devall:request/x(1).req.yaml', 'P'))).toEqual({ kind: 'request', id: 'x(1).req.yaml', project: 'P' });
   });
 
   it('builds page links and Markdown links', () => {

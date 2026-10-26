@@ -19,7 +19,9 @@ import type {
   OpInfo,
   ProjectInfo,
   ProjectManifest,
+  IncomingLink,
   RecentProject,
+  RecentProjectId,
   RegexEntry,
   RegexFile,
   SecretCopy,
@@ -35,6 +37,10 @@ export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   recentProjects: () => invoke<RecentProject[]>('recent_projects'),
   forgetRecent: (path: string) => invoke<void>('forget_recent', { path }),
+  /** Recent projects (newest first) and the scratch pad with their `devall.yaml` ids. */
+  recentProjectIds: () => invoke<RecentProjectId[]>('recent_project_ids'),
+  /** `devall:` links from outside the app (OS deep links) waiting since the last call. */
+  deepLinkTake: () => invoke<IncomingLink[]>('deep_link_take'),
   openProject: (path: string) => invoke<ProjectInfo>('open_project', { path }),
   createProject: (path: string, name: string) => invoke<ProjectInfo>('create_project', { path, name }),
   openScratch: () => invoke<ProjectInfo>('open_scratch'),

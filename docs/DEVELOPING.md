@@ -143,9 +143,11 @@ Notes, to-dos (links, descriptions, comments), AI answers and agents link to any
 | `page` | any page: `<section>[/<param>]` (the generic fallback) | `devall:page/settings/sidebar` |
 
 - **Syntax:** each `/`-separated id segment is percent-encoded where Markdown needs it (space, `(`, `)`, `#`, `?`, `%`,
-  non-ASCII); everything else stays readable. The scheme is case-insensitive, `?…`/`#…` are ignored, ids never contain
-  `..`. Rust: `devall_core::links` (`format`, `parse`, `check`, `extract_targets`, `Project::note_links`); TypeScript
-  mirror: `src/lib/links/syntax.ts`. The older forms keep working: project-relative paths (`http/…req.yaml`,
+  non-ASCII); everything else stays readable. The scheme is case-insensitive, ids never contain `..`; a
+  `?project=<devall.yaml id>` qualifier is read into `project` (Rust `Link.project`, TS `ParsedLink.project`), other
+  `?…`/`#…` are ignored. A `?` inside an id is always encoded, so the first raw `?` starts the query. Rust:
+  `devall_core::links` (`format`, `parse`, `parse_incoming`, `check`, `extract_targets`, `Project::note_links`);
+  TypeScript mirror: `src/lib/links/syntax.ts`. The older forms keep working: project-relative paths (`http/…req.yaml`,
   `notes/…md`, relative note links), `repo:<name>/<path>`, URLs and absolute paths.
 - **Registry** (`src/lib/links/`): `describe(link)` → `{ kind, title, icon, state, detail, note }` resolved live
   (renames show up; states `ok`/`missing`/`loading`/`unavailable`/`invalid`), `useLinkInfo`, `openLink(link, { toSide,
@@ -167,6 +169,38 @@ Notes, to-dos (links, descriptions, comments), AI answers and agents link to any
   (`lib/links/backlinks.ts`).
 - **Safety:** a `devall:` link only navigates inside the app — never the webview, the browser, a shell or a file write.
   The Markdown sanitizer allows exactly one extra scheme for it.
+- **Project-qualified links:** links inserted into notes and to-dos stay unqualified (relative to the project, portable
+  across clones). Everything that copies a link — "Copy link", "Copy as Markdown link", the palette's "Copy (Markdown)
+  link to this page", Source control's commit/comparison links — copies `…?project=<devall.yaml id>` for project items
+  (`linkToShare` → `external.ts` `shareableLink`; to-dos, utilities and pages that need no project stay unqualified),
+  since copied links mostly end up outside the app. Canonical forms drop the qualifier, so backlinks count both
+  spellings; a link naming another project doesn't count, shows "in another project" and, clicked, opens that project
+  first (same path as links from outside).
+- **Links from outside the app** (a browser, Slack/Teams, mail, Markdown in VS Code/Obsidian, Win+R): the OS hands
+  `devall:` URLs to the app (`tauri-plugin-deep-link`; `tauri-plugin-single-instance` makes a second launch focus the
+  window — unminimized — and forward its URL, then exit). `src-tauri/src/modules/deep_link.rs` checks each URL
+  (`links::parse_incoming`) and queues it until the UI takes it (`deep_link_take`, at start-up and on each `deep-link`
+  event), so a cold start's link waits for React and the workspace. `lib/links/incoming.ts` checks it again
+  (`checkIncomingLink`), resolves the project (`resolveLinkProject`, pure: unqualified → the open project, or ask when
+  none is open; the open project's id → here; another id → the most recently opened recent project (or the scratch pad)
+  with exactly that id, opened like the top bar's project switcher; else "isn't on this device's recent list" with
+  "Open folder…", and the link follows once that project opens — a link never names a path) and follows it with
+  `openLink`. An outside link is untrusted: ≤ 2048 characters, `devall:` only, known kinds and pages, no `.`/`..` part
+  (between `/` or `:`), `|`, control characters, backslashes, drive or `~` paths, a well-formed qualifier; anything
+  else is a toast. It only navigates: the routes it opens are held (`lib/links/hold.ts`), so the Databases page opens a
+  saved query without connecting, utilities and recipes wait for Run and the mock server doesn't auto-start.
+- **Registering the scheme:** `plugins.deep-link.desktop.schemes: ["devall"]` in tauri.conf.json gives installers
+  (NSIS/WiX) the registry entries and the macOS bundle its `CFBundleURLTypes`. Windows: release builds also write
+  `HKCU\Software\Classes\devall` on every start (`register_all`), so the local install (an exe copied without an
+  installer) always points the scheme at the newest exe; `scripts/install-local.ps1` writes the same keys. macOS: links
+  reach only a bundle LaunchServices knows — `install-local.sh` registers the installed app (`lsregister -f`) and
+  unregisters the build output; `tauri dev` (no bundle) can't receive them. Linux (best effort): the bundles' `.desktop`.
+- **Dev builds** (`debug_assertions`) load neither plugin: no single-instance lock (`tauri dev` would exit and focus the
+  installed copy, which shares the identifier) and no scheme registration (the dev exe would take links over).
+  `DEVALL_DEEP_LINK_DEV=1` turns both on for testing; run the dev exe again with a URL argument
+  (`target/debug/devall-desktop.exe "devall:page/settings"`) to simulate a click. A dev exe started with a single
+  `devall:` argument always takes the lock, so clicks reach the running dev app while it owns the scheme (until the
+  installed copy starts and registers itself again). The `local` profile is release-like.
 - **Personal to-dos** live on each machine: a `devall:todo/…` link in a shared note resolves only where the task
   exists and shows "personal to-do — not on this machine" elsewhere. Tasks completed long ago (outside the snapshot)
   resolve through `todos_get`.

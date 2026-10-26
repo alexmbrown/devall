@@ -58,7 +58,8 @@ interface TargetState {
   /** `mocks/mappings` changed on disk outside this UI. */
   diskChanged: boolean;
 
-  init(root: string | null): Promise<void>;
+  /** Loads the project's mock target; starts the built-in server when it's set to auto-start (unless `autoStart: false`). */
+  init(root: string | null, opts?: { autoStart?: boolean }): Promise<void>;
   refreshStatus(): Promise<MockStatus | null>;
   start(port?: number, bindAll?: boolean): Promise<boolean>;
   stop(): Promise<void>;
@@ -116,7 +117,7 @@ export const useMockTarget = create<TargetState>((set, get) => ({
   lastLocalWrite: 0,
   diskChanged: false,
 
-  async init(root) {
+  async init(root, opts) {
     if (root === get().root) return;
     set({
       root,
@@ -135,7 +136,7 @@ export const useMockTarget = create<TargetState>((set, get) => ({
     await Promise.all([get().refreshStatus(), get().reloadServers()]);
     if (get().root !== root) return;
     const prefs = builtinPrefs(root);
-    if (prefs.autoStart && !get().status?.running) await get().start(prefs.port, prefs.bindAll);
+    if (prefs.autoStart && opts?.autoStart !== false && !get().status?.running) await get().start(prefs.port, prefs.bindAll);
   },
 
   async refreshStatus() {

@@ -18,6 +18,7 @@ describe('extractTargets', () => {
       '[in a fence](devall:note/skip.md)',
       '```',
       '[spaced](<devall:note/My Note.md>)',
+      'Copied: [auth](devall:note/design/auth.md?project=01JC8Z) and devall:env/prod?project=01JC8Z.',
     ].join('\n');
     expect(extractTargets(md)).toEqual([
       'devall:request/orders/create.req.yaml',
@@ -28,6 +29,8 @@ describe('extractTargets', () => {
       'devall:todo/01JC8Z6Q3W',
       'devall:env/staging',
       'devall:note/My Note.md',
+      'devall:note/design/auth.md?project=01JC8Z',
+      'devall:env/prod?project=01JC8Z',
     ]);
   });
 });
@@ -69,5 +72,21 @@ describe('buildBacklinkIndex', () => {
     expect(index.get('devall:note/runbook.md')?.map((b) => `${b.kind}:${b.id}`)).toEqual(['note:design/auth.md', 'todo:T2']);
     expect(index.get('devall:note/runbook.md')?.find((b) => b.id === 'T2')?.done).toBe(true);
     expect([...index.keys()].some((k) => k.includes('example.com'))).toBe(false);
+  });
+
+  it('counts copied links naming this project as the same item and skips other projects', () => {
+    const notes = [
+      { path: 'a.md', title: 'A', targets: ['devall:request/orders/create.req.yaml?project=P1'] },
+      { path: 'b.md', title: 'B', targets: ['devall:request/orders/create.req.yaml'] },
+      { path: 'c.md', title: 'C', targets: ['devall:request/orders/create.req.yaml?project=P2', 'devall:todo/T1?project=P2'] },
+    ];
+    const tasks = [{ id: 'T1', content: 'Ship', description: 'see devall:request/orders/create.req.yaml?project=P1 and [x](devall:note/a.md?project=OTHER)' }];
+    const index = buildBacklinkIndex(notes, tasks, toDevallLink, linkOf, { project: 'P1' });
+    expect(index.get('devall:request/orders/create.req.yaml')?.map((b) => `${b.kind}:${b.id}`)).toEqual(['note:a.md', 'note:b.md', 'todo:T1']);
+    expect(index.get('devall:note/a.md')).toBeUndefined();
+    // To-dos aren't project items: a qualifier on a to-do link is no reason to skip it.
+    expect(index.get('devall:todo/T1')?.map((b) => b.id)).toEqual(['c.md']);
+    // Without the open project's id every spelling counts.
+    expect(buildBacklinkIndex(notes, [], toDevallLink, linkOf).get('devall:request/orders/create.req.yaml')).toHaveLength(3);
   });
 });

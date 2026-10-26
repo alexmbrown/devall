@@ -1,6 +1,8 @@
 #!/bin/sh
 # Builds Dev All from this checkout and installs it for the current user (macOS):
-#   ~/Applications/devall.app  (shows in Launchpad and Spotlight).
+#   ~/Applications/devall.app  (shows in Launchpad and Spotlight), registered with LaunchServices so
+#   devall: links (browser, chat, other editors) open it — the bundle declares the scheme
+#   (CFBundleURLTypes, from plugins.deep-link in tauri.conf.json).
 # Run it again after any change to rebuild and replace the installed copy:
 #   cd apps/desktop && npm run app:install
 # If the installed app is open it is asked to quit and reopened afterwards.
@@ -26,6 +28,14 @@ mkdir -p "$apps"
 rm -rf "$apps/$name"
 cp -R "$bundle" "$apps/"
 
-echo "3/3  Installed $apps/$name"
+# devall: links go to a bundle LaunchServices knows: register the installed copy and forget the build
+# output, so links never open a stale bundle in target/.
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+if [ -x "$lsregister" ]; then
+  "$lsregister" -u "$bundle" >/dev/null 2>&1 || true
+  "$lsregister" -f "$apps/$name" >/dev/null 2>&1 || true
+fi
+
+echo "3/3  Installed $apps/$name (devall: links open it)"
 [ "$was_running" = 1 ] && open "$apps/$name"
 exit 0

@@ -61,6 +61,23 @@ Signed release bundles: see [docs/RELEASING.md](docs/RELEASING.md).
 3. Commit the project files with your code — teammates get the same requests, environments,
    mocks and notes.
 
+## Links
+
+Everything in the app has a `devall:` link (`devall:request/orders/create.req.yaml`,
+`devall:note/design/auth.md`, `devall:page/settings`). Inside notes and to-dos they're relative to
+the project; **Copy link** adds the project (`…?project=<id from devall.yaml>`), so the link also
+works from a browser, Slack or Teams, an email, or Markdown in VS Code or Obsidian: Dev All comes to
+the front, switches to that project if it's on your recent list, and shows the item. A link from
+outside only navigates — it never sends, runs or connects anything.
+
+- **Windows:** `npm run app:install` registers the `devall:` scheme for your user, and the installed
+  app re-registers itself on every start.
+- **macOS:** links open the installed app in `~/Applications` (`npm run app:install` registers it
+  with LaunchServices); `npm run app` has no app bundle, so it can't receive them.
+- **Dev builds** (`npm run app`) ignore OS links and don't register the scheme, so they never take
+  links from the installed copy or exit because it is running. Set `DEVALL_DEEP_LINK_DEV=1` to try
+  links with a dev build.
+
 ## Command line and agents
 
 The `devall` CLI runs the same project files in a terminal or CI:

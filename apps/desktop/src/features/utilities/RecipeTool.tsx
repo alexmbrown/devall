@@ -8,6 +8,7 @@ import { Callout, CopyButton, Empty, Spinner, Switch, copyText } from '@/compone
 import { toast } from '@/components/ui/toast';
 import { errorMessage } from '@/lib/ipc';
 import { defaultArgs, utilsApi, type MagicResult, type OpInfo, type RecipeStep, type UtilArgs } from '@/lib/api/utils';
+import { isHeld } from '@/lib/links/hold';
 import { ArgField, NetworkBadge, PaneHead, ToolHeader, loadLocal, outputLanguage, saveLocal, sizeLabel, useSeed, useUtilities, type ToolProps } from './shared';
 
 interface Step extends RecipeStep {
@@ -56,6 +57,8 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
   const [running, setRunning] = useState(false);
   const [tick, setTick] = useState(0);
   const [magic, setMagic] = useState<MagicResult | null>(null);
+  // Opened by a link from outside the app: the recipe waits for Run (lib/links/hold.ts).
+  const [held, setHeld] = useState(() => isHeld('utilities', op.id));
   const seq = useRef(0);
 
   const byId = useMemo(() => new Map(ops.map((o) => [o.id, o])), [ops]);
@@ -65,6 +68,7 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
     return [...m.entries()];
   }, [ops]);
   const hasNetwork = steps.some((s) => !s.disabled && byId.get(s.op)?.network);
+  const manual = hasNetwork || held;
   const stepsKey = JSON.stringify(plain(steps));
 
   useEffect(() => saveLocal(CURRENT_KEY, JSON.parse(stepsKey)), [stepsKey]);
@@ -77,10 +81,10 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
     }
   });
 
-  // Live bake: run each step on the previous output. Network steps wait for an explicit Run.
-  const manualTick = hasNetwork ? tick : 0;
+  // Live bake: run each step on the previous output. Network steps (and a held recipe) wait for an explicit Run.
+  const manualTick = manual ? tick : 0;
   useEffect(() => {
-    if (hasNetwork && manualTick === 0) {
+    if (manual && manualTick === 0) {
       setResults([]);
       return;
     }
@@ -109,7 +113,7 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
       setRunning(false);
     }, 180);
     return () => clearTimeout(t);
-  }, [input, stepsKey, hasNetwork, manualTick]);
+  }, [input, stepsKey, manual, manualTick]);
 
   const failed = results.findIndex((r) => r.error !== undefined);
   const complete = results.length === steps.length && failed < 0;
@@ -118,7 +122,7 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
   // Background magic on the current output (CyberChef-style suggestions).
   useEffect(() => {
     const subject = steps.length ? final : input;
-    if (!subject.trim() || hasNetwork || subject.length > 200_000) {
+    if (!subject.trim() || manual || subject.length > 200_000) {
       setMagic(null);
       return;
     }
@@ -133,7 +137,7 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
       live = false;
       clearTimeout(t);
     };
-  }, [final, input, steps.length, hasNetwork]);
+  }, [final, input, steps.length, manual]);
 
   const update = (key: number, patch: Partial<Step>) => setSteps((ss) => ss.map((s) => (s.key === key ? { ...s, ...patch } : s)));
   const move = (i: number, d: -1 | 1) =>
@@ -216,8 +220,15 @@ export function RecipeTool({ op, input, setInput, seed }: ToolProps) {
             </div>
             <PaneHead title="Output" meta={final ? sizeLabel(final) : undefined}>
               {running && <Spinner />}
-              {hasNetwork && (
-                <button className="btn btn-sm btn-primary" onClick={() => setTick((t) => t + 1)} title="This recipe contains network steps; run it explicitly">
+              {manual && (
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => {
+                    setHeld(false);
+                    setTick((t) => t + 1);
+                  }}
+                  title={hasNetwork ? 'This recipe contains network steps; run it explicitly' : 'Opened from a link outside /dev/all; run it explicitly'}
+                >
                   <Play /> Run
                 </button>
               )}

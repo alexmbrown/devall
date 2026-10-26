@@ -10,8 +10,9 @@
  */
 import { useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import type { Section } from '@/lib/sections';
+import { isProjectScoped } from './external';
 import type { LinkItem } from './fuzzy';
-import { KIND_META, parseLink, type LinkKind } from './syntax';
+import { KIND_META, parseLink, type LinkKind, type ParsedLink } from './syntax';
 
 export type { LinkItem } from './fuzzy';
 
@@ -130,6 +131,8 @@ export function describe(href: string, fallback?: string): LinkInfo {
   const prov = providers.get(p.kind);
   if (!prov) return { ...base, title: fb, state: 'unavailable', note: `${meta.label} links aren't supported here` };
   const icon = prov.icon(p.kind);
+  // A copied link naming another project: the open project's item of that name isn't it.
+  if (inOtherProject(p)) return { ...base, title: fb, icon, state: 'unavailable', note: 'in another project' };
   let r: Resolution;
   try {
     r = prov.resolve(p.kind, p.id);
@@ -151,11 +154,24 @@ export function useLinkInfo(href: string, fallback?: string): LinkInfo {
 
 let defaultGo: GoFn | null = null;
 let report: ((title: string, detail?: string) => void) | null = null;
+let currentProject: (() => string | null) | null = null;
+let followElsewhere: ((link: ParsedLink) => Promise<void>) | null = null;
 
-/** Wires navigation outside any view and user messages (see `./providers.ts`). */
-export function configureLinks(opts: { go: GoFn; info(title: string, detail?: string): void }) {
+/**
+ * Wires navigation outside any view, user messages, the open project's `devall.yaml` id and how
+ * links naming another project are followed (`./incoming.ts`: switch project, then open) — see
+ * `./providers.ts`.
+ */
+export function configureLinks(opts: { go: GoFn; info(title: string, detail?: string): void; projectId?(): string | null; openInProject?(link: ParsedLink): Promise<void> }) {
   defaultGo = opts.go;
   report = opts.info;
+  currentProject = opts.projectId ?? null;
+  followElsewhere = opts.openInProject ?? null;
+}
+
+/** A project item's link qualified with a project other than the open one (or with none open). */
+function inOtherProject(p: ParsedLink): boolean {
+  return !!p.project && !!currentProject && p.project !== currentProject() && isProjectScoped(p);
 }
 
 /** Tells the user something about a link they followed (a toast in the app). */
@@ -166,7 +182,8 @@ export function linkMessage(title: string, detail?: string) {
 /**
  * Opens what `href` points at, inside the app only (a `devall:` link never reaches the browser,
  * the shell or the file system). `go` navigates from the clicked view; `toSide` uses the
- * neighbouring group. Resolves false when the link is invalid or has no provider.
+ * neighbouring group. A link naming another project opens that project first. Resolves false when
+ * the link is invalid or has no provider.
  */
 export async function openLink(href: string, opts: { toSide?: boolean; go?: GoFn } = {}): Promise<boolean> {
   const p = parseLink(href);
@@ -174,6 +191,10 @@ export async function openLink(href: string, opts: { toSide?: boolean; go?: GoFn
   if (!p || !prov) {
     linkMessage('Not a link /dev/all can open', href);
     return false;
+  }
+  if (inOtherProject(p) && followElsewhere) {
+    await followElsewhere(p);
+    return true;
   }
   const base = opts.go ?? defaultGo;
   if (!base) return false;

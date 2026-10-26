@@ -12,10 +12,12 @@ export function openStubFile(file: string) {
   useAppNav.getState().go('mocks', `stubs/file:${file}|${Date.now()}`);
 }
 
-/** `file:<path>|<nonce>` deep-link param → the path under `mocks/`. */
+/** `file:<path>|<nonce>` deep-link param → the path under `mocks/` (null when it isn't one, or leaves `mocks/`). */
 export function stubFileParam(param: string | undefined): string | null {
   if (!param?.startsWith('file:')) return null;
-  return param.slice(5).split('|')[0] || null;
+  const file = param.slice(5).split('|')[0];
+  if (!file || /^([/\\~]|[A-Za-z]:)/.test(file) || file.split(/[/\\]/).some((p) => p === '..' || p === '.')) return null;
+  return file;
 }
 
 /** `id:<stub id>|<nonce>` deep-link param (`devall:stub/<id>` links) → the stub id. */

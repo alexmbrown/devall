@@ -3,9 +3,11 @@ import clsx from 'clsx';
 import { Copy, Link2 } from 'lucide-react';
 import type { MenuItemDef } from '@/components/ui/Menu';
 import { copyText, isMac } from '@/components/ui/misc';
+import { shareableLink } from '@/lib/links/external';
 import { linkTooltip, openLink, useLinkInfo } from '@/lib/links/registry';
 import { markdownLink } from '@/lib/links/syntax';
 import { useNav } from '@/store/nav';
+import { useWorkspace } from '@/store/workspace';
 import { kindIcon } from './kindIcons';
 import './links.css';
 
@@ -41,10 +43,19 @@ export function useFollowLink() {
   return useCallback((href: string, e?: { ctrlKey: boolean; metaKey: boolean; button?: number }) => void openLink(href, { go, toSide: !!e && wantsSide(e) }), [go]);
 }
 
-/** "Copy link" / "Copy as Markdown link" menu items for an item's `devall:` link. */
+/**
+ * A `devall:` link as copied to the clipboard: a project item's link names the open project
+ * (`?project=<devall.yaml id>`), since copied links are mostly pasted outside the app, where the OS
+ * hands them back without context. Links inserted into notes and to-dos stay unqualified.
+ */
+export function linkToShare(link: string): string {
+  return shareableLink(link, useWorkspace.getState().project?.manifest.id);
+}
+
+/** "Copy link" / "Copy as Markdown link" menu items for an item's `devall:` link (both name the project, see `linkToShare`). */
 export function copyLinkItems(link: string, title: string): MenuItemDef[] {
   return [
-    { label: 'Copy link', icon: <Link2 />, onSelect: () => void copyText(link, 'Link copied') },
-    { label: 'Copy as Markdown link', icon: <Copy />, onSelect: () => void copyText(markdownLink(title, link), 'Markdown link copied') },
+    { label: 'Copy link', icon: <Link2 />, onSelect: () => void copyText(linkToShare(link), 'Link copied') },
+    { label: 'Copy as Markdown link', icon: <Copy />, onSelect: () => void copyText(markdownLink(title, linkToShare(link)), 'Markdown link copied') },
   ];
 }

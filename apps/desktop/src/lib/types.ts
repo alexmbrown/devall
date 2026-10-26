@@ -200,6 +200,23 @@ export interface RecentProject {
   openedAt: number;
 }
 
+/** A project on this device with its `devall.yaml` id (`recent_project_ids`). */
+export interface RecentProjectId extends RecentProject {
+  id: string;
+  /** The scratch pad (never on the recent list). */
+  scratch: boolean;
+}
+
+/** A `devall:` link from outside the app, checked in Rust (`modules::deep_link::Incoming`). */
+export interface IncomingLink {
+  /** Canonical, with its `?project=` qualifier, when it passed the checks. */
+  link?: string;
+  /** Why it was refused. */
+  error?: string;
+  /** What arrived, shortened. */
+  raw: string;
+}
+
 export interface AppInfo {
   version: string;
   platform: string;

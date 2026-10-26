@@ -79,6 +79,37 @@ pub fn forget_recent(state: State<'_, AppState>, path: String) {
     state.forget_recent(&path);
 }
 
+/// A project on this device with its `devall.yaml` id.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectId {
+    path: String,
+    name: String,
+    id: String,
+    opened_at: i64,
+    /// The scratch pad (never on the recent list).
+    scratch: bool,
+}
+
+/// The recent projects (newest first), then the scratch pad, with their ids: how a
+/// `devall:…?project=<id>` link from outside the app finds its project. Only these folders are
+/// read — a link never names a path.
+#[tauri::command]
+pub fn recent_project_ids(state: State<'_, AppState>) -> Vec<ProjectId> {
+    let mut out: Vec<ProjectId> = state
+        .recent()
+        .into_iter()
+        .filter_map(|r| {
+            let p = Project::open(&r.path).ok()?;
+            Some(ProjectId { path: r.path, name: r.name, id: p.manifest.id, opened_at: r.opened_at, scratch: false })
+        })
+        .collect();
+    if let Ok(p) = Project::open(state.scratch_dir()) {
+        out.push(ProjectId { path: p.root().display().to_string(), name: p.manifest.name.clone(), id: p.manifest.id.clone(), opened_at: 0, scratch: true });
+    }
+    out
+}
+
 #[tauri::command]
 pub fn open_project(app: tauri::AppHandle, state: State<'_, AppState>, path: String) -> CmdResult<ProjectInfo> {
     let p = open(&path)?;

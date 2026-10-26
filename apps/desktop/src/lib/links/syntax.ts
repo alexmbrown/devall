@@ -10,9 +10,17 @@
  * Each `/`-separated id segment is percent-encoded where Markdown needs it (spaces, parentheses,
  * `#`, `?`, non-ASCII), so a link stays a valid Markdown link destination. Pure (no stores) so the
  * picker, renderer, backlinks and tests can share it.
+ *
+ * Links copied for use outside the app name their project: `devall:note/auth.md?project=<devall.yaml
+ * id>` (`withProject`; `./external.ts` decides which links get it). Inside a project links stay
+ * unqualified; parsing reads the qualifier into `project` and it is never part of the id, so both
+ * spellings are the same item (`canonicalLink` drops it).
  */
 
 export const SCHEME = 'devall:';
+
+/** The query parameter naming a link's project (its `devall.yaml` id). */
+export const PROJECT_PARAM = 'project';
 
 export type LinkKind = 'request' | 'folder' | 'note' | 'todo' | 'env' | 'variables' | 'stub' | 'load' | 'fakedata' | 'query' | 'connection' | 'webhook' | 'utility' | 'repo' | 'commit' | 'compare' | 'page';
 
@@ -56,6 +64,8 @@ export interface ParsedLink {
   id: string;
   /** After `#`, if any. */
   anchor?: string;
+  /** The `?project=` qualifier (a `devall.yaml` id), if any and well-formed. */
+  project?: string;
 }
 
 /** Bytes kept as they are in an id segment (RFC 3986 `pchar` minus `( ) % # ? /`). */
@@ -72,7 +82,8 @@ function encodeSegment(s: string): string {
   return out;
 }
 
-function decodeSegment(s: string): string {
+/** Percent-decodes one id segment (invalid escapes stay as they are). */
+export function decodeSegment(s: string): string {
   const bytes: number[] = [];
   for (let i = 0; i < s.length; i++) {
     const hex = s[i] === '%' ? s.slice(i + 1, i + 3) : '';
@@ -89,6 +100,23 @@ export function isDevallLink(s: string | null | undefined): boolean {
   return !!s && s.trim().slice(0, SCHEME.length).toLowerCase() === SCHEME;
 }
 
+/** A plausible project id: 1–128 characters, no whitespace or control characters (as in Rust). */
+export function validProjectId(p: string): boolean {
+  return p.length > 0 && p.length <= 128 && !/[\s\u0000-\u001f\u007f-\u009f]/.test(p);
+}
+
+/** The decoded `project=` value in a `devall:` link's query (before any `#`), valid or not. */
+export function projectParam(s: string): string | undefined {
+  const rest = s.trim().split('#')[0];
+  const q = rest.indexOf('?');
+  if (q < 0) return undefined;
+  for (const kv of rest.slice(q + 1).split('&')) {
+    const eq = kv.indexOf('=');
+    if (eq >= 0 && kv.slice(0, eq) === PROJECT_PARAM) return decodeSegment(kv.slice(eq + 1));
+  }
+  return undefined;
+}
+
 /** `devall:<kind>/<id>` with each id segment percent-encoded where needed. */
 export function formatLink(kind: LinkKind, id = ''): string {
   const clean = id.replace(/^\/+|\/+$/g, '');
@@ -97,14 +125,17 @@ export function formatLink(kind: LinkKind, id = ''): string {
 
 /**
  * Parses a `devall:` link: scheme in any case, `devall://…` tolerated (`devall://notes/<path>` is
- * how the MCP server names note resources), `?query` ignored. Null for other links, unknown kinds,
- * missing ids and ids that climb (`..`).
+ * how the MCP server names note resources), query parameters other than `project` ignored (a
+ * malformed qualifier is dropped). Null for other links, unknown kinds, missing ids and ids that
+ * climb (`..`).
  */
 export function parseLink(s: string | null | undefined): ParsedLink | null {
   if (!isDevallLink(s)) return null;
   let rest = s!.trim().slice(SCHEME.length).replace(/^\/+/, '');
   const hash = rest.indexOf('#');
   const anchor = hash >= 0 ? decodeSegment(rest.slice(hash + 1)) : undefined;
+  const qualifier = projectParam(s!);
+  const project = qualifier !== undefined && validProjectId(qualifier) ? qualifier : undefined;
   rest = rest.split(/[?#]/)[0];
   const slash = rest.indexOf('/');
   let kind = (slash >= 0 ? rest.slice(0, slash) : rest).toLowerCase();
@@ -118,12 +149,21 @@ export function parseLink(s: string | null | undefined): ParsedLink | null {
     parts.push(d);
   }
   const id = parts.join('/');
-  if (kind === 'variables') return { kind, id: '', anchor };
-  if (!id) return null;
-  return anchor ? { kind, id, anchor } : { kind, id };
+  if (kind !== 'variables' && !id) return null;
+  return { kind, id: kind === 'variables' ? '' : id, ...(anchor ? { anchor } : {}), ...(project ? { project } : {}) };
 }
 
-/** The canonical form of a `devall:` link (null when it isn't one). */
+/**
+ * `link` naming its project: canonical, `?project=<id>` (encoded like an id segment), the anchor
+ * kept. Links that don't parse come back unchanged; an existing qualifier is replaced.
+ */
+export function withProject(link: string, project: string): string {
+  const p = parseLink(link);
+  if (!p) return link;
+  return `${formatLink(p.kind, p.id)}?${PROJECT_PARAM}=${encodeSegment(project)}${p.anchor ? `#${encodeSegment(p.anchor)}` : ''}`;
+}
+
+/** The canonical form of a `devall:` link, without project qualifier or anchor (null when it isn't one). */
 export function canonicalLink(s: string | null | undefined): string | null {
   const p = parseLink(s);
   return p ? formatLink(p.kind, p.id) : null;

@@ -68,6 +68,24 @@ describe('openLink', () => {
   });
 });
 
+describe('links naming a project', () => {
+  it('resolve here for the open project and open other projects through the configured handler', async () => {
+    const go = vi.fn<GoFn>();
+    const openInProject = vi.fn(async () => {});
+    configureLinks({ go, info: vi.fn(), projectId: () => 'P1', openInProject });
+    expect(describeLink('devall:note/runbook.md?project=P1')).toMatchObject({ state: 'ok', title: 'Runbook v2' });
+    expect(describeLink('devall:note/runbook.md?project=P2', 'Their runbook')).toMatchObject({ state: 'unavailable', title: 'Their runbook', note: 'in another project' });
+    // To-dos aren't project items: the qualifier doesn't matter.
+    expect(describeLink('devall:todo/1?project=P2').note).toBe('personal to-do — not on this machine');
+    await openLink('devall:note/runbook.md?project=P1');
+    expect(go).toHaveBeenCalledWith('notes', 'runbook.md', undefined);
+    expect(await openLink('devall:note/runbook.md?project=P2')).toBe(true);
+    expect(openInProject).toHaveBeenCalledWith({ kind: 'note', id: 'runbook.md', project: 'P2' });
+    expect(go).toHaveBeenCalledTimes(1);
+    configureLinks({ go, info: vi.fn() });
+  });
+});
+
 describe('items and change notification', () => {
   it('lists provider items and batches notifications', async () => {
     expect(allLinkItems().map((i) => i.link)).toContain('devall:note/runbook.md');

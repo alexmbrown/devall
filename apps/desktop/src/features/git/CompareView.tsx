@@ -23,6 +23,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import type { monaco } from '@/components/editor/monaco';
+import { linkToShare } from '@/components/links/LinkChip';
 import { Menu, type MenuItemDef } from '@/components/ui/Menu';
 import { Callout, Checkbox, Empty, RelTime, SearchInput, Segmented, Spinner, copyText } from '@/components/ui/misc';
 import { toast } from '@/components/ui/toast';
@@ -385,7 +386,7 @@ function CompareHeader({ spec, repos, multi, onSpec, onPickRepo }: { spec: Compa
         <Menu
           align="right"
           items={() => [
-            { label: 'Copy link to this comparison', icon: <Link2 />, onSelect: () => void copyText(link, 'Link copied') },
+            { label: 'Copy link to this comparison', icon: <Link2 />, onSelect: () => void copyText(linkToShare(link), 'Link copied') },
             { label: 'Copy summary as Markdown', icon: <Copy />, disabled: !data, onSelect: () => data && void copyText(markdownSummary(data), 'Summary copied') },
           ]}
           trigger={(p) => (

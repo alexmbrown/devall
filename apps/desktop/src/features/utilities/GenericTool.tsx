@@ -7,6 +7,7 @@ import { defaultArgs, type UtilArgs } from '@/lib/api/utils';
 import { RICH_VIEWS, richView } from './ResultViews';
 import { ArgField, INVERSE, inputLanguage, outputLanguage, PaneHead, sizeLabel, ToolHeader, useOpRunner, useRecordRun, useSeed, useUtilities, type ToolProps } from './shared';
 import { useActiveViewRef } from '@/store/nav';
+import { isHeld } from '@/lib/links/hold';
 
 /** The registry-driven view: arguments, input editor, live output. */
 export function GenericTool({ op, input, setInput, seed }: ToolProps) {
@@ -15,16 +16,23 @@ export function GenericTool({ op, input, setInput, seed }: ToolProps) {
   const [view, setView] = useState<'rich' | 'raw'>('rich');
   useSeed(seed, (a) => setArgs((cur) => ({ ...cur, ...a })));
 
-  const manual = op.network;
+  // Opened by a link from outside the app: nothing runs until Run (lib/links/hold.ts).
+  const [held, setHeld] = useState(() => isHeld('utilities', op.id));
+  const manual = op.network || held;
   const enabled = op.noInput || input.length > 0;
   const run = useOpRunner(op.id, input, args, { enabled, manual });
+  // Leaving the held state runs it (live again); network ops run on each press.
+  const runNow = () => {
+    if (held) setHeld(false);
+    if (!held || op.network) run.trigger();
+  };
   const recordRun = useRecordRun(op, input, args, run, { enabled });
   const hasRich = RICH_VIEWS.has(op.id);
   const rich = hasRich && view === 'rich' && !run.error ? richView(op.id, run.output, input) : null;
 
   // Ctrl/Cmd+Enter runs network ops.
-  const trigger = useRef(run.trigger);
-  trigger.current = run.trigger;
+  const trigger = useRef(runNow);
+  trigger.current = runNow;
   const activeView = useActiveViewRef();
   useEffect(() => {
     if (!manual) return;
@@ -62,7 +70,7 @@ export function GenericTool({ op, input, setInput, seed }: ToolProps) {
                   </button>
                 )}
                 {manual && (
-                  <button className="btn btn-sm btn-primary" onClick={run.trigger} disabled={!input.trim() || run.running} title="Run (Ctrl+Enter)">
+                  <button className="btn btn-sm btn-primary" onClick={runNow} disabled={!input.trim() || run.running} title="Run (Ctrl+Enter)">
                     {run.running ? <Spinner /> : <Play />} Run
                   </button>
                 )}
@@ -86,7 +94,7 @@ export function GenericTool({ op, input, setInput, seed }: ToolProps) {
                 />
               )}
               {op.noInput && (
-                <button className="btn btn-sm" onClick={run.trigger}>
+                <button className="btn btn-sm" onClick={runNow}>
                   <RefreshCw /> Regenerate
                 </button>
               )}
@@ -99,7 +107,7 @@ export function GenericTool({ op, input, setInput, seed }: ToolProps) {
             ) : rich ? (
               <div className="util-rich-shell">{rich}</div>
             ) : manual && !run.output && !run.running ? (
-              <Callout>This operation makes a network request. Enter a host and press Run.</Callout>
+              <Callout>{held ? `Opened from a link outside /dev/all: press ${op.noInput ? 'Regenerate' : 'Run'} to run it.` : 'This operation makes a network request. Enter a host and press Run.'}</Callout>
             ) : (
               <div className="editor-shell">
                 <CodeEditor value={run.output} language={outputLanguage(op, args, run.output)} readOnly minimal />

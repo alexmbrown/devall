@@ -2,9 +2,12 @@
  * "Linked from": which notes and to-dos link to an item. Notes come pre-scanned from Rust
  * (`notes_links`: every note's link targets), to-dos from the in-memory snapshot (links,
  * description, comments). Targets are canonicalized (`devall:` links as such, older
- * project-relative links like `http/x.req.yaml` mapped to their `devall:` form) so both spellings
- * count. Pure: the store and UI live in `components/links/Backlinks.tsx`.
+ * project-relative links like `http/x.req.yaml` mapped to their `devall:` form, the `?project=`
+ * qualifier of copied links dropped) so every spelling counts; a link naming another project is
+ * about that project's item and doesn't count here. Pure: the store and UI live in
+ * `components/links/Backlinks.tsx`.
  */
+import { isProjectScoped } from './external';
 import { isDevallLink, parseLink } from './syntax';
 
 /** One note's link targets (`devall_core::links::NoteLinks`). */
@@ -84,9 +87,22 @@ export function extractTargets(markdown: string): string[] {
   return out;
 }
 
-/** Every item → the notes and to-dos that link to it (keyed by canonical link). */
-export function buildBacklinkIndex(notes: NoteLinks[], tasks: TaskLinks[], canon: Canonicalize, linkOf: { note(path: string): string; todo(id: string): string }): Map<string, Backlink[]> {
+/**
+ * Every item → the notes and to-dos that link to it (keyed by canonical link). `project` is the open
+ * project's `devall.yaml` id: links qualified with another id are skipped.
+ */
+export function buildBacklinkIndex(
+  notes: NoteLinks[],
+  tasks: TaskLinks[],
+  canon: Canonicalize,
+  linkOf: { note(path: string): string; todo(id: string): string },
+  { project }: { project?: string | null } = {},
+): Map<string, Backlink[]> {
   const index = new Map<string, Backlink[]>();
+  const elsewhere = (target: string) => {
+    const p = isDevallLink(target) ? parseLink(target) : null;
+    return !!p?.project && !!project && p.project !== project && isProjectScoped(p);
+  };
   const add = (target: string, from: Backlink) => {
     if (target === from.link) return;
     const list = index.get(target) ?? [];
@@ -96,6 +112,7 @@ export function buildBacklinkIndex(notes: NoteLinks[], tasks: TaskLinks[], canon
   for (const n of notes) {
     const from: Backlink = { kind: 'note', id: n.path, title: n.title, link: linkOf.note(n.path) };
     for (const t of n.targets) {
+      if (elsewhere(t)) continue;
       const c = canon(t, n.path);
       if (c) add(c, from);
     }
@@ -104,6 +121,7 @@ export function buildBacklinkIndex(notes: NoteLinks[], tasks: TaskLinks[], canon
     const from: Backlink = { kind: 'todo', id: task.id, title: task.content, link: linkOf.todo(task.id), done: task.done };
     const targets = [...(task.links ?? []), ...extractTargets(task.description ?? ''), ...(task.comments ?? []).flatMap((c) => extractTargets(c.text))];
     for (const t of targets) {
+      if (elsewhere(t)) continue;
       const c = canon(t);
       if (c) add(c, from);
     }

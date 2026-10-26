@@ -16,7 +16,9 @@ import { webhookLinks } from '@/features/webhooks/linkProvider';
 import { utilityLinks } from '@/features/utilities/linkProvider';
 import { gitLinks } from '@/features/git/linkProvider';
 import { useWorkbench } from '@/store/workbench';
+import { useWorkspace } from '@/store/workspace';
 import { pageLinks, repoLinks } from './core';
+import { followLink } from './incoming';
 import { configureLinks, registerLinkProvider } from './registry';
 
 let done = false;
@@ -28,6 +30,9 @@ export function registerLinkProviders() {
     // Outside any view (palette, top bar): the active group, like the sidebar.
     go: (section, param, opts) => useWorkbench.getState().open(section, param, opts ?? {}),
     info: (title, detail) => toast.info(title, detail),
+    projectId: () => useWorkspace.getState().project?.manifest.id ?? null,
+    // A copied link naming another project (pasted into a note, a to-do…) opens that project first.
+    openInProject: (link) => followLink(link, { external: false }),
   });
   for (const p of [requestLinks, noteLinks, todoLinks, envLinks, stubLinks, loadLinks, fakeDataLinks, dbLinks, webhookLinks, utilityLinks, repoLinks, gitLinks, pageLinks]) registerLinkProvider(p);
 }

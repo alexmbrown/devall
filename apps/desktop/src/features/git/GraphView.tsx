@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { create } from 'zustand';
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp, Copy, GitBranch, GitCommitHorizontal, GitCompare, GitMerge, Link2, ListOrdered, RefreshCw, RotateCcw, Tag, Undo2, Waypoints } from 'lucide-react';
+import { linkToShare } from '@/components/links/LinkChip';
 import { useContextMenu, type MenuItemDef } from '@/components/ui/Menu';
 import { Empty, RelTime, Resizer, SearchInput, Spinner, copyText } from '@/components/ui/misc';
 import { confirmDialog } from '@/components/ui/dialogs';
@@ -333,7 +334,7 @@ export function GraphView({
       { label: `Interactive rebase: commits of ${cur} after here…`, icon: <ListOrdered />, disabled: !current || r.refs.some((x) => x.current), onSelect: () => actions.interactiveRebase(r.hash, short) },
       { separator: true },
       { label: 'Copy SHA', icon: <Copy />, onSelect: () => void copyText(r.hash, 'SHA copied') },
-      ...(repoName ? [{ label: 'Copy link', icon: <Link2 />, onSelect: () => void copyText(formatLink('commit', `${repoName}/${r.hash}`), 'Link copied') }] : []),
+      ...(repoName ? [{ label: 'Copy link', icon: <Link2 />, onSelect: () => void copyText(linkToShare(formatLink('commit', `${repoName}/${r.hash}`)), 'Link copied') }] : []),
     ];
   };
 

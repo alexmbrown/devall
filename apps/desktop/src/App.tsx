@@ -24,6 +24,7 @@ import { setLogViewerOpener } from '@/features/infra/logViewer';
 import { openInLogViewer } from '@/features/logs';
 import { LinkPickerHost } from '@/components/links/LinkPicker';
 import { registerLinkProviders } from '@/lib/links/providers';
+import { initIncomingLinks } from '@/lib/links/incoming';
 
 // `devall:` links (notes, to-dos, agents) resolve and open through the features' link providers.
 registerLinkProviders();
@@ -125,6 +126,8 @@ export function App() {
     initAiDownloads();
     // Local file history changes (scan on open, watcher, restores) refresh open history views.
     initLocalHistoryEvents();
+    // `devall:` links from outside the app (browser, chat, other editors) — after the workspace opens.
+    initIncomingLinks();
   }, []);
 
   if (!isTauri)

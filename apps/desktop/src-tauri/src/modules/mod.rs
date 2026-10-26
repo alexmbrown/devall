@@ -22,6 +22,7 @@ pub mod relay;
 pub mod logs;
 pub mod infra;
 pub mod db;
+pub mod deep_link;
 pub mod scripts;
 pub mod webhooks;
 pub mod wiremock_proxy;

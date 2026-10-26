@@ -1,6 +1,8 @@
 <#
 Builds Dev All from this checkout and installs it for the current user (Windows):
-  %LOCALAPPDATA%\Programs\Dev All\Dev All.exe  plus a "Dev All" Start Menu shortcut.
+  %LOCALAPPDATA%\Programs\Dev All\Dev All.exe  plus a "Dev All" Start Menu shortcut, and registers
+  the devall: link scheme for this user (HKCU\Software\Classes\devall), so links clicked in a
+  browser, chat or another editor open this copy. The app also re-registers itself on every start.
 
 Run it again after any change to rebuild and replace the installed copy:
   cd apps/desktop; npm run app:install
@@ -48,7 +50,7 @@ if ($running.Count) {
 New-Item -ItemType Directory -Force $installDir | Out-Null
 Copy-Item $built $exe -Force
 
-Write-Host '4/4  Start Menu shortcut...'
+Write-Host '4/4  Start Menu shortcut and devall: links...'
 $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($shortcut)
 $link.TargetPath = $exe
@@ -57,6 +59,16 @@ $link.IconLocation = "$exe,0"
 $link.Description = 'Dev All - local-first developer toolkit'
 $link.Save()
 
+# devall: links open this copy (the same keys tauri-plugin-deep-link writes when the app starts).
+$classes = 'HKCU:\Software\Classes\devall'
+foreach ($key in @($classes, "$classes\DefaultIcon", "$classes\shell\open\command")) {
+  if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+}
+Set-Item -Path $classes -Value 'URL:dev.devall.app protocol'
+New-ItemProperty -Path $classes -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+Set-Item -Path "$classes\DefaultIcon" -Value "$exe,0"
+Set-Item -Path "$classes\shell\open\command" -Value "`"$exe`" `"%1`""
+
 Write-Host "Installed $exe (built $((Get-Item $built).LastWriteTime))"
-Write-Host "Start Menu: Dev All"
+Write-Host "Start Menu: Dev All; devall: links open this copy"
 if ($running.Count -and -not $NoLaunch) { Start-Process $exe }

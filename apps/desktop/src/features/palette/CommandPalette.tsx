@@ -15,6 +15,7 @@ import { aiApi, type SearchResult } from '@/lib/api/ai';
 import { pluginOps, usePluginCatalog } from '@/lib/api/plugins';
 import { copyText, MOD, MethodBadge } from '@/components/ui/misc';
 import { pickLink } from '@/components/links/LinkPicker';
+import { linkToShare } from '@/components/links/LinkChip';
 import { describe } from '@/lib/links/registry';
 import { linkForRoute } from '@/lib/links/route';
 import { formatLink, markdownLink } from '@/lib/links/syntax';
@@ -60,7 +61,8 @@ function copyCurrentLink(markdown: boolean) {
   if (!v) return;
   const openTodo = v.section === 'todos' ? useTodos.getState().openId : null;
   const link = openTodo ? formatLink('todo', openTodo) : linkForRoute(v.section, v.param);
-  void copyText(markdown ? markdownLink(describe(link, v.label).title, link) : link, markdown ? 'Markdown link copied' : 'Link copied');
+  const shared = linkToShare(link);
+  void copyText(markdown ? markdownLink(describe(link, v.label).title, shared) : shared, markdown ? 'Markdown link copied' : 'Link copied');
 }
 
 export function CommandPalette() {
